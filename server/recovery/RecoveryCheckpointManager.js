@@ -64,7 +64,8 @@ import { EVENT_TYPES } from "../events/EventTypes.js";
 import { GAME_STATES } from "../engines/gameState/GameStates.js";
 import { CONFIGURATION_VERSION } from "../engines/configuration/ConfigurationVersion.js";
 import {
-    RECOVERY_CONTRACT_VERSION
+    RECOVERY_CONTRACT_VERSION,
+    computePayloadChecksum
 } from "../persistence/RecoveryDataPersistence.js";
 
 /**
