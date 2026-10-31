@@ -42,6 +42,8 @@ function block(reason) {
         reason,
         candidates: Object.freeze([]),
         candidateCount: 0,
+        excessCandidates: Object.freeze([]),
+        excessCount: 0,
         threeOfThreeCandidates: false,
         settlementAuthorized: false,
         gameStartAuthorized: false
@@ -120,7 +122,7 @@ export function assessMainnetRoomPaymentCandidates({
         return block("AMBIGUOUS_OR_INCOMPLETE_TRANSACTIONS");
     }
 
-    const rows = new Map();
+    const grouped = new Map();
     const transactionIds = new Set();
     for (const receipt of inspection.receipts) {
         if (receipt?.status !== MAINNET_INDEXED_RECEIPT_STATUS.INDEXED_DEPTH_OK
@@ -179,10 +181,8 @@ export function assessMainnetRoomPaymentCandidates({
             // Invalid or non-representable receipt cannot become a candidate.
         }
         if (!matched) continue;
-        if (rows.has(intent.paymentReference)) {
-            return block("MULTIPLE_TRANSACTIONS_FOR_ONE_INTENT");
-        }
-        rows.set(intent.paymentReference, Object.freeze({
+        const group = grouped.get(intent.paymentReference) ?? [];
+        group.push(Object.freeze({
             network: "mainnet",
             asset: "TON",
             roomId,
@@ -198,9 +198,33 @@ export function assessMainnetRoomPaymentCandidates({
             settlementAuthorized: false,
             gameStartAuthorized: false
         }));
+        grouped.set(intent.paymentReference, group);
     }
 
-    const candidates = Object.freeze([...rows.values()]);
+    // Identical to the Testnet RoomPaymentObservationService primary rule:
+    // use earliest chain transaction time, and transaction ID as tie-breaker.
+    // Extra TON deposits are NOT discarded and never credited as stakes.
+    // Their distinct transaction identities are preserved for durable review.
+    const primary = [];
+    const excess = [];
+    for (const group of grouped.values()) {
+        group.sort((a, b) => a.transactionTimeMs - b.transactionTimeMs
+            || a.transactionId.localeCompare(b.transactionId));
+        const first = group[0];
+        primary.push(first);
+        for (const extra of group.slice(1)) {
+            excess.push(Object.freeze({
+                ...extra,
+                primaryTransactionId: first.transactionId,
+                status: "UNVERIFIED_EXCESS_CANDIDATE",
+                excessReason: "ADDITIONAL_PAYMENT_FOR_PLAYER",
+                settlementAuthorized: false,
+                gameStartAuthorized: false
+            }));
+        }
+    }
+    const candidates = Object.freeze(primary);
+    const excessCandidates = Object.freeze(excess);
     const ready = candidates.length === THREE;
     const report = Object.freeze({
         network: "mainnet",
@@ -209,6 +233,8 @@ export function assessMainnetRoomPaymentCandidates({
         reason: ready ? null : "THREE_DISTINCT_CONFIRMED_INTENTS_NOT_YET_OBSERVED",
         candidates,
         candidateCount: candidates.length,
+        excessCandidates,
+        excessCount: excessCandidates.length,
         threeOfThreeCandidates: ready,
         settlementAuthorized: false,
         gameStartAuthorized: false
