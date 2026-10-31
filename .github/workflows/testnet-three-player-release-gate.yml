@@ -10,6 +10,7 @@ on:
       - 'server/tests/mainnetTestnetRefundParity.test.js'
       - 'server/tests/mainnetTestnetIncomingReceiptParity.test.js'
       - 'server/tests/mainnetTestnetWalletPoolParity.test.js'
+      - 'server/tests/mainnetSharedPaymentRuntimePreparation.test.js'
       - 'server/forensic/**'
       - 'server/history/**'
       - 'server/socket/**'
@@ -60,7 +61,7 @@ jobs:
           cache-dependency-path: server/package-lock.json
       - run: npm ci
       - name: Shared Testnet and Mainnet Toncenter payment confirmation regressions
-        run: node --test tests/mainnetToncenterTestnetParity.test.js tests/mainnetTestnetRefundParity.test.js tests/mainnetTestnetIncomingReceiptParity.test.js tests/mainnetTestnetWalletPoolParity.test.js tests/payment/incomingReceiptAccounting.test.js tests/refundLifecycle.test.js tests/page4IndexedFinality.test.js
+        run: node --test tests/mainnetToncenterTestnetParity.test.js tests/mainnetTestnetRefundParity.test.js tests/mainnetTestnetIncomingReceiptParity.test.js tests/mainnetTestnetWalletPoolParity.test.js tests/mainnetSharedPaymentRuntimePreparation.test.js tests/payment/incomingReceiptAccounting.test.js tests/refundLifecycle.test.js tests/page4IndexedFinality.test.js
 
   client:
     runs-on: ubuntu-latest
