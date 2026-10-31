@@ -17,7 +17,7 @@ import { PayoutPlan } from './PayoutPlan.js';
  *   - the total settled principal used for a payout is DERIVED from the
  *     ledger, never trusted from a caller;
  *   - the winner receives floor(95% of settled principal), the owner receives
- *     floor(4.9%), and the remainder (0.1% plus rounding dust) is allocated
+ *     floor(4.95%), and the remainder (0.05% plus rounding dust) is allocated
  *     to the Room Wallet as a retained source-fee reserve;
  *   - a payout obligation cannot be settled without an execution result, and
  *     an actual-fee variance is settled only through an explicit idempotent
@@ -154,7 +154,7 @@ export class RoomLedger {
         for (const entry of this._store.list().filter(x => x.kind === LEDGER_ENTRY_KIND.PAYOUT_PLAN)) {
             const storedPlan = entry.metadata.plan;
             // Preserve historical payout obligations exactly as stored.
-            // New plans carry gasReserveAtomic and use 95/4.9/remaining reserve;
+            // New plans carry gasReserveAtomic and use 95/4.95/remaining reserve;
             // recovery must never reinterpret an already-issued payout.
             if (!Number.isSafeInteger(storedPlan?.gasReserveAtomic)) {
                 for (const transfer of storedPlan?.transfers ?? []) {
@@ -666,8 +666,8 @@ export class RoomLedger {
      * `payoutId`.
      *
      * The total settled principal is DERIVED from the ledger (never taken from
-     * the caller). The fixed shares are 95% Winner, 4.9% Owner and the
-     * remainder (0.1% plus rounding) stays in the Room Wallet. Fee quotes are
+     * the caller). The fixed shares are 95% Winner, 4.95% Owner and the
+     * remainder (0.05% plus rounding) stays in the Room Wallet. Fee quotes are
      * optional diagnostics; actual fees are recorded separately after chain
      * evidence and never reduce either transfer.
      *
@@ -906,7 +906,7 @@ export class RoomLedger {
      * reconciliation. Each actual fee is validated independently: it must be a
      * non-negative integer. The variance is recorded for accounting but is
      * charged to the source Room Wallet and never reduces the recipient
-     * amount. Any amount beyond the 0.1% reserve is absorbed by accumulated
+     * amount. Any amount beyond the 0.05% reserve is absorbed by accumulated
      * room-wallet balance.
      *
      * @param {{ payoutId: string, recipientId: string,
