@@ -546,6 +546,85 @@ export class TestnetNativeRoomPayoutTransport {
             terminal:false,walletReleasable:false
         });
     }
+    /** Durable one-shot unpaid OWNER decision. Exclusive OWNER intent file
+     * is the exact same arbitration point used by submit(): a concurrent
+     * sender wins OR the terminal claim wins, never both.
+     *
+     * Only a verified, post-winner, two-source deficiency in the principal
+     * itself may close the OWNER obligation without an on-chain transfer.
+     */
+    async finalizeOwnerPrincipalShortfall(query) {
+        const hold=reason=>Object.freeze({status:"OWNER_SHORTFALL_TERMINAL_HOLD",
+            reason,payoutId:query?.payoutId??null});
+        if(typeof query?.payoutId!=="string"||!SAFE_PAYOUT_ID.test(query.payoutId))
+            return hold("OWNER_TERMINAL_PAYOUT_ID_INVALID");
+        const owner=query?.plan?.transfers?.find(x=>x.recipientRole==="OWNER");
+        if(!owner?.address||!Number.isSafeInteger(owner.netAtomic)||owner.netAtomic<=0
+            ||query?.plan?.payoutId!==query.payoutId
+            ||query?.plan?.roomId!==query.roomId
+            ||query.plan.network!==this._network)
+            return hold("OWNER_TERMINAL_PLAN_INVALID");
+        const rolePath=join(this._dir,query.payoutId+".OWNER.json");
+        const seqDir=this._adapter?._sequenceStateDir;
+        if(this._adapter?.supportsDurableTransferRetry?.()!==true
+            ||typeof seqDir!=="string"
+            ||typeof this._ledger?.terminateOwnerCommissionUnpaid!=="function")
+            return hold("OWNER_TERMINAL_DURABILITY_UNAVAILABLE");
+        let wallet;
+        try {wallet=this._reservation(query.roomId,query.roomWalletAddress);}
+        catch{return hold("OWNER_TERMINAL_WALLET_MISMATCH");}
+        const signedPath=join(seqDir,"transfers",createHash("sha256")
+            .update(query.payoutId+":OWNER").digest("hex")+".json");
+        const finishExisting=()=>{
+            let record;
+            try {record=JSON.parse(readFileSync(rolePath,"utf8"));}
+            catch {return hold("OWNER_TERMINAL_RECORD_UNREADABLE");}
+            if(record?.state!=="OWNER_COMMISSION_UNPAID_GAS_SHORTAGE_TERMINAL"
+                ||record.payoutId!==query.payoutId||record.role!=="OWNER"
+                ||record.roomId!==query.roomId
+                ||record.roomNumber!==wallet.roomNumber
+                ||record.amountAtomic!==owner.netAtomic
+                ||canonical(record.destination)!==canonical(owner.address)
+                ||existsSync(signedPath))
+                return hold("OWNER_TERMINAL_RECORD_CONFLICT_OR_SIGNED_BOC");
+            try {
+                const booked=this._ledger.terminateOwnerCommissionUnpaid({
+                    payoutId:query.payoutId,recipientId:owner.recipientId,
+                    evidence:record.evidence
+                });
+                return Object.freeze({
+                    status:"OWNER_COMMISSION_UNPAID_GAS_SHORTAGE_TERMINAL",
+                    payoutId:query.payoutId,ownerPaid:false,
+                    unpaidAtomic:owner.netAtomic,
+                    replay:booked.replay===true
+                });
+            } catch {return hold("OWNER_TERMINAL_LEDGER_VALIDATION_FAILED");}
+        };
+        if(existsSync(rolePath))return finishExisting();
+        if(existsSync(signedPath))
+            return hold("OWNER_TERMINAL_PREVIOUS_BOC_AMBIGUOUS");
+        const evidence=await this.corroborateOwnerPrincipalShortfall(query);
+        if(evidence.status!=="OWNER_PRINCIPAL_SHORTFALL_CORROBORATED_READ_ONLY")
+            return hold(evidence.reason??"OWNER_TERMINAL_EVIDENCE_INCOMPLETE");
+        // Atomic EEXIST arbitration with the actual V4 OWNER pre-send claim.
+        try {
+            durableWriteJson(rolePath,{
+                payoutId:query.payoutId,roomId:query.roomId,
+                roomNumber:wallet.roomNumber,role:"OWNER",
+                amountAtomic:owner.netAtomic,destination:canonical(owner.address),
+                state:"OWNER_COMMISSION_UNPAID_GAS_SHORTAGE_TERMINAL",
+                evidence,timestamp:Date.now()
+            },{exclusive:true});
+        } catch(error) {
+            if(error?.code==="EEXIST")
+                return hold("OWNER_TERMINAL_CONCURRENT_CLAIM");
+            throw error;
+        }
+        // An interruption after role claim but before ledger append is
+        // replayed via finishExisting without sending a new transaction.
+        return finishExisting();
+    }
+
     /**
      * Mainnet restart recovery uses the ORIGINAL Testnet resumeUnattempted()
      * only when the winner's pre-broadcast intent AND exact signed WalletV4
@@ -627,6 +706,12 @@ export class TestnetNativeRoomPayoutTransport {
             };
             if(checkLeg("WINNER",winner)!=="SIGNED")
                 return hold("PAYOUT_RECOVERY_WINNER_PROOF_MISSING");
+            const ownerPath=join(this._dir,query.payoutId+".OWNER.json");
+            if(existsSync(ownerPath)) {
+                const record=JSON.parse(readFileSync(ownerPath,"utf8"));
+                if(record.state==="OWNER_COMMISSION_UNPAID_GAS_SHORTAGE_TERMINAL")
+                    return this.finalizeOwnerPrincipalShortfall(query);
+            }
             if(checkLeg("OWNER",owner)==="MISMATCH")
                 return hold("PAYOUT_RECOVERY_OWNER_PROOF_MISMATCH");
         } catch {
@@ -681,6 +766,37 @@ export class TestnetNativeRoomPayoutTransport {
             plan.gasReserveAtomic)},
             {role:"OWNER",transfer:owner,reserve:BigInt(plan.gasReserveAtomic)}];
         for(const {role,transfer,reserve} of amounts){
+            if(role==="OWNER" && durableRetry
+                && typeof this._adapter.canFundTransfer==="function") {
+                let funding;
+                try {
+                    funding=await this._adapter.canFundTransfer({
+                        roomNumber:wallet.roomNumber,
+                        amountNano:BigInt(owner.netAtomic),
+                        sourceReserveNano:0n
+                    });
+                } catch {
+                    return Object.freeze({status:"OWNER_BALANCE_READ_PENDING",role,payoutId});
+                }
+                if(funding?.ok===false) {
+                    try {
+                        await this._settleFinalizedWinnerWhileOwnerPending({
+                            roomId,payoutId,roomWalletAddress,winnerWallet,ownerWallet,plan
+                        });
+                        const closed=await this.finalizeOwnerPrincipalShortfall({
+                            roomId,payoutId,roomWalletAddress,winnerWallet,ownerWallet,plan
+                        });
+                        if(closed.status==="OWNER_COMMISSION_UNPAID_GAS_SHORTAGE_TERMINAL")
+                            return closed;
+                    } catch { /* Hold the original, unpaid OWNER obligation. */ }
+                    // Avoid claiming and signing an OWNER transfer when even
+                    // its principal cannot be funded. Recovery may recheck.
+                    return Object.freeze({status:"OWNER_PRINCIPAL_UNDERFUNDED_HOLD",
+                        role,payoutId});
+                }
+                if(funding?.ok!==true)
+                    return Object.freeze({status:"OWNER_BALANCE_UNVERIFIED_HOLD",role,payoutId});
+            }
             // Exclusive per-leg intent is published before calling the signer.
             // A durable adapter retries only the exact persisted message. Older
             // attempts without that payload remain observation-only.
@@ -688,6 +804,18 @@ export class TestnetNativeRoomPayoutTransport {
                 {payoutId, role, amountAtomic:transfer.netAtomic, destination:canonical(transfer.address), state:'SUBMISSION_UNKNOWN'}, {exclusive:true}); }
             catch (error) {
                 if (error.code !== 'EEXIST') throw error;
+                if(role==="OWNER") {
+                    let current;
+                    try {current=JSON.parse(readFileSync(
+                        join(this._dir,payoutId+".OWNER.json"),"utf8"));}
+                    catch {return Object.freeze({status:"OWNER_PRE_SEND_CLAIM_UNREADABLE_HOLD",role,payoutId});}
+                    if(current.state==="OWNER_COMMISSION_UNPAID_GAS_SHORTAGE_TERMINAL")
+                        return this.finalizeOwnerPrincipalShortfall({
+                            roomId,payoutId,roomWalletAddress,winnerWallet,ownerWallet,plan
+                        });
+                    if(current.state!=="SUBMISSION_UNKNOWN")
+                        return Object.freeze({status:"OWNER_PRE_SEND_CLAIM_UNKNOWN_HOLD",role,payoutId});
+                }
                 if (role === 'WINNER') {
                     const journal = readFileSync(path,'utf8').trim().split('\n').map(line => JSON.parse(line));
                     const confirmed = await this._confirmWinnerCredit({
