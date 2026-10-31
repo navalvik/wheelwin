@@ -34,6 +34,7 @@ function setup(t) {
     };
     const tonService={
         getSeqno:async()=>state.seqno,
+        getBalance:async()=>10_000_000_000n,
         estimateExternalMessageFee:async()=>({totalFeeNano:1000000n}),
         broadcastTransaction:async boc=>{
             state.broadcasted.push(boc);
