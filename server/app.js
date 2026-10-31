@@ -98,6 +98,7 @@ import { TonapiTestnetPayoutVerifier } from "./payment/refund/TonapiTestnetPayou
 import { TestnetPendingPayoutReconciler } from "./payment/runtime/TestnetPendingPayoutReconciler.js";
 import { TestnetPendingRefundReconciler } from "./payment/runtime/TestnetPendingRefundReconciler.js";
 import { HistoricalIncomingReceiptReconciler } from "./payment/runtime/HistoricalIncomingReceiptReconciler.js";
+import { createMainnetReadOnlyFinancialRecovery } from "./payment/runtime/MainnetReadOnlyFinancialRecovery.js";
 import { ToncenterIncomingProvider } from "./payment/toncenter/ToncenterIncomingProvider.js";
 import { createRoomWalletRuntimeResolver } from "./payment/roomWallet/RoomWalletRuntimeResolver.js";
 import { AuditActivation } from "./gameplay/AuditActivation.js";
@@ -1283,6 +1284,34 @@ class WheelWinApplication {
                     logger: this._logger
                 }
             );
+            // Mainnet preparation may safely reconcile historical receipts
+            // and already-attempted refunds with the SAME Testnet workers.
+            // The bounded timer only visits closed rooms / unsettled debts.
+            // No wallet key is loaded, no transfer is signed or submitted,
+            // and Page4 remains disabled without a complete native release.
+            if (mainnetPreparationOnly) {
+                const readOnly=createMainnetReadOnlyFinancialRecovery({
+                    runtime:paymentRuntime,logger:this._logger
+                });
+                this._pendingRefundRecovery=readOnly.pendingRefunds;
+                let recovering=false;
+                const reconcileReadOnly=()=>{
+                    if(recovering || !paymentRuntime.initialized)return;
+                    recovering=true;
+                    void readOnly.historicalIncoming.runPass()
+                        .catch(error=>this._logger.warn(
+                            `MAINNET_HISTORICAL_READ_ONLY_PENDING | reason=${error?.code??"PROVIDER_UNAVAILABLE"}`
+                        ))
+                        .then(()=>readOnly.pendingRefunds.runPass())
+                        .catch(error=>this._logger.warn(
+                            `MAINNET_REFUND_READ_ONLY_PENDING | reason=${error?.code??"PROVIDER_UNAVAILABLE"}`
+                        ))
+                        .finally(()=>{recovering=false;});
+                };
+                reconcileReadOnly();
+                this._payoutRecoveryTimer=setInterval(reconcileReadOnly,60_000);
+                this._payoutRecoveryTimer.unref?.();
+            }
             // This event is emitted only by the server's authoritative
             // RESULT lifecycle. The payout plan uses fixed 95% / 4.9% shares
             // and a retained 0.1% gas reserve. Fee quotes do not gate the send;
