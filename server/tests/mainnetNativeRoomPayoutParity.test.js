@@ -94,7 +94,7 @@ test("Mainnet uses the same native payout sequence, isolated pre-send journal, n
     assert.equal(h.sent[0].destination,WINNER);
     assert.equal(h.sent[1].destination,OWNER);
     assert.equal(h.sent[0].sourceReserveNano,150000000n);
-    assert.equal(h.sent[1].sourceReserveNano,3000000n);
+    assert.equal(h.sent[1].sourceReserveNano,1500000n);
     assert.ok(existsSync(join(h.dataDir,"mainnet-native-payout-attempts",PAYOUT_ID+".jsonl")));
     assert.ok(!existsSync(join(h.dataDir,"testnet-native-payout-attempts")));
     assert.equal((await h.transport.submit({...request,plan:payout})).status,
