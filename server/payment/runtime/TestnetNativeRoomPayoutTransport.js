@@ -7,7 +7,7 @@ import { durableWriteJson } from '../DurableJson.js';
  * No escrow/game contract, Jetton, Mainnet or blockchain finality claim.
  */
 import {mkdirSync,openSync,writeSync,fsyncSync,closeSync,readFileSync} from "node:fs";
-import {join} from "node:path";
+import {join,resolve} from "node:path";
 import {RoomWalletAdapter} from "../roomWallet/RoomWalletAdapter.js";
 import {PayoutPlan} from "../ledger/PayoutPlan.js";
 import {deriveTonAddressIdentity} from "../incoming/TonAddressIdentity.js";
@@ -42,6 +42,13 @@ export class TestnetNativeRoomPayoutTransport {
         if (network==="mainnet") {
             assert(walletPool.network==="mainnet","PAYOUT_MAINNET_WALLET_POOL_REQUIRED");
             assert(adapter!==null,"PAYOUT_MAINNET_EXPLICIT_ADAPTER_REQUIRED");
+            // Refunds and winner/owner payouts must share ONE persistent
+            // per-network seqno outbox. A private adapter queue is not enough
+            // to protect two separate room sessions after a restart.
+            assert(adapter.supportsDurableTransferRetry?.()===true
+                && typeof adapter._sequenceStateDir==="string"
+                && resolve(adapter._sequenceStateDir)===resolve(dataDir,"outbound-sequences"),
+                "PAYOUT_MAINNET_SHARED_DURABLE_SEQNO_REQUIRED");
         }
         this._network=chain.network;
         this._globalId=chain.globalId;
