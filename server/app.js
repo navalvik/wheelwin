@@ -1336,8 +1336,8 @@ class WheelWinApplication {
                 this._payoutRecoveryTimer.unref?.();
             }
             // This event is emitted only by the server's authoritative
-            // RESULT lifecycle. The payout plan uses fixed 95% / 4.9% shares
-            // and a retained 0.1% gas reserve. Fee quotes do not gate the send;
+            // RESULT lifecycle. The payout plan uses fixed 95% / 4.95% shares
+            // and a retained 0.05% gas reserve. Fee quotes do not gate the send;
             // actual source-wallet fees are recorded from verified chain data.
             // Live entry acceptance MUST NOT be enabled without both a
             // working refund executor and the native V4 winner/owner sender.
