@@ -222,7 +222,8 @@ export class RoomPaymentObservationService {
      *   rateLimiter?: ToncenterRateLimiter,
      *   requestsPerSecond?: number,
      *   limit?: number,
-     *   nowProvider?: () => number
+     *   nowProvider?: () => number,
+     *   network?: "testnet"|"mainnet" (defaults to existing Testnet behavior)
      * }} options
      */
     constructor({
@@ -232,7 +233,8 @@ export class RoomPaymentObservationService {
         rateLimiter = null,
         requestsPerSecond,
         limit = TONCENTER_DEFAULT_TRANSACTION_LIMIT,
-        nowProvider = Date.now
+        nowProvider = Date.now,
+        network = TONCENTER_NETWORK
     } = {}) {
 
         // Structural proof: this service exposes no write or confirmation
@@ -241,6 +243,16 @@ export class RoomPaymentObservationService {
             RoomPaymentObservationService.prototype,
             INCOMING_TRANSFER_ADAPTER_FORBIDDEN_OPERATIONS
         );
+
+        if (network !== "testnet" && network !== "mainnet") {
+            throw new PaymentConfigurationError("room observation network must be testnet or mainnet");
+        }
+        // Mainnet parity may reuse the existing Testnet observation/matcher,
+        // but it must NEVER mint settlement evidence before the independent
+        // Mainnet consensus proof chain and runtime release gate are ready.
+        if (network === "mainnet" && settlementEvidenceProvider !== null) {
+            throw new PaymentConfigurationError("Mainnet room observation must stay without settlement evidence provider");
+        }
 
         const effectiveProvider = provider ?? incomingProvider;
 
@@ -269,6 +281,7 @@ export class RoomPaymentObservationService {
         }
 
         this._provider = effectiveProvider;
+        this._network = network;
 
         // No production Toncenter implementation is configured in this
         // milestone. Null therefore means observation is allowed but
@@ -559,7 +572,7 @@ export class RoomPaymentObservationService {
         for (const record of observation.records) {
 
             const transfer = normalizeIncomingTransferRecord(record, {
-                network: TONCENTER_NETWORK,
+                network: this._network,
                 providerId: TONCENTER_PROVIDER_ID,
                 now
             });
