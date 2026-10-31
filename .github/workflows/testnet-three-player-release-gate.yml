@@ -6,6 +6,7 @@ on:
   pull_request:
     paths:
       - 'server/payment/**'
+      - 'server/tests/mainnetToncenterTestnetParity.test.js'
       - 'server/forensic/**'
       - 'server/history/**'
       - 'server/socket/**'
@@ -42,6 +43,22 @@ jobs:
           node --check forensic/R2ForensicArchiveUploader.js
       - name: Deterministic payment and 3/3 gate regressions
         run: node --test tests/payment/*.test.js tests/paymentReconciliationDefects.test.js tests/paymentHistoricalCrossRoom.test.js tests/paymentObservationWithoutAcknowledgement.test.js tests/paymentThreePlayerGate.test.js tests/paymentLedgerPayout.phase4.test.js tests/restoredR2ArchiveRoomClose.test.js
+  toncenter_network_parity:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+      - name: Shared Testnet and Mainnet Toncenter payment confirmation regressions
+        run: node --test tests/mainnetToncenterTestnetParity.test.js tests/page4IndexedFinality.test.js
+
   client:
     runs-on: ubuntu-latest
     defaults:
