@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {spawnSync} from "node:child_process";
 
 /**
- * Most offline suites import the Testnet payment constant with the env OFF.
+ * Most offline suites import the Testnet-only payment constant with the env OFF.
  * Reproduce an actual Mainnet startup with ROOM_WALLET_PAYMENTS_ENABLED=true
  * in a fresh Node process so the module-level constant is genuinely ON.
  * No account, key, network or filesystem access is needed.
@@ -46,9 +46,10 @@ function checkEnvironment(network){
 
 test("Mainnet live opt-in cannot bypass failing runtime via global Testnet switch",()=>{
     const mainnet=checkEnvironment("mainnet");
-    assert.equal(mainnet.global,true);
+    assert.equal(mainnet.global,false,
+        "original release constant is strictly Testnet-only even with Mainnet opt-in");
     assert.deepEqual(mainnet,{
-        global:true,missing:false,held:false,ready:true,
+        global:false,missing:false,held:false,ready:true,
         uninitialized:false,crashed:false,testnet:false
     });
 });
