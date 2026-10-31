@@ -87,7 +87,12 @@ function refundCapabilities(h,adapter) {
 function payoutTransport(h,adapter) {
     return new TestnetNativeRoomPayoutTransport({
         network:"mainnet",walletPool:h.walletPool,
-        adapter,dataDir:h.dataDir,outgoingObserver:h.observer
+        adapter,dataDir:h.dataDir,outgoingObserver:h.observer,
+        independentVerifier:{verifyTransfer:async query=>({
+            status:"INDEPENDENT_INDEXED_CREDIT_OBSERVED",
+            provider:"tonapi-mainnet",...query,actualFeeAtomic:500000
+        })},
+        ledger:{settlePayout:()=>({replay:false})}
     });
 }
 function payoutPlan() {
@@ -155,7 +160,7 @@ test("one shared durable WalletV4 adapter blocks next session payout after ambig
     const reconciled=await restartedPayout.resumeUnattempted({
         ...payoutArgs,roomWalletAddress:h.address,plan:payout
     });
-    assert.equal(reconciled.status,"BOTH_MASTERCHAIN_INDEXED_CREDITS_OBSERVED_UNFINALIZED");
+    assert.equal(reconciled.status,"BOTH_PAYOUTS_SETTLED_FROM_DUAL_FINALITY");
     assert.equal(h.state.broadcasted.length,3);
     assert.notEqual(h.state.broadcasted[0],h.state.broadcasted[1]);
     assert.notEqual(h.state.broadcasted[1],h.state.broadcasted[2]);
@@ -173,9 +178,11 @@ test("Mainnet refund signing requires Mainnet identity, cannot use Testnet walle
     await assert.rejects(caps.signer.signTransfer({
         networkName:"TESTNET",globalId:-3,denomination:"TON"
     }),/REFUND_NETWORK_INVALID/);
+    const wrongPathAdapter=Object.create(adapter);
+    wrongPathAdapter._sequenceStateDir=join(h.dataDir,"different-outbox");
     assert.throws(()=>createTestnetNativeRefundCapabilities({
         network:"mainnet",walletPool:h.walletPool,dataDir:h.dataDir,
-        roomWalletAdapter:{...adapter,_sequenceStateDir:join(h.dataDir,"different-outbox")}
+        roomWalletAdapter:wrongPathAdapter
     }),/REFUND_MAINNET_SHARED_DURABLE_SEQNO_REQUIRED/);
     const original=h.walletPool.network;
     h.walletPool.network="testnet";
