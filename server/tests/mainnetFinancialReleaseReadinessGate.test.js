@@ -48,7 +48,7 @@ function withRuntime(t) {
         const reserved=runtime.walletPool.getReservationForRoom(ROOM);
         transactions=descriptor.requiredPlayers.slice(0,count).map((p,i)=>({
             hash:createHash("sha256").update(p.paymentReference).digest("hex"),
-            account:reserved.address,now:NOW/1000+5,emulated:false,
+            account:reserved.address,now:NOW/1000+10,emulated:false,
             block_ref:{workchain:0,shard:"8000000000000000",seqno:200+i},
             mc_block_seqno:9000+i,
             description:{aborted:false,compute_ph:{success:true},action:{success:true}},
