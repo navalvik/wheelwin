@@ -19,11 +19,25 @@ function withFolder(action) {
     const dir=mkdtempSync(join(tmpdir(),"wheelwin-wallet-pool-parity-"));
     try{return action(dir);}finally{rmSync(dir,{recursive:true,force:true});}
 }
+function withCatalogEnv(values,run) {
+    const keys=["ROOM_WALLETS_MAINNET_JSON","ROOM_WALLETS_TESTNET_JSON","ROOM_WALLETS_JSON"];
+    const before=new Map(keys.map(key=>[key,process.env[key]]));
+    for(const key of keys) delete process.env[key];
+    for(const [key,value] of Object.entries(values)) process.env[key]=value;
+    try{return run();}
+    finally {
+        for(const key of keys) {
+            const old=before.get(key);
+            if(old===undefined) delete process.env[key];
+            else process.env[key]=old;
+        }
+    }
+}
 
 test("Mainnet uses exactly the same 64-wallet registry and reservation rules as Testnet",()=>{
-    withFolder(root=>{
-        const env={ROOM_WALLETS_MAINNET_JSON:JSON.stringify(catalog("mainnet",{secret:true}))};
-        const pool=new WalletPoolRegistry({network:"mainnet",env});
+    withCatalogEnv({ROOM_WALLETS_MAINNET_JSON:JSON.stringify(catalog("mainnet",{secret:true}))},()=>withFolder(root=>{
+        const pool=new WalletPoolRegistry({network:"mainnet"});
+        assert.equal(Object.hasOwn(pool,"_env"),false);
         const snapshotDir=join(root,"mainnet");
         pool.initialize({snapshotDir});
         assert.equal(pool.size,64);
@@ -47,38 +61,37 @@ test("Mainnet uses exactly the same 64-wallet registry and reservation rules as 
         const data=readFileSync(join(snapshotDir,"wallet-pool.json"),"utf8");
         assert.ok(!data.includes("DO_NOT_PERSIST"));
         assert.ok(!data.includes("mnemonic"));
-        const restart=new WalletPoolRegistry({network:"mainnet",env});
+        const restart=new WalletPoolRegistry({network:"mainnet"});
         restart.initialize({snapshotDir});
         assert.equal(restart.getReservationForRoom("first-room")?.walletId,owner.wallet.walletId);
         assert.equal(restart.listAvailableWallets().length,63);
         assert.equal(restart.release({roomId:"first-room",unresolvedObligations:0}).released,true);
         assert.equal(restart.listAvailableWallets().length,64);
-    });
+    }));
 });
 
 test("Mainnet catalog refuses missing var despite Testnet env and testnet file fallback",()=>{
-    assert.throws(()=>new WalletPoolRegistry({
-        network:"mainnet",
-        env:{ROOM_WALLETS_TESTNET_JSON:JSON.stringify(catalog("testnet")),
-            ROOM_WALLETS_JSON:JSON.stringify(catalog("testnet"))}
-    }).initialize(),/room wallet catalog not found/);
+    withCatalogEnv({
+        ROOM_WALLETS_TESTNET_JSON:JSON.stringify(catalog("testnet")),
+        ROOM_WALLETS_JSON:JSON.stringify(catalog("testnet"))
+    },()=>assert.throws(()=>new WalletPoolRegistry({network:"mainnet"}).initialize(),
+        /room wallet catalog not found/));
 });
 
 test("Mainnet catalog never imports Testnet wallet identity or mixed catalogs",()=>{
     const incorrect=catalog("mainnet");
     incorrect[20]={...incorrect[20],network:"testnet"};
-    assert.throws(()=>new WalletPoolRegistry({
-        network:"mainnet",env:{ROOM_WALLETS_MAINNET_JSON:JSON.stringify(incorrect)}
-    }).initialize(),/non-mainnet wallet/);
-    assert.throws(()=>new WalletPoolRegistry({
-        network:"mainnet",env:{ROOM_WALLETS_MAINNET_JSON:JSON.stringify(catalog("testnet"))}
-    }).initialize(),/non-mainnet wallet/);
+    withCatalogEnv({ROOM_WALLETS_MAINNET_JSON:JSON.stringify(incorrect)},
+        ()=>assert.throws(()=>new WalletPoolRegistry({network:"mainnet"}).initialize(),
+            /non-mainnet wallet/));
+    withCatalogEnv({ROOM_WALLETS_MAINNET_JSON:JSON.stringify(catalog("testnet"))},
+        ()=>assert.throws(()=>new WalletPoolRegistry({network:"mainnet"}).initialize(),
+            /non-mainnet wallet/));
 });
 
 test("Testnet legacy catalog source and #1 historical hold keep existing behavior",()=>{
-    const pool=new WalletPoolRegistry({
-        network:"testnet",env:{ROOM_WALLETS_JSON:JSON.stringify(catalog("testnet"))}
-    });
+    withCatalogEnv({ROOM_WALLETS_JSON:JSON.stringify(catalog("testnet"))},()=>{
+    const pool=new WalletPoolRegistry({network:"testnet"});
     pool.initialize();
     assert.equal(pool.listWallets().length,64);
     assert.equal(pool.getWalletByRoomNumber(1).network,"testnet");
@@ -86,6 +99,7 @@ test("Testnet legacy catalog source and #1 historical hold keep existing behavio
     const reserved=pool.reserve({roomId:"legacy-room",network:"testnet",now:1800000000000});
     assert.equal(reserved.wallet.roomNumber,2);
     assert.equal(pool.release({roomId:"legacy-room"}).released,true);
+    });
 });
 
 test("unknown pool network rejects at construction without touching catalog",()=>{
@@ -96,14 +110,14 @@ test("unknown pool network rejects at construction without touching catalog",()=
 });
 
 test("existing synthetic Mainnet file-based mismatch test retains explicit fixture support",()=>{
-    withFolder(root=>{
+    withCatalogEnv({},()=>withFolder(root=>{
         const path=join(root,"explicit-mainnet-fixture.json");
         writeFileSync(path,JSON.stringify(catalog("mainnet")));
         const pool=new WalletPoolRegistry({
-            catalogPath:path,network:"mainnet",env:{}
+            catalogPath:path,network:"mainnet"
         });
         pool.initialize();
         assert.equal(pool.listWallets().length,64);
         assert.ok(pool.listWallets().every(w=>w.network==="mainnet"));
-    });
+    }));
 });
