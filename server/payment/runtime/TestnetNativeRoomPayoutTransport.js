@@ -6,7 +6,8 @@ import { durableWriteJson } from '../DurableJson.js';
  * restart/concurrent replay from ever sending the same payout again.
  * No escrow/game contract, Jetton, Mainnet or blockchain finality claim.
  */
-import {mkdirSync,openSync,writeSync,fsyncSync,closeSync,readFileSync} from "node:fs";
+import {mkdirSync,openSync,writeSync,fsyncSync,closeSync,readFileSync,existsSync} from "node:fs";
+import {createHash} from "node:crypto";
 import {join,resolve} from "node:path";
 import {RoomWalletAdapter} from "../roomWallet/RoomWalletAdapter.js";
 import {PayoutPlan} from "../ledger/PayoutPlan.js";
@@ -280,6 +281,96 @@ export class TestnetNativeRoomPayoutTransport {
         return Object.freeze({status:"BOTH_PAYOUTS_SETTLED_FROM_DUAL_FINALITY",
             payoutId:query.payoutId,autoSettlement:true,
             replay:results.every(r=>r.replay===true)});
+    }
+    /**
+     * Mainnet restart recovery uses the ORIGINAL Testnet resumeUnattempted()
+     * only when the winner's pre-broadcast intent AND exact signed WalletV4
+     * outbox have both survived. A missing ledger/journal/outbox file is not
+     * evidence that no transfer was sent: NEVER manufacture a replacement.
+     * An unclaimed owner leg may start only after the winner is independently
+     * indexed by the existing submit() path. Ambiguous claimed legs replay
+     * only their original persisted BOC under the adapter's seqno lock.
+     *
+     * Testnet's existing resume API and behavior are unchanged.
+     */
+    async resumeMainnetDurableAfterRestart(query) {
+        assert(this._network==="mainnet","PAYOUT_MAINNET_RECOVERY_NETWORK_REQUIRED");
+        const hold=reason=>Object.freeze({status:"PAYOUT_DURABLE_RECOVERY_HOLD",
+            reason,payoutId:query?.payoutId??null});
+        if(typeof query?.payoutId!=="string"||!SAFE_PAYOUT_ID.test(query.payoutId))
+            return hold("PAYOUT_RECOVERY_ID_INVALID");
+        const plan=query.plan;
+        if(plan?.network!=="mainnet"||plan.roomId!==query.roomId
+            ||plan.payoutId!==query.payoutId
+            ||!Array.isArray(plan.transfers)||plan.transfers.length!==2)
+            return hold("PAYOUT_RECOVERY_PLAN_INVALID");
+        const winner=plan.transfers.find(x=>x.recipientRole==="WINNER");
+        const owner=plan.transfers.find(x=>x.recipientRole==="OWNER");
+        if(!winner?.address||!owner?.address
+            ||!Number.isSafeInteger(winner.netAtomic)||winner.netAtomic<=0
+            ||!Number.isSafeInteger(owner.netAtomic)||owner.netAtomic<=0)
+            return hold("PAYOUT_RECOVERY_TRANSFERS_INVALID");
+        let wallet;
+        try {wallet=this._reservation(query.roomId,query.roomWalletAddress);}
+        catch {return hold("PAYOUT_RECOVERY_WALLET_MISMATCH");}
+        if(this._adapter.supportsDurableTransferRetry?.()!==true
+            ||typeof this._adapter._sequenceStateDir!=="string")
+            return hold("PAYOUT_RECOVERY_DURABLE_ADAPTER_MISSING");
+        const journal=join(this._dir,query.payoutId+".jsonl");
+        if(!existsSync(journal))
+            return hold("PAYOUT_RECOVERY_JOURNAL_MISSING");
+        try {
+            const first=JSON.parse(readFileSync(journal,"utf8").split("\n")[0]);
+            if(first.journalVersion!==3||first.durableRetry!==true
+                ||first.payoutId!==query.payoutId||first.roomId!==query.roomId
+                ||first.roomNumber!==wallet.roomNumber
+                ||!Number.isSafeInteger(first.timestamp)
+                ||canonical(first.winnerAddress)!==canonical(winner.address)
+                ||canonical(first.ownerAddress)!==canonical(owner.address)
+                ||first.winnerAmountAtomic!==winner.netAtomic
+                ||first.ownerAmountAtomic!==owner.netAtomic)
+                return hold("PAYOUT_RECOVERY_JOURNAL_MISMATCH");
+            const checkLeg=(role,transfer)=>{
+                const intentPath=join(this._dir,query.payoutId+"."+role+".json");
+                const key=createHash("sha256")
+                    .update(query.payoutId+":"+role).digest("hex");
+                const signedPath=join(this._adapter._sequenceStateDir,
+                    "transfers",key+".json");
+                const claimed=existsSync(intentPath),signed=existsSync(signedPath);
+                // One-sided persistence, including a claimed-but-unsaved BOC,
+                // is an ambiguous crash window. No new message is signed.
+                if(claimed!==signed)return "MISMATCH";
+                if(!claimed)return "ABSENT";
+                const intent=JSON.parse(readFileSync(intentPath,"utf8"));
+                const outbox=JSON.parse(readFileSync(signedPath,"utf8"));
+                if(intent.payoutId!==query.payoutId||intent.role!==role
+                    ||intent.state!=="SUBMISSION_UNKNOWN"
+                    ||intent.amountAtomic!==transfer.netAtomic
+                    ||canonical(intent.destination)!==canonical(transfer.address)
+                    ||outbox.transferKey!==key
+                    ||outbox.roomNumber!==wallet.roomNumber
+                    ||canonical(outbox.source)!==canonical(wallet.address)
+                    ||canonical(outbox.destination)!==canonical(transfer.address)
+                    ||outbox.amountNano!==String(transfer.netAtomic)
+                    ||outbox.bounce!==false||outbox.queryId!==null
+                    ||!Number.isSafeInteger(outbox.seqno)||outbox.seqno<0
+                    ||!Number.isSafeInteger(outbox.validUntil)
+                    ||typeof outbox.boc!=="string"||!outbox.boc
+                    ||outbox.bocHash!==createHash("sha256")
+                        .update(outbox.boc).digest("hex"))
+                    return "MISMATCH";
+                return "SIGNED";
+            };
+            if(checkLeg("WINNER",winner)!=="SIGNED")
+                return hold("PAYOUT_RECOVERY_WINNER_PROOF_MISSING");
+            if(checkLeg("OWNER",owner)==="MISMATCH")
+                return hold("PAYOUT_RECOVERY_OWNER_PROOF_MISMATCH");
+        } catch {
+            return hold("PAYOUT_RECOVERY_RECORD_UNREADABLE");
+        }
+        // Existing Testnet transport code: confirms winner before any new
+        // owner claim, then enforces exactly the same signed BOC / seqno gate.
+        return this.resumeUnattempted(query);
     }
     async resumeUnattempted(query) {
         await this.submit({...query, resume:true});
