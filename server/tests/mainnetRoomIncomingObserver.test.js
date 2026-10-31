@@ -70,7 +70,7 @@ test("on-demand Mainnet query reads global-ID -239 before only one active wallet
     assert.equal(result.records[0].network, "mainnet");
     assert.equal(result.records[0].sourceAddress, payer);
     assert.equal(result.records[0].amountAtomic, "1000000000");
-    assert.equal(result.records[0].comment, "WW1:" + reference);
+    assert.equal(result.records[0].comment, reference);
     assert.equal(result.records[0].indexedTransaction.emulated, false);
     assert.equal(result.resultWindowComplete, true);
     assert.equal(o.sendTransfer, undefined);
