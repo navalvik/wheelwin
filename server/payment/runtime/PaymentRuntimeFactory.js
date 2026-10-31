@@ -140,30 +140,37 @@ function validateNanoTonUnits(value, label) {
  * @returns {import("../refund/TestnetOutgoingRefundProvider.js").TestnetOutgoingRefundProvider|null}
  */
 export function buildTestnetOutgoingRefundProvider({ submitter, globalId, finalityEvidenceProvider }) {
+    return buildNetworkOutgoingRefundProvider({
+        submitter,globalId,finalityEvidenceProvider,network:"testnet"
+    });
+}
 
-    if (!submitter || globalId !== TON_TESTNET_GLOBAL_ID) {
-
-        return null;
-
-    }
-
+/**
+ * Use the existing native outgoing provider for either TON network.
+ * This is a capability assembler only: it creates no signer, reads no secrets,
+ * and has no ability to enable Mainnet acceptance or game start. The app's
+ * Mainnet runtime deliberately does not call it until release activation.
+ */
+export function buildNetworkOutgoingRefundProvider({
+    submitter,globalId,finalityEvidenceProvider,network
+}={}) {
+    const chain = requireToncenterChainConfig(network);
+    if (!submitter || globalId !== chain.globalId) return null;
     let provider;
     try {
         provider = new TestnetOutgoingRefundProvider({
+            networkName: network.toUpperCase(),
             globalId,
             signer: submitter.signer ?? null,
             broadcaster: submitter.broadcaster ?? null,
-            finalityEvidenceProvider: submitter.finalityEvidenceProvider ?? finalityEvidenceProvider ?? null,
+            finalityEvidenceProvider: submitter.finalityEvidenceProvider
+                ?? finalityEvidenceProvider ?? null,
             outgoingTransferProvider: submitter.outgoingTransferProvider ?? null
         });
     } catch {
-        // A non-Testnet or malformed bundle fails closed to "disabled".
         return null;
     }
-
-    // Only a fully-capable Testnet provider is exposed; otherwise stay disabled.
     return provider.canExecute() ? provider : null;
-
 }
 
 /**
