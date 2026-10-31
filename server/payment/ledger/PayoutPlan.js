@@ -200,6 +200,12 @@ export class PayoutPlan {
             && input.allocation?.ownerDenominator === 1000
             && input.allocation?.numerator === 95
             && input.allocation?.denominator === 100;
+        if (input.allocation?.ruleId === LEGACY_OWNER_4_9_RULE_ID
+            && !historical) {
+            throw new PayoutValidationError(
+                "fixed 95% historical payout policy may be restored only from a fully identified durable record"
+            );
+        }
         const expectedOwnerAtomic = historical
             ? Number((principal * 49n) / 1000n)
             : Number((principal * 99n) / 2000n);
