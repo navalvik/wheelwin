@@ -13,7 +13,7 @@
  *      rounded DOWN to a whole nanoton; the rule is a fixed, immutable
  *      business-rule constant (see PayoutAllocationConfig) and is NEVER
  *      supplied or overridden by the caller;
- *   2. ownerGrossAllocationAtomic  = floor(principalAtomic * 49 / 1000);
+ *   2. ownerGrossAllocationAtomic  = floor(principalAtomic * 99 / 2000);
  *   3. gasReserveAtomic            = principalAtomic - winner - owner;
  *   4. fee quotes are diagnostic only; source-side TON fees do not reduce
  *      either recipient transfer;
@@ -114,11 +114,11 @@ export class RoomPayoutCalculator {
      *
      * Pure, deterministic and exact. The winner's gross allocation is computed
      * directly from the total settled principal; the owner receives a fixed
-     * 4.9% share; the remainder is retained by the Room Wallet. BigInt keeps
+     * 4.95% share; the remainder is retained by the Room Wallet. BigInt keeps
      * every calculation exact:
      *
      *   winnerGrossAllocationAtomic = floor(principalAtomic * 95 / 100)
-     *   ownerGrossAllocationAtomic  = floor(principalAtomic * 49 / 1000)
+     *   ownerGrossAllocationAtomic  = floor(principalAtomic * 99 / 2000)
      *   gasReserveAtomic            = principalAtomic - winner - owner
      *
      * Both percentage amounts are rounded DOWN; integer-rounding remainder is
@@ -266,7 +266,7 @@ export class RoomPayoutCalculator {
 
         }
 
-        // Owner receives the fixed 4.9% after the Winner leg.
+        // Owner receives the fixed 4.95% after the Winner leg.
         if (ownerGrossAllocationAtomic > 0) {
 
             const ownerFee = validateNetworkFee(
