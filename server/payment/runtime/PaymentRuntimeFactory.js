@@ -280,7 +280,7 @@ export function buildPaymentRuntime(options = {}) {
     // callback is evaluated only after both durable financial stores load.
     let ledger = null;
     let refundStore = null;
-    const receiptStore = new IncomingReceiptStore({ dataDir: networkDataDir });
+    const receiptStore = new IncomingReceiptStore({ dataDir: networkDataDir, network: identity.network });
     const paymentForensicJournal = new PaymentForensicJournal({ dataDir: networkDataDir });
     let receiptAccounting = null;
     const financialObligationCountProvider = roomId =>
@@ -327,7 +327,7 @@ export function buildPaymentRuntime(options = {}) {
         dataDir: join(networkDataDir, "refunds"),
         logger
     });
-    receiptAccounting = new IncomingReceiptAccounting({store: receiptStore, intentStore, refundStore, nowProvider});
+    receiptAccounting = new IncomingReceiptAccounting({store: receiptStore, intentStore, refundStore, nowProvider, network: identity.network});
 
     const refundLifecycle = new RefundLifecycleCoordinator({
         store: refundStore,
