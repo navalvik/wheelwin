@@ -9,9 +9,14 @@
  * fairness and one in-flight pass guard for up to 50 simultaneous rooms.
  */
 import {LEDGER_ENTRY_KIND} from "../ledger/LedgerConstants.js";
+import {requireToncenterChainConfig} from "../toncenter/ToncenterConstants.js";
 
 export class TestnetPendingPayoutReconciler {
-    constructor({ledgerStore,ledger,walletPool,transport,maxPerPass=5,logger=null}={}){
+    constructor({ledgerStore,ledger,walletPool,transport,maxPerPass=5,logger=null,network="testnet"}={}){
+        const identity=requireToncenterChainConfig(network);
+        if(network==="mainnet"
+            &&(walletPool?.network!=="mainnet" || transport?._network!=="mainnet"))
+            throw new TypeError("PAYOUT_MAINNET_RECOVERY_NETWORK_MISMATCH");
         if(typeof ledgerStore?.list!=="function"
             ||typeof ledger?.countOpenObligations!=="function"
             ||typeof walletPool?.getReservationForRoom!=="function"
@@ -19,6 +24,7 @@ export class TestnetPendingPayoutReconciler {
             ||!Number.isSafeInteger(maxPerPass)
             ||maxPerPass<1||maxPerPass>10)
             throw new TypeError("PAYOUT_RECONCILER_CONFIG_INVALID");
+        this._identity=identity;
         this._store=ledgerStore;
         this._ledger=ledger;
         this._pool=walletPool;
@@ -41,7 +47,8 @@ export class TestnetPendingPayoutReconciler {
                 const plan=entry.metadata?.plan;
                 if(!plan||typeof plan!=="object"||plan.payoutId!==entry.metadata?.payoutId
                     ||plan.roomId!==entry.roomId||!Array.isArray(plan.transfers)
-                    ||plan.transfers.length!==2)continue;
+                    ||plan.transfers.length!==2
+                    ||(this._identity.network==="mainnet" && plan.network!=="mainnet"))continue;
                 if(this._ledger.countOpenObligations(entry.roomId)===0)continue;
                 plans.set(plan.payoutId,plan);
             }
@@ -57,7 +64,8 @@ export class TestnetPendingPayoutReconciler {
                 const plan=tasks[(this._cursor+i)%tasks.length];
                 const reservation=this._pool.getReservationForRoom(plan.roomId);
                 if(!reservation||reservation.reservedByRoomId!==plan.roomId
-                    ||reservation.roomNumber===1){
+                    ||(this._identity.network==="testnet" && reservation.roomNumber===1)
+                    ||(this._identity.network==="mainnet" && reservation.network!=="mainnet")){
                     results.push(Object.freeze({payoutId:plan.payoutId,
                         status:"PAYOUT_WALLET_RESERVATION_MISSING_HOLD"}));
                     continue;
