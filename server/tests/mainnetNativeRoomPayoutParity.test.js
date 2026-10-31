@@ -36,6 +36,9 @@ function harness(t,{credit=true,creditGlobalId=-239,independentProvider="tonapi-
         async estimateOutboundTransferFee(){return {ok:true,totalNano:1000000n};}
     };
     const observer={
+        // The production observer has both methods; the transport selects
+        // indexed verification only when its historical API is present.
+        async observeRecipientCredit(){return null;},
         async findOutgoingTransfer({destinationIdentity,amountAtomic}){
             return {transactionId:destinationIdentity===WINNER?"winner-source-tx":"owner-source-tx",
                 sourceAddress:ROOM,destinationAddress:destinationIdentity,amountAtomic};
