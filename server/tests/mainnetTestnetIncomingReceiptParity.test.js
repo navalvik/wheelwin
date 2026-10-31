@@ -174,3 +174,19 @@ test("Mainnet cannot prepare excess refunds against a Testnet closed-room record
             /RECEIPT_ACCOUNTING_CLOSED_ROOM_NETWORK_MISMATCH/);
     });
 });
+
+test("legacy Testnet intents may omit network, but Mainnet cannot infer an omitted network",async()=>{
+    await withStores("mainnet",async({store,refundStore})=>{
+        refundStore.recordClosedRoom({
+            roomId,roomNumber:9,closureReason:"setup_expired",closedAtMs:now,
+            networkName:"MAINNET",globalId:-239
+        });
+        const legacy={...intents("mainnet")[0],network:undefined,asset:undefined};
+        const accounting=new IncomingReceiptAccounting({
+            store,refundStore,network:"mainnet",nowProvider:()=>now,
+            intentStore:{listForRoom:()=>[legacy]}
+        });
+        assert.throws(()=>accounting.prepareClosedRoom(roomId),
+            /RECEIPT_ACCOUNTING_INTENT_NETWORK_MISMATCH/);
+    });
+});
