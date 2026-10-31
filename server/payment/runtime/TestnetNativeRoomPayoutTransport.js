@@ -447,6 +447,12 @@ export class TestnetNativeRoomPayoutTransport {
                 roomNumber:wallet.roomNumber,amountNano:BigInt(owner.netAtomic),
                 sourceReserveNano:0n
             });
+            // Only this narrowly authorized owner-shortfall case may proceed
+            // to a fee estimate or independent balance observation. Every
+            // other case is outside this terminal-decision workflow.
+            if(typeof funding?.balanceNano==="bigint"
+                &&funding.balanceNano>BigInt(owner.netAtomic))
+                return hold("PAYOUT_ASSESSMENT_OUTSIDE_APPROVED_SCOPE");
             quote=await this._adapter.estimateOutboundTransferFee({
                 roomNumber:wallet.roomNumber,
                 destination:query.ownerWallet,
@@ -523,6 +529,22 @@ export class TestnetNativeRoomPayoutTransport {
                 ||BigInt(second.balanceAtomic)!==amount)
                 return hold("OWNER_BALANCE_SOURCES_DISAGREE");
         } catch {return hold("OWNER_INDEPENDENT_BALANCE_IDENTITY_INVALID");}
+        // Re-query the original RPC after TonAPI replies. Both providers can
+        // legitimately lag, and a wallet balance can change during two reads.
+        // Any disagreement (even within the eligible shortfall range) holds.
+        let third;
+        try {
+            third=await this._adapter.canFundTransfer({
+                roomNumber:this._reservation(query.roomId,query.roomWalletAddress).roomNumber,
+                amountNano:due,sourceReserveNano:0n
+            });
+            if(typeof third?.balanceNano!=="bigint"
+                ||third.balanceNano!==amount
+                ||canonical(third.address)!==canonical(query.roomWalletAddress)
+                ||third.roomNumber!==this._reservation(query.roomId,query.roomWalletAddress).roomNumber
+                ||Date.now()-start>10_000)
+                return hold("OWNER_BALANCE_CHANGED_DURING_INDEPENDENT_CHECK");
+        } catch {return hold("OWNER_BALANCE_RECHECK_UNAVAILABLE");}
         // A concurrent OWNER claim can appear while the two providers query.
         // Recheck after the last RPC. This is not an atomic release barrier.
         const intent=join(this._dir,query.payoutId+".OWNER.json");
