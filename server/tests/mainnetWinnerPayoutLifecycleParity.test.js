@@ -128,8 +128,10 @@ test("Mainnet payout planner uses original V4 submitter, winner confirmation req
 });
 
 test("Mainnet payout coordinator rejects mismatched transport evidence/ledger/pool",t=>{
+    assert.throws(()=>harness(t,{wrongOutbox:true}),
+        /PAYOUT_MAINNET_SHARED_DURABLE_SEQNO_REQUIRED/);
     for(const options of [
-        {wrongPool:true},{wrongLedger:true},{wrongOutbox:true},
+        {wrongPool:true},{wrongLedger:true},
         {withIndexed:false},{withIndependent:false}
     ]){
         const h=harness(t,options);
