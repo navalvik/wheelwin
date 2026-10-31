@@ -8,7 +8,7 @@ import {TestnetNativeRoomPayoutTransport} from "../../payment/runtime/TestnetNat
 
 const ROOM="0:"+"a".repeat(64),WINNER="0:"+"b".repeat(64),OWNER="0:"+"c".repeat(64);
 const PAYOUT="payout_"+"a".repeat(32),ROOMID="room-xyz";
-function harness(t,{failRole=null,outgoingObserver=null}={}){
+function harness(t,{failRole=null,outgoingObserver=null,independentVerifier=null,ledger=null}={}){
     const dir=mkdtempSync(join(tmpdir(),"wheelwin-v4-outgoing-"));
     t.after(()=>rmSync(dir,{recursive:true,force:true}));
     const seen=[];
@@ -27,7 +27,8 @@ function harness(t,{failRole=null,outgoingObserver=null}={}){
         roomNumber:2,reservedByRoomId:ROOMID,address:ROOM
     })};
     const transport=new TestnetNativeRoomPayoutTransport({
-        walletPool,adapter,dataDir:dir,outgoingObserver:outgoingObserver ?? {
+        walletPool,adapter,dataDir:dir,independentVerifier,ledger,
+        outgoingObserver:outgoingObserver ?? {
         findOutgoingTransfer:async()=>({transactionId:"winner-tx"}),
         verifyIndexedRecipientCredit:async ({destinationIdentity,transactionId,amountAtomic})=>({
             status:"MASTERCHAIN_INDEXED_RECIPIENT_CREDIT_OBSERVED",sourceTransactionId:transactionId,
@@ -124,6 +125,45 @@ test("winner and owner are matched to two different blockchain transactions with
         && x.minCreatedAtMs>0), "every outgoing history check must be bounded by the claim");
     assert.equal(h.seen.filter(x=>x.op==="send").length,sendCount);
 });
+test("Testnet winner finality settles independently but never pays an absent owner",async t=>{
+    const settlements=[];
+    const h=harness(t,{
+        outgoingObserver:{
+            async findOutgoingTransfer({destinationIdentity,amountAtomic}){
+                return destinationIdentity===OWNER?null:{
+                    transactionId:"testnet-winner-out",sourceAddress:ROOM,
+                    destinationAddress:WINNER,amountAtomic
+                };
+            },
+            async verifyIndexedRecipientCredit({destinationIdentity,transactionId,amountAtomic}){
+                return {
+                    status:"MASTERCHAIN_INDEXED_RECIPIENT_CREDIT_OBSERVED",
+                    sourceTransactionId:transactionId,
+                    recipientTransactionId:"testnet-winner-in",
+                    messageHash:"testnet-matched-message",destinationAddress:destinationIdentity,
+                    amountAtomic,globalId:-3,sourceFinality:"finalized",recipientFinality:"finalized",
+                    sourceMcBlockSeqno:5,recipientMcBlockSeqno:6,latestIndexedMcBlockSeqno:7
+                };
+            }
+        },
+        independentVerifier:{
+            async verifyTransfer(args){
+                return {status:"INDEPENDENT_INDEXED_CREDIT_OBSERVED",
+                    provider:"tonapi-testnet",...args,actualFeeAtomic:900000};
+            }
+        },
+        ledger:{settlePayout(args){settlements.push(args);return {replay:false};}}
+    });
+    const plan=payout();
+    await h.transport.submit({...inputs,plan});
+    const sendCount=h.seen.filter(x=>x.op==="send").length;
+    const result=await h.transport.reconcileAndSettle({...inputs,plan});
+    assert.equal(result.status,"WINNER_SETTLED_OWNER_UNCONFIRMED");
+    assert.deepEqual(settlements.map(x=>x.recipientId),["Lena"]);
+    assert.equal(h.seen.filter(x=>x.op==="send").length,sendCount,
+        "read-only finality reconciliation never broadcasts another transfer");
+});
+
 test("missing or ambiguous outgoing transfer never becomes confirmed",async t=>{
     const h=harness(t,{outgoingObserver:{
         async findOutgoingTransfer({destinationIdentity}){
