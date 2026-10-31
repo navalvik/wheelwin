@@ -7,6 +7,7 @@ on:
     paths:
       - 'server/payment/**'
       - 'server/tests/mainnetToncenterTestnetParity.test.js'
+      - 'server/tests/mainnetTestnetRefundParity.test.js'
       - 'server/forensic/**'
       - 'server/history/**'
       - 'server/socket/**'
@@ -57,7 +58,7 @@ jobs:
           cache-dependency-path: server/package-lock.json
       - run: npm ci
       - name: Shared Testnet and Mainnet Toncenter payment confirmation regressions
-        run: node --test tests/mainnetToncenterTestnetParity.test.js tests/page4IndexedFinality.test.js
+        run: node --test tests/mainnetToncenterTestnetParity.test.js tests/mainnetTestnetRefundParity.test.js tests/refundLifecycle.test.js tests/page4IndexedFinality.test.js
 
   client:
     runs-on: ubuntu-latest
