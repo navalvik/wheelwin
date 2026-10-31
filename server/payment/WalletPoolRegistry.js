@@ -196,6 +196,7 @@ export class WalletPoolRegistry {
             throw new PaymentConfigurationError("room wallet network must be testnet or mainnet");
         }
         this._logger = logger;
+        this._explicitCatalogPath = typeof catalogPath === "string" && catalogPath.length > 0;
         // Mainnet uses the existing Railway ROOM_WALLETS_MAINNET_JSON,
         // never a fallback to the historical Testnet catalog file.
         this._catalogPath = catalogPath ?? (network === "testnet"
@@ -285,10 +286,12 @@ export class WalletPoolRegistry {
 
         // Use the SAME 64-wallet catalog parser and reservation rules for
         // both networks. Testnet retains its original env/file fallback.
-        // Mainnet has exactly one source: ROOM_WALLETS_MAINNET_JSON, and
-        // must never fall back to a Testnet catalog or secrets on disk.
-        const hasCatalogFile = this._network === "testnet"
-            && Boolean(this._catalogPath) && existsSync(this._catalogPath);
+        // Mainnet production uses ROOM_WALLETS_MAINNET_JSON and must
+        // never IMPLICITLY fall back to a Testnet catalog. Preserve the
+        // existing explicit file-based synthetic Mainnet test harness.
+        const hasCatalogFile = Boolean(this._catalogPath)
+            && (this._network === "testnet" || this._explicitCatalogPath)
+            && existsSync(this._catalogPath);
         const configuredCatalog = this._network === "mainnet"
             ? this._env.ROOM_WALLETS_MAINNET_JSON
             : this._env.ROOM_WALLETS_TESTNET_JSON || this._env.ROOM_WALLETS_JSON;
