@@ -52,6 +52,8 @@ import {
 import socket from "../socket/socket";
 
 import { useGameResultRecovery } from "./GameResultContext";
+import { useGameClock } from "./GameClockContext";
+import { shouldRequestStaleGameplayPhaseRecovery, STALE_GAMEPLAY_PHASE_GRACE_MS } from "../game/sessionRecovery/staleGameplayPhasePolicy";
 
 import { useGameSession } from "./GameSessionContext";
 
@@ -106,6 +108,8 @@ export function RecoveryExperienceProvider({
 
     const { applyRecoverySnapshot } = useGameResultRecovery();
 
+    const { clock } = useGameClock();
+
     const { destroySession } = useGameSession();
 
     const { getIdentity, clearIdentity, setIdentity } = usePlayerIdentity();
@@ -113,6 +117,8 @@ export function RecoveryExperienceProvider({
     const [status, setStatus] = useState(RECOVERY_UI_STATUS.IDLE);
 
     const pendingGameplaySnapshotRef = useRef(null);
+
+    const stalePhaseRecoveryKeysRef = useRef(new Set());
 
     const recoveryInFlightRef = useRef(false);
 
@@ -622,6 +628,81 @@ export function RecoveryExperienceProvider({
         };
 
     }, [currentPage, getIdentity, requestSessionRecovery]);
+
+    // A connected WebView may miss a phase transition without disconnecting.
+    // Once a server-provided phase deadline is already stale, ask for ONE
+    // authoritative snapshot. Never locally advance phases or animate physics.
+    useEffect(() => {
+
+        if (currentPage !== APP_PAGES.GAMEPLAY || !Number.isFinite(clock.endsAt)) {
+
+            return undefined;
+
+        }
+
+        const identity = getIdentity();
+
+        const phaseKey = [
+            identity.gameId ?? "",
+            clock.gameId ?? "",
+            clock.phase ?? "",
+            clock.endsAt
+        ].join(":");
+
+        if (stalePhaseRecoveryKeysRef.current.has(phaseKey)) {
+
+            return undefined;
+
+        }
+
+        const remainingMs = Math.max(
+            0,
+            clock.endsAt + STALE_GAMEPLAY_PHASE_GRACE_MS - Date.now()
+        );
+
+        const timer = setTimeout(() => {
+
+            if (!shouldRequestStaleGameplayPhaseRecovery({
+                currentPage,
+                gameplayPage: APP_PAGES.GAMEPLAY,
+                phase: clock.phase,
+                gameId: identity.gameId,
+                clockGameId: clock.gameId,
+                endsAt: clock.endsAt,
+                now: Date.now(),
+                connected: socket.connected,
+                recoveryInFlight: recoveryInFlightRef.current
+            })) {
+
+                return;
+
+            }
+
+            if (typeof document !== "undefined"
+                && document.visibilityState === "hidden") {
+
+                return;
+
+            }
+
+            stalePhaseRecoveryKeysRef.current.add(phaseKey);
+
+            recoveryTrace("stale gameplay phase: requesting authoritative snapshot", identity);
+
+            requestSessionRecovery({ showOverlay: false });
+
+        }, remainingMs);
+
+        return () => clearTimeout(timer);
+
+    }, [
+        currentPage,
+        clock.phase,
+        clock.gameId,
+        clock.endsAt,
+        getIdentity,
+        requestSessionRecovery
+    ]);
 
     // R12.2 — Browser/WebView wake-up: request recovery without waiting for disconnect.
     useEffect(() => {
