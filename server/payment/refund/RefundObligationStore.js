@@ -2,7 +2,7 @@ import { durableWriteJson } from '../DurableJson.js';
 import { existsSync, linkSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { createHash, randomBytes } from "node:crypto";
 import { dirname, join } from "node:path";
-import { RefundObligation, RefundObligationError } from "./RefundObligation.js";
+import { RefundObligation, RefundObligationError, REFUND_GLOBAL_ID_BY_NETWORK } from "./RefundObligation.js";
 
 function writeAtomic(path, record) { durableWriteJson(path, record); }
 
@@ -301,8 +301,9 @@ export class RefundObligationStore {
             || !Number.isSafeInteger(roomNumber) || roomNumber < 1
             || typeof closureReason !== "string" || !closureReason.trim()
             || !Number.isSafeInteger(closedAtMs) || closedAtMs <= 0
-            || networkName !== "TESTNET" || globalId !== -3) {
-            throw new RefundObligationError("closed-room refund context must have explicit Testnet identity and valid room fields");
+            || !Object.hasOwn(REFUND_GLOBAL_ID_BY_NETWORK, networkName)
+            || globalId !== REFUND_GLOBAL_ID_BY_NETWORK[networkName]) {
+            throw new RefundObligationError("closed-room refund context must have explicit Testnet identity or Mainnet identity and valid room fields");
         }
         const roomKey = createHash("sha256").update(roomId).digest("hex");
         const path = join(this._closedRoomsDir, `${roomKey}.json`);
@@ -333,7 +334,8 @@ export class RefundObligationStore {
         const context = JSON.parse(readFileSync(path, "utf8"));
         if (context?.schemaVersion !== 1 || context.roomId !== roomId
             || !Number.isSafeInteger(context.roomNumber) || context.roomNumber < 1
-            || context.networkName !== "TESTNET" || context.globalId !== -3) {
+            || !Object.hasOwn(REFUND_GLOBAL_ID_BY_NETWORK, context.networkName)
+            || context.globalId !== REFUND_GLOBAL_ID_BY_NETWORK[context.networkName]) {
             throw new RefundObligationError("persisted closed-room refund context is invalid");
         }
         return Object.freeze(context);
