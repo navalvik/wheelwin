@@ -159,6 +159,8 @@ export class RoomLobbyBridge {
         // comes from the Testnet store's completed record (claim returns the
         // authoritative mainnetRoomId) and is re-verified against the live
         // room registry before it is reused.
+        this._roomNetworkHandoffRoomByHandoff = new Map();
+
         this._paymentApplicationBinding = paymentApplicationBinding;
 
         // October private R2 game archive, reattached after room teardown.
