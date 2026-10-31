@@ -154,13 +154,19 @@ test("Mainnet Testnet endpoint mismatch rejects refund/payout bootstrap before a
 
 test("Mainnet preparation-only startup continues to have no keys, no transfers or settlement",t=>{
     const h=harness(t);
-    // The ordinary preparation runtime must never instantiate the release
-    // assembly. It is built without the server-owned bundle.
+    // The ordinary preparation runtime never invokes the separate native
+    // bundle; initialize and shut it down as the real app would.
+    const resolverCount=h.requests.walletResolver;
     const r=buildMainnetPaymentRuntime({
-        dataDir:h.runtime.dataDir,
+        dataDir:join(h.runtime.dataDir,"isolated-preparation"),
         walletCatalogPath:join(h.runtime.dataDir,"..","64-public-wallets.json")
     });
-    void r;
+    r.initialize();
+    assert.equal(r.initialized,true);
+    assert.equal(r.outgoingRefundProvider,null);
+    assert.equal(r.getCapabilities().livePaymentAcceptanceEnabled,false);
+    assert.equal(r.getCapabilities().outgoingRefundTransfersEnabled,false);
+    assert.equal(h.requests.walletResolver,resolverCount);
     assert.equal(h.requests.broadcast,0);
-    assert.equal(h.requests.walletResolver,1);
+    r.shutdown();
 });
