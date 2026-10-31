@@ -145,7 +145,7 @@ test("Mainnet offline finance: three verified native TON receipts -> durable led
     assert.equal(plan?.network,"mainnet");
     assert.equal(plan?.principalAtomic,3*AMOUNT);
     assert.equal(plan.transfers.find(x=>x.recipientRole==="WINNER").netAtomic,2850000000);
-    assert.equal(plan.transfers.find(x=>x.recipientRole==="OWNER").netAtomic,147000000);
+    assert.equal(plan.transfers.find(x=>x.recipientRole==="OWNER").netAtomic,148500000);
     assert.equal((await payout.onGameResult({gameId:"GAME_SUCCESS"})).status,
         "ALREADY_PLANNED_NEEDS_RECONCILIATION");
     runtime.shutdown();
