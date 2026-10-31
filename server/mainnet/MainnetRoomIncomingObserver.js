@@ -84,12 +84,6 @@ export class MainnetRoomIncomingObserver {
     }
 
     async _assertActiveMainnetRoom({roomId, walletAddress}) {
-        roomId,
-        walletAddress,
-        floorMs,
-        ceilingMs,
-        limit = 50
-    } = {}) {
         if (typeof roomId !== "string" || !roomId.trim()
             || !mainnetAccount(walletAddress)) {
             reject("MAINNET_INCOMING_ROOM_QUERY_INVALID");
