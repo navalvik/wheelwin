@@ -27,7 +27,7 @@
  * evidence, metadata, or logs.
  */
 
-import { REFUND_NETWORK, RefundObligationError } from "./RefundObligation.js";
+import { REFUND_NETWORK, REFUND_GLOBAL_ID_BY_NETWORK, RefundObligationError } from "./RefundObligation.js";
 import {
     deriveTonAddressIdentity,
     tonAddressIdentityOrNull,
@@ -83,12 +83,15 @@ export class TestnetOutgoingRefundProvider {
      *   }
      * }} dependencies
      */
-    constructor({ globalId, signer, broadcaster, finalityEvidenceProvider, outgoingTransferProvider } = {}) {
-        if (globalId !== TON_TESTNET_GLOBAL_ID) {
-            throw new OutgoingRefundError("outgoing refund provider requires verified TON Testnet global ID -3");
+    constructor({ globalId, networkName = REFUND_NETWORK.TESTNET, signer, broadcaster, finalityEvidenceProvider, outgoingTransferProvider } = {}) {
+        if (!Object.hasOwn(REFUND_GLOBAL_ID_BY_NETWORK,networkName)
+            || globalId !== REFUND_GLOBAL_ID_BY_NETWORK[networkName]) {
+            throw new OutgoingRefundError(networkName === REFUND_NETWORK.TESTNET
+                ? "outgoing refund provider requires verified TON Testnet global ID -3"
+                : "outgoing refund provider requires verified TON network identity");
         }
-        this.networkName = REFUND_NETWORK.TESTNET;
-        this.globalId = TON_TESTNET_GLOBAL_ID;
+        this.networkName = networkName;
+        this.globalId = globalId;
         this._signer = signer ?? null;
         this._broadcaster = broadcaster ?? null;
         this._finality = finalityEvidenceProvider ?? null;
@@ -140,10 +143,14 @@ export class TestnetOutgoingRefundProvider {
      */
     authorizeSubmission({ obligation, sourceWalletAddress }) {
         if (!obligation || obligation.networkName !== this.networkName) {
-            throw new OutgoingRefundError("refund obligation does not belong to TON Testnet");
+            throw new OutgoingRefundError(this.networkName === REFUND_NETWORK.TESTNET
+                ? "refund obligation does not belong to TON Testnet"
+                : "refund obligation network does not match outgoing provider");
         }
         if (obligation.globalId !== this.globalId) {
-            throw new OutgoingRefundError("refund obligation Testnet global ID is not -3");
+            throw new OutgoingRefundError(this.networkName === REFUND_NETWORK.TESTNET
+                ? "refund obligation Testnet global ID is not -3"
+                : "refund obligation global ID does not match outgoing provider");
         }
         if (typeof obligation.idempotencyKey !== "string" || obligation.idempotencyKey.trim() === "") {
             throw new OutgoingRefundError("refund obligation is missing its idempotency key");
@@ -195,6 +202,7 @@ export class TestnetOutgoingRefundProvider {
             throw new OutgoingRefundError("settled payment intent is unavailable; cannot resolve the refund source wallet");
         }
         if (!intent || intent.paymentReference !== obligation.paymentIntentId
+            || (this.networkName === REFUND_NETWORK.MAINNET && intent.network !== "mainnet")
             || tonAddressIdentityOrNull(intent.destinationWalletAddress) === null) {
             throw new OutgoingRefundError("durable payment intent does not identify a valid source wallet");
         }
