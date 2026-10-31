@@ -63,6 +63,9 @@ import {
 import { RoomPaymentSessionAdapter } from "./RoomPaymentSessionAdapter.js";
 import { countUnsettledRoomFinancialObligations } from "./countUnsettledRoomFinancialObligations.js";
 import { LIVE_PAYMENT_ACCEPTANCE_ENABLED } from "../PaymentLifecycleAvailability.js";
+import { RoomPayoutCalculator } from "../ledger/RoomPayoutCalculator.js";
+import { MainnetRoomIncomingObserver } from "../../mainnet/MainnetRoomIncomingObserver.js";
+import { MAINNET_GLOBAL_ID } from "../../mainnet/MainnetReadOnlyPreflight.js";
 
 const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
 
@@ -516,4 +519,101 @@ export function buildPaymentRuntime(options = {}) {
 
     return runtime;
 
+}
+
+
+/**
+ * An explicit Mainnet READ-ONLY adapter at the existing shared runtime
+ * composition root. This is NOT a second financial engine and cannot be used
+ * as the live PaymentRuntime. Real settlement continues to require the
+ * existing trusted settlement coordinator and three-player gate, which are
+ * deliberately NOT constructed for Mainnet here.
+ *
+ * The existing buildPaymentRuntime remains strictly Testnet-only, including
+ * all its recovery/ledger/refund/signer behavior. No environment switch or
+ * automatic startup path selects this adapter.
+ *
+ * This adapter merely reuses the existing Testnet observation/matcher and
+ * payout calculator for on-demand, non-authoritative financial previews.
+ * It creates no durable stores, signing providers, timers or background tasks.
+ */
+export function buildReadOnlyMainnetPaymentAdapter(options = {}) {
+    const allowed = new Set([
+        "env", "client", "resolveActiveRoomWallet", "nowProvider"
+    ]);
+    if (!options || typeof options !== "object" || Array.isArray(options)
+        || Object.keys(options).some(key => !allowed.has(key))) {
+        throw new Error("MAINNET_READ_ONLY_ADAPTER_OPTIONS_INVALID");
+    }
+    const {
+        env = process.env,
+        client = null,
+        resolveActiveRoomWallet,
+        nowProvider = Date.now
+    } = options;
+
+    // The observer checks: explicit Mainnet env, live acceptance disabled,
+    // Mainnet-only Toncenter endpoint, reserved room ownership and global_id
+    // -239 prior to each on-demand transaction request.
+    const observer = new MainnetRoomIncomingObserver({
+        env, client, resolveActiveRoomWallet, nowProvider
+    });
+    const capabilities = Object.freeze({
+        network: "mainnet",
+        networkName: REFUND_NETWORK.MAINNET,
+        globalId: MAINNET_GLOBAL_ID,
+        roomLifetimeMs: ROOM_LIFETIME_MS,
+        incomingObservationEnabled: true,
+        incomingFinalityVerificationEnabled: false,
+        settlementEnabled: false,
+        gameStartGateEnforced: true,
+        outgoingRefundTransfersEnabled: false,
+        outgoingPayoutTransfersEnabled: false,
+        livePaymentAcceptanceEnabled: false,
+        outgoingRefundDisabledReason: "MAINNET_PROOF_AND_EXECUTION_NOT_RELEASED"
+    });
+    const deniedGate = Object.freeze({
+        eligible: false,
+        reason: "mainnet_proof_and_settlement_not_released"
+    });
+    return Object.freeze({
+        network: capabilities.network,
+        globalId: capabilities.globalId,
+        roomLifetimeMs: capabilities.roomLifetimeMs,
+        getCapabilities() { return capabilities; },
+        // Only the existing common observation/matcher is used. On-demand
+        // read returns paymentConfirmation:false and canConfirmPayments:false.
+        async observeRoomPayments(input) {
+            return observer.observeRoomPaymentIntents(input);
+        },
+        // Mirror the existing payment runtime's gate shape, always DENIED
+        // until real Mainnet settlement and trusted persisted ledger exist.
+        getGameStartGateStatus() { return deniedGate; },
+        /**
+         * Pure Testnet payout algorithm, same fixed 95%/4.9%/reserve rule.
+         * Calculating a hypothetical allocation does not prove 3/3 payments
+         * and cannot create a ledger plan, outgoing debt or signer capability.
+         */
+        previewPayoutAccounting(input) {
+            if (!input || typeof input !== "object"
+                || input.network !== "mainnet" || input.asset !== "TON") {
+                throw new Error("MAINNET_READ_ONLY_PAYOUT_INPUT_INVALID");
+            }
+            const plan = RoomPayoutCalculator.computePlan(input);
+            return Object.freeze({
+                network: "mainnet",
+                roomId: plan.roomId,
+                status: "ACCOUNTING_PREVIEW_ONLY",
+                principalAtomic: plan.principalAtomic,
+                winnerAtomic: plan.transferFor("WINNER")?.netAtomic ?? 0,
+                ownerAtomic: plan.transferFor("OWNER")?.netAtomic ?? 0,
+                gasReserveAtomic: plan.gasReserveAtomic,
+                reconciles: plan.reconcile(),
+                settlementAuthorized: false,
+                gameStartAuthorized: false,
+                payoutAuthorized: false,
+                refundAuthorized: false
+            });
+        }
+    });
 }
