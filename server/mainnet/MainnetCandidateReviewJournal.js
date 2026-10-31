@@ -41,7 +41,8 @@ function toRecord(candidate) {
         schemaVersion: 1,
         network: "mainnet",
         asset: "TON",
-        status: "PROVIDER_INDEXED_CANDIDATE",
+        status: candidate.status === "UNVERIFIED_EXCESS_CANDIDATE"
+            ? "UNVERIFIED_EXCESS_CANDIDATE" : "PROVIDER_INDEXED_CANDIDATE",
         roomId: candidate.roomId,
         playerId: candidate.playerId,
         paymentReference: candidate.paymentReference,
@@ -51,6 +52,8 @@ function toRecord(candidate) {
         amountAtomic: candidate.amountAtomic,
         transactionTimeMs: candidate.transactionTimeMs,
         masterchainInclusionSeqno: candidate.masterchainInclusionSeqno,
+        ...(candidate.status === "UNVERIFIED_EXCESS_CANDIDATE"
+            ? { primaryTransactionId: candidate.primaryTransactionId } : {}),
         settlementAuthorized: false,
         gameStartAuthorized: false
     });
@@ -59,7 +62,11 @@ function validate(record) {
     if (!record || typeof record !== "object" || Array.isArray(record)
         || record.schemaVersion !== 1
         || record.network !== "mainnet" || record.asset !== "TON"
-        || record.status !== "PROVIDER_INDEXED_CANDIDATE"
+        || !["PROVIDER_INDEXED_CANDIDATE", "UNVERIFIED_EXCESS_CANDIDATE"]
+            .includes(record.status)
+        || (record.status === "UNVERIFIED_EXCESS_CANDIDATE"
+            && (!nonEmpty(record.primaryTransactionId)
+                || record.primaryTransactionId === record.transactionId))
         || record.settlementAuthorized !== false
         || record.gameStartAuthorized !== false
         || !nonEmpty(record.roomId)
@@ -114,12 +121,15 @@ export class MainnetCandidateReviewJournal {
             const row = readRecord(join(this._dir, name));
             if (name !== fileName(row.transactionId)
                 || rows.has(row.transactionId)
-                || (refs.has(row.paymentReference)
+                || (row.status === "PROVIDER_INDEXED_CANDIDATE"
+                    && refs.has(row.paymentReference)
                     && refs.get(row.paymentReference) !== row.transactionId)) {
                 fail("MAINNET_CANDIDATE_JOURNAL_CONFLICT");
             }
             rows.set(row.transactionId, row);
-            refs.set(row.paymentReference, row.transactionId);
+            if (row.status === "PROVIDER_INDEXED_CANDIDATE") {
+                refs.set(row.paymentReference, row.transactionId);
+            }
         }
 
         // A reference claim is created *before* its transaction record.
@@ -129,6 +139,7 @@ export class MainnetCandidateReviewJournal {
             if (!name.endsWith(".json")) continue;
             const claim = readRecord(join(this._claimsDir, name));
             if (name !== referenceFileName(claim.paymentReference)
+                || claim.status !== "PROVIDER_INDEXED_CANDIDATE"
                 || claims.has(claim.paymentReference)
                 || (refs.has(claim.paymentReference)
                     && refs.get(claim.paymentReference) !== claim.transactionId)) {
@@ -155,7 +166,18 @@ export class MainnetCandidateReviewJournal {
         }
         for (const row of rows.values()) {
             const claim = claims.get(row.paymentReference);
-            if (!claim || JSON.stringify(claim) !== JSON.stringify(row)) {
+            if (row.status === "UNVERIFIED_EXCESS_CANDIDATE") {
+                const primary = rows.get(row.primaryTransactionId);
+                if (!primary || primary.status !== "PROVIDER_INDEXED_CANDIDATE"
+                    || !claim || claim.transactionId !== primary.transactionId
+                    || row.roomId !== primary.roomId
+                    || row.playerId !== primary.playerId
+                    || row.roomWalletAddress !== primary.roomWalletAddress
+                    || row.senderAddress !== primary.senderAddress
+                    || row.paymentReference !== primary.paymentReference) {
+                    fail("MAINNET_EXCESS_PRIMARY_CLAIM_MISSING_OR_CONFLICT");
+                }
+            } else if (!claim || JSON.stringify(claim) !== JSON.stringify(row)) {
                 fail("MAINNET_CANDIDATE_REFERENCE_CLAIM_MISSING_OR_CONFLICT");
             }
         }
@@ -173,17 +195,34 @@ export class MainnetCandidateReviewJournal {
         if (!this._initialized) fail("MAINNET_CANDIDATE_JOURNAL_NOT_INITIALIZED");
         if (!isMainnetCandidateReport(report)
             || !Array.isArray(report.candidates)
+            || !Array.isArray(report.excessCandidates)
             || report.network !== "mainnet"
             || report.settlementAuthorized !== false
             || report.gameStartAuthorized !== false) {
             fail("MAINNET_CANDIDATE_REPORT_UNTRUSTED");
         }
         const candidates = report.candidates.map(toRecord).map(validate);
-        if (candidates.some(r => r.roomId !== report.roomId)) {
+        const excess = report.excessCandidates.map(toRecord).map(validate);
+        const primaryByReference = new Map(candidates.map(row => [row.paymentReference, row]));
+        if (candidates.some(r => r.roomId !== report.roomId
+                || r.status !== "PROVIDER_INDEXED_CANDIDATE")
+            || excess.some(row => {
+                const primary = primaryByReference.get(row.paymentReference);
+                return row.roomId !== report.roomId
+                    || row.status !== "UNVERIFIED_EXCESS_CANDIDATE"
+                    || !primary
+                    || row.primaryTransactionId !== primary.transactionId
+                    || row.playerId !== primary.playerId
+                    || row.roomWalletAddress !== primary.roomWalletAddress
+                    || row.senderAddress !== primary.senderAddress;
+            })
+            || new Set([...candidates, ...excess].map(x => x.transactionId)).size
+                !== candidates.length + excess.length) {
             fail("MAINNET_CANDIDATE_REPORT_UNTRUSTED");
         }
-        // Pre-validate all local collisions before touching disk.
-        for (const record of candidates) {
+        // Pre-validate ALL transaction identities, including the excess,
+        // before creating any durable file.
+        for (const record of [...candidates, ...excess]) {
             this._assertNoConflicts(record);
         }
         let added = 0;
@@ -219,10 +258,26 @@ export class MainnetCandidateReviewJournal {
             this._byTransaction.set(record.transactionId, record);
             this._byReference.set(record.paymentReference, record.transactionId);
         }
+        let newlyRecordedExcess = 0;
+        for (const record of excess) {
+            // No second reference claim: only the primary owns the stake.
+            // All transfers nevertheless have their own immutable tx files.
+            const path = join(this._dir, fileName(record.transactionId));
+            try {
+                durableWriteJson(path, record, { exclusive: true });
+                newlyRecordedExcess += 1;
+            } catch (error) {
+                if (error.code !== "EEXIST") throw error;
+                this._assertNoConflicts(record, readRecord(path));
+            }
+            this._byTransaction.set(record.transactionId, record);
+        }
         return Object.freeze({
             network: "mainnet",
             candidateCount: candidates.length,
             newlyRecorded: added,
+            excessCount: excess.length,
+            newlyRecordedExcess,
             journalOnly: true,
             settlementAuthorized: false,
             gameStartAuthorized: false
@@ -235,11 +290,18 @@ export class MainnetCandidateReviewJournal {
             fail("MAINNET_CANDIDATE_TRANSACTION_REUSE");
         }
         const refTx = this._byReference.get(record.paymentReference);
-        if (refTx && refTx !== record.transactionId) {
+        if (record.status === "PROVIDER_INDEXED_CANDIDATE"
+            && refTx && refTx !== record.transactionId) {
             fail("MAINNET_CANDIDATE_REFERENCE_REUSE");
         }
     }
 
+    listExcessForRoom(roomId) {
+        if (!this._initialized) fail("MAINNET_CANDIDATE_JOURNAL_NOT_INITIALIZED");
+        return Object.freeze([...this._byTransaction.values()]
+            .filter(row => row.roomId === roomId
+                && row.status === "UNVERIFIED_EXCESS_CANDIDATE"));
+    }
     getByTransactionId(txId) {
         if (!this._initialized) fail("MAINNET_CANDIDATE_JOURNAL_NOT_INITIALIZED");
         return this._byTransaction.get(txId) ?? null;
