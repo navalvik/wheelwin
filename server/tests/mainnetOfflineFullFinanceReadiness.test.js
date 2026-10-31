@@ -105,7 +105,7 @@ test("Mainnet offline finance: three verified native TON receipts -> durable led
         assert.equal(report.refusal,null,JSON.stringify(report));
         const actual=runtime.paymentService.listPaymentIntentsForRoom(roomId)
             .filter(x=>x.state==="SETTLED");
-        assert.equal(actual.length,i,"only the observed payers may be marked settled");
+        assert.equal(actual.length,i,"only the observed payers may be marked settled; report="+JSON.stringify(report)+"; states="+JSON.stringify(runtime.paymentService.listPaymentIntentsForRoom(roomId).map(x=>({id:x.paymentReference,state:x.state,tx:x.transactionId}))));
         assert.equal(runtime.paymentGate.getGameStartGateStatus(roomId,PLAYERS).eligible,
             false,"production Mainnet Page5 gate never opens during preparation");
     }
