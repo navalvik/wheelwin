@@ -10,7 +10,7 @@
  * Records loaded after restart are still candidates, NEVER finality proofs.
  */
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { durableWriteJson } from "../payment/DurableJson.js";
 import { parseTonAddress } from "../payment/incoming/TonAddressIdentity.js";
@@ -194,11 +194,8 @@ export class MainnetCandidateReviewJournal {
             // Preflight the transaction record too: another initialized
             // process may already have written it since our initialize().
             // O_EXCL below remains the authority in the concurrent race.
-            try {
-                const existing = readRecord(path);
-                this._assertNoConflicts(record, existing);
-            } catch (error) {
-                if (error.code !== "ENOENT") throw error;
+            if (existsSync(path)) {
+                this._assertNoConflicts(record, readRecord(path));
             }
 
             // Enforce the same reference -> transaction identity across
