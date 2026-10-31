@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync, readdirSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ToncenterTransactionsClient } from "../payment/toncenter/ToncenterTransactionsClient.js";
@@ -131,11 +131,39 @@ test("wrong sender, amount, or expired transaction never match",async()=>{
     assert.equal(report.threeOfThreeCandidates,false);
 });
 
-test("ambiguous double payments for same memo block all candidates",async()=>{
-    const {report}=await assessed({rows:[tx(0),tx(1),tx(2),tx(1,{hash:"second-bob"})]});
-    assert.equal(report.status,"BLOCKED");
-    assert.equal(report.reason,"MULTIPLE_TRANSACTIONS_FOR_ONE_INTENT");
-    assert.equal(report.candidateCount,0);
+test("duplicate payer payments match Testnet earliest-stake rule, excess stays uncredited",async()=>{
+    const {report}=await assessed({rows:[tx(0),tx(1),tx(2),tx(1,{hash:"second-bob",now:t/1000-1})]});
+    assert.equal(report.status,"THREE_CANDIDATES_FOR_REVIEW");
+    assert.equal(report.candidateCount,3);
+    assert.equal(report.excessCount,1);
+    assert.equal(report.candidates.find(x=>x.playerId==="Bob").transactionId,"mainnet-pay-tx-1");
+    assert.equal(report.excessCandidates[0].transactionId,"second-bob");
+    assert.equal(report.excessCandidates[0].primaryTransactionId,"mainnet-pay-tx-1");
+    assert.equal(report.excessCandidates[0].status,"UNVERIFIED_EXCESS_CANDIDATE");
+    assert.equal(report.excessCandidates[0].excessReason,"ADDITIONAL_PAYMENT_FOR_PLAYER");
+    assert.equal(report.settlementAuthorized,false);
+    assert.equal(report.gameStartAuthorized,false);
+    withDir(dir=>{
+        const journal=new MainnetCandidateReviewJournal({dataDir:dir});
+        journal.initialize();
+        const first=journal.recordCandidates(report);
+        assert.equal(first.newlyRecorded,3);
+        assert.equal(first.newlyRecordedExcess,1);
+        assert.equal(first.excessCount,1);
+        assert.equal(journal.listExcessForRoom(roomId).length,1);
+        assert.equal(journal.listRoom(roomId).length,4);
+        assert.equal(journal.recordCandidates(report).newlyRecordedExcess,0);
+        const restarted=new MainnetCandidateReviewJournal({dataDir:dir});
+        restarted.initialize();
+        assert.equal(restarted.listRoom(roomId).length,4);
+        const excess=restarted.getByTransactionId("second-bob");
+        assert.equal(excess.status,"UNVERIFIED_EXCESS_CANDIDATE");
+        assert.equal(excess.settlementAuthorized,false);
+        assert.equal(excess.gameStartAuthorized,false);
+        assert.equal(restarted.recordCandidates(report).newlyRecorded,0);
+        assert.equal(restarted.recordCandidates(report).newlyRecordedExcess,0);
+        assert.equal(readdirSync(join(dir,"mainnet-candidate-review","records")).length,4);
+    });
 });
 
 test("duplicate transaction ID and incomplete transaction page fail closed",async()=>{
@@ -369,4 +397,64 @@ test("one shared Testnet matcher enforces Mainnet explicit memo without changing
         testnetIntent).matched,true);
     assert.equal(matchIncomingTransferToIntent(makeTransfer("mainnet"),
         mainnetIntent).matched,false);
+});
+
+
+test("Mainnet picks earliest chain timestamp, not provider order, for duplicate payer",async()=>{
+    const later=tx(1,{hash:"aaa-later",now:t/1000-2});
+    const earlier=tx(1,{hash:"zzz-earlier",now:t/1000-9});
+    const {report}=await assessed({rows:[later,tx(0),tx(1),tx(2),earlier]});
+    assert.equal(report.candidateCount,3);
+    assert.equal(report.excessCount,2);
+    assert.equal(report.candidates.find(x=>x.playerId==="Bob").transactionId,"zzz-earlier");
+    assert.deepEqual(report.excessCandidates.map(x=>x.transactionId).sort(),
+        ["aaa-later","mainnet-pay-tx-1"].sort());
+    assert.equal(report.settlementAuthorized,false);
+});
+
+test("same-block timestamp ties use transaction-ID ordering as shared Testnet observer",async()=>{
+    const rows=[tx(1,{hash:"zz-bob"}),tx(2),tx(0),tx(1,{hash:"aa-bob"})];
+    const {report}=await assessed({rows});
+    assert.equal(report.candidateCount,3);
+    assert.equal(report.excessCount,1);
+    assert.equal(report.candidates.find(x=>x.playerId==="Bob").transactionId,"aa-bob");
+    assert.equal(report.excessCandidates[0].transactionId,"zz-bob");
+});
+
+test("durable excess transaction cannot be rewritten as a primary or another payer",async()=>{
+    const base=(await assessed({rows:[tx(0),tx(1),tx(2),tx(1,{hash:"second-bob"})]})).report;
+    const next=(await assessed({rows:[tx(0),tx(1),tx(2),tx(1,{hash:"second-bob",
+        in_msg:{source:senders[0],destination:wallet,value:"1000000000",
+            message_content:{decoded:{type:"text_comment",comment:"WW1:"+references[0]}}}
+    })]})).report;
+    withDir(dir=>{
+        const j=new MainnetCandidateReviewJournal({dataDir:dir});
+        j.initialize();
+        j.recordCandidates(base);
+        assert.equal(j.listExcessForRoom(roomId).length,1);
+        assert.equal(next.candidateCount,3);
+        assert.equal(next.excessCount,1);
+        assert.throws(()=>j.recordCandidates(next),/TRANSACTION_REUSE/);
+        const restarted=new MainnetCandidateReviewJournal({dataDir:dir});
+        restarted.initialize();
+        assert.equal(restarted.getByTransactionId("second-bob").playerId,"Bob");
+        assert.equal(restarted.listExcessForRoom(roomId).length,1);
+    });
+});
+
+test("corrupted durable excess or missing primary claim fails closed on restart",async()=>{
+    const report=(await assessed({rows:[tx(0),tx(1),tx(2),tx(1,{hash:"second-bob"})]})).report;
+    withDir(dir=>{
+        const j=new MainnetCandidateReviewJournal({dataDir:dir});
+        j.initialize();
+        j.recordCandidates(report);
+        const folder=join(dir,"mainnet-candidate-review","records");
+        const name=readdirSync(folder).find(filename=>{
+            const raw=JSON.parse(readFileSync(join(folder,filename),"utf8"));
+            return raw.status==="UNVERIFIED_EXCESS_CANDIDATE";
+        });
+        writeFileSync(join(folder,name),"{}");
+        assert.throws(()=>new MainnetCandidateReviewJournal({dataDir:dir}).initialize(),
+            /JOURNAL_CORRUPT/);
+    });
 });
