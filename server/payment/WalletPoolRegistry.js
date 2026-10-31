@@ -188,8 +188,7 @@ export class WalletPoolRegistry {
     constructor({
         catalogPath = null,
         network = DEFAULT_ROOM_WALLET_NETWORK,
-        logger = null,
-        env = process.env
+        logger = null
     } = {}) {
 
         if (network !== "testnet" && network !== "mainnet") {
@@ -203,7 +202,6 @@ export class WalletPoolRegistry {
             ? resolveDefaultRoomWalletCatalogPath() : null);
 
         this._network = network;
-        this._env = env;
 
         /** @type {Map<string, RoomWallet>} keyed by walletId */
         this._wallets = new Map();
@@ -293,8 +291,8 @@ export class WalletPoolRegistry {
             && (this._network === "testnet" || this._explicitCatalogPath)
             && existsSync(this._catalogPath);
         const configuredCatalog = this._network === "mainnet"
-            ? this._env.ROOM_WALLETS_MAINNET_JSON
-            : this._env.ROOM_WALLETS_TESTNET_JSON || this._env.ROOM_WALLETS_JSON;
+            ? process.env.ROOM_WALLETS_MAINNET_JSON
+            : process.env.ROOM_WALLETS_TESTNET_JSON || process.env.ROOM_WALLETS_JSON;
 
         if (!hasCatalogFile && !configuredCatalog) {
 
