@@ -1099,7 +1099,7 @@ export class RoomLedger {
             ||evidence.ownerDueAtomic!==due
             ||evidence.terminal!==false||evidence.walletReleasable!==false
             ||source===null||independent===null||source!==independent
-            ||source>=BigInt(due)
+            ||source>BigInt(due)
             ||!Number.isSafeInteger(evidence.tonapiObservedAtMs)
             ||evidence.tonapiObservedAtMs<=0)
             throw new PayoutSettlementError("OWNER_GAS_TERMINAL_EVIDENCE_INVALID");
@@ -1110,7 +1110,7 @@ export class RoomLedger {
             asset:this._currency.asset,network:this._currency.network,
             metadata:{
                 payoutId,recipientId,role:"OWNER",
-                reason:"INSUFFICIENT_PRINCIPAL_AFTER_WINNER_FINALITY",
+                reason:"INSUFFICIENT_SOURCE_FUNDS_FOR_OWNER_AND_GAS_AFTER_WINNER",
                 paymentStatus:"UNPAID",evidence
             }
         });
