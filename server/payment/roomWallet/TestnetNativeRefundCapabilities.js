@@ -12,7 +12,8 @@ import { durableWriteJson } from '../DurableJson.js';
  */
 import {createHash} from "node:crypto";
 import {mkdirSync,openSync,writeSync,fsyncSync,closeSync} from "node:fs";
-import {join} from "node:path";
+import {join,resolve} from "node:path";
+import {requireToncenterChainConfig} from "../toncenter/ToncenterConstants.js";
 import {deriveTonAddressIdentity} from "../incoming/TonAddressIdentity.js";
 import {buildRecipientGasCharge} from "./RoomWalletFinancialPolicy.js";
 
@@ -34,8 +35,9 @@ function writeClaim(path,record) {
 }
 
 export function createTestnetNativeRefundCapabilities({
-    walletPool,roomWalletAdapter,dataDir
+    walletPool,roomWalletAdapter,dataDir,network="testnet"
 }={}) {
+    const chain=requireToncenterChainConfig(network);
     requireValid(walletPool&&typeof walletPool.getReservationForRoom==="function",
         "REFUND_WALLET_POOL_REQUIRED");
     requireValid(roomWalletAdapter
@@ -43,13 +45,22 @@ export function createTestnetNativeRefundCapabilities({
         &&typeof roomWalletAdapter.estimateOutboundTransferFee==="function",
         "REFUND_NATIVE_V4_ADAPTER_REQUIRED");
     requireValid(typeof dataDir==="string"&&dataDir.length>0,"REFUND_DATA_DIR_REQUIRED");
-    const journalDir=join(dataDir,"native-refund-broadcast-claims");
+    if (network==="mainnet") {
+        requireValid(walletPool.network==="mainnet","REFUND_MAINNET_WALLET_POOL_REQUIRED");
+        requireValid(roomWalletAdapter.supportsDurableTransferRetry?.()===true
+            && typeof roomWalletAdapter._sequenceStateDir==="string"
+            && resolve(roomWalletAdapter._sequenceStateDir)===resolve(dataDir,"outbound-sequences"),
+            "REFUND_MAINNET_SHARED_DURABLE_SEQNO_REQUIRED");
+    }
+    const journalDir=join(dataDir,network==="mainnet"
+        ? "mainnet-native-refund-broadcast-claims":"native-refund-broadcast-claims");
     mkdirSync(journalDir,{recursive:true,mode:0o700});
 
     function walletFor(roomId,roomNumber,sourceWalletAddress) {
         const wallet=walletPool.getReservationForRoom(roomId);
         requireValid(wallet && wallet.reservedByRoomId===roomId
-            && wallet.roomNumber!==1
+            && (network!=="testnet" || wallet.roomNumber!==1)
+            && (network!=="mainnet" || wallet.network==="mainnet")
             && Number.isSafeInteger(wallet.roomNumber)
             && canonical(wallet.address)===canonical(sourceWalletAddress),
             "REFUND_ROOM_WALLET_NOT_AUTHORIZED");
@@ -87,7 +98,8 @@ export function createTestnetNativeRefundCapabilities({
             gasChargeAtomic,idempotencyKey,obligationId,denomination,
             networkName,globalId
         }) {
-            requireValid(networkName==="TESTNET"&&globalId===-3
+            requireValid(networkName===network.toUpperCase()
+                &&globalId===chain.globalId
                 &&denomination==="TON","REFUND_NETWORK_INVALID");
             const wallet=walletFor(roomId,roomNumber,from);
             requireValid(typeof obligationId==="string"&&/^rfd_[a-f0-9]{32}$/.test(obligationId),
@@ -104,7 +116,8 @@ export function createTestnetNativeRefundCapabilities({
                 obligationId,idempotencyKey,
                 roomId,roomNumber:wallet.roomNumber,
                 source:canonical(from),destination:canonical(to),
-                amountAtomic
+                amountAtomic,
+                networkName,globalId
             });
         }
     });
@@ -113,9 +126,13 @@ export function createTestnetNativeRefundCapabilities({
             const descriptor=signedTransfer;
             requireValid(descriptor&&canonical(sourceWalletAddress)===descriptor.source,
                 "REFUND_SIGNED_SOURCE_MISMATCH");
+            requireValid(descriptor.networkName===network.toUpperCase()
+                &&descriptor.globalId===chain.globalId,
+                "REFUND_SIGNED_NETWORK_MISMATCH");
             const wallet=walletPool.getReservationForRoom(descriptor.roomId);
             requireValid(wallet && wallet.roomNumber===descriptor.roomNumber
-                &&wallet.roomNumber!==1
+                &&(network!=="testnet" || wallet.roomNumber!==1)
+                &&(network!=="mainnet" || wallet.network==="mainnet")
                 &&canonical(wallet.address)===descriptor.source,
                 "REFUND_WALLET_RESERVATION_CHANGED");
             const claimName=createHash("sha256")
