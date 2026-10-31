@@ -60,7 +60,7 @@ test('restart repairs both recipient obligations after crash immediately after p
     assert.equal(ledger.store.size, count);
     assert.equal(plan.transfers[0].grossAtomic, 5700000000);
     assert.equal(plan.transfers[1].grossAtomic, 297000000);
-    assert.equal(plan.gasReserveAtomic, 6000000);
+    assert.equal(plan.gasReserveAtomic, 3000000);
 });
 
 test('retry repairs reserve after a partial plan write without requiring restart', t => {
