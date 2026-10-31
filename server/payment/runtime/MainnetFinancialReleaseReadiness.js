@@ -17,7 +17,7 @@ export function assessMainnetFinancialReleaseReadiness({
         if (runtime.walletPool?.network!=="mainnet"
             || runtime.ledger?.network!=="mainnet"
             || runtime.networkDataDir==null
-            || runtime.getCapabilities?.().incomingFinalityVerificationEnabled!==true)
+            || !runtime.observationService)
             return deny("MAINNET_LEDGER_OR_INCOMING_UNAVAILABLE");
         const dir=runtime.networkDataDir;
         if (roomWalletAdapter?.supportsDurableTransferRetry?.()!==true
