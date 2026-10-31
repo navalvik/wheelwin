@@ -162,6 +162,29 @@ test("inactive, unreserved or foreign room causes zero RPC", async () => {
     assert.equal(g.calls.length,0);
 });
 
+test("room expiry or reassignment during finality inspection prevents a positive report", async () => {
+    const f=fixture();
+    let calls=0;
+    const inspector=f.make({
+        resolveActiveRoomWallet: () => (++calls===1 ? reservation : null)
+    });
+    await assert.rejects(inspector.inspectRoom(query),
+        /MAINNET_FINALITY_ROOM_NO_LONGER_ACTIVE/);
+    assert.equal(calls,2);
+    assert.deepEqual(f.calls.map(x=>x.path), [
+        "/api/v3/masterchainInfo", "/api/v3/transactions", "/api/v3/masterchainInfo"
+    ]);
+    const g=fixture();
+    let count=0;
+    const reassigned=g.make({
+        resolveActiveRoomWallet: () => (++count===1
+            ? reservation
+            : {...reservation, reservedByRoomId:"another-room"})
+    });
+    await assert.rejects(reassigned.inspectRoom(query),
+        /MAINNET_FINALITY_ROOM_NO_LONGER_ACTIVE/);
+});
+
 test("invalid depth, disabled-payment protection and Testnet URL fail at construction", () => {
     const f=fixture();
     assert.throws(()=>f.make({minimumMasterchainDepth:0}), /MAINNET_FINALITY_DEPTH_INVALID/);

@@ -155,6 +155,7 @@ export class MainnetIndexedReceiptFinalityInspector {
             env, client: rpc, resolveActiveRoomWallet
         });
         this._client = rpc;
+        this._resolveActiveRoomWallet = resolveActiveRoomWallet;
         this._depth = minimumMasterchainDepth;
     }
 
@@ -177,6 +178,25 @@ export class MainnetIndexedReceiptFinalityInspector {
             || !Number.isSafeInteger(head.seqno)
             || head.seqno < 1) {
             fail("MAINNET_FINALITY_CHAIN_IDENTITY_INVALID");
+        }
+
+        // A room may expire or be destroyed while Toncenter is reading.
+        // Recheck the authoritative reservation before reporting any
+        // positive indexed receipt. Do not permit an already-freed wallet
+        // to produce evidence for an obsolete room.
+        let currentReservation;
+        try {
+            currentReservation = await this._resolveActiveRoomWallet(options.roomId);
+        } catch {
+            fail("MAINNET_FINALITY_RESERVATION_UNAVAILABLE");
+        }
+        if (currentReservation?.reservedByRoomId !== options.roomId
+            || !Number.isInteger(currentReservation?.roomNumber)
+            || currentReservation.roomNumber < 1
+            || currentReservation.roomNumber > 64
+            || canonical(currentReservation.address) === null
+            || canonical(currentReservation.address) !== canonical(walletAddress)) {
+            fail("MAINNET_FINALITY_ROOM_NO_LONGER_ACTIVE");
         }
 
         return readonlyResult({
