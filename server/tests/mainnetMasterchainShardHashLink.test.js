@@ -22,7 +22,7 @@ function stateUpdate() {
         .storeUint(before.depth(),16).storeUint(after.depth(),16)
         .storeRef(before).storeRef(after).endCell({exotic:true});
 }
-function shardDescriptor(rootHash = ROOT_HASH,{seqno = 5500,tag = 0xb} = {}) {
+function shardDescriptor(rootHash = ROOT_HASH,{seqno = 5500,tag = 0xb,badTrailing=false} = {}) {
     // ShardDescr TL-B old (#b) and new (#a) variants.
     const builder=beginCell().storeBit(false).storeUint(tag,4)
         .storeUint(seqno,32).storeUint(120040,32)
@@ -42,13 +42,14 @@ function shardDescriptor(rootHash = ROOT_HASH,{seqno = 5500,tag = 0xb} = {}) {
         builder.storeCoins(0n).storeBit(false)
             .storeCoins(0n).storeBit(false);
     }
+    if(badTrailing) builder.storeBit(true);
     return builder.endCell();
 }
 function fixture({
     fork = false, rootHash = ROOT_HASH, leftHash = ROOT_HASH,
     rightHash = ALT_HASH, shardSeqno=5500, basechain=true,
     custom=true, badExtra=false, invalidTag=false, missingDict=false,
-    descriptorTag=0xb
+    descriptorTag=0xb,badTrailing=false
 } = {}) {
     const previous=beginCell().storeUint(9n,64).storeUint(SEQNO-1,32)
         .storeBuffer(Buffer.alloc(32,1)).storeBuffer(Buffer.alloc(32,2))
@@ -63,11 +64,11 @@ function fixture({
         .storeUint(1793451600,32).storeUint(20n,64).storeUint(30n,64)
         .storeUint(0,32).storeUint(0,32).storeUint(1,32).storeUint(1,32)
         .storeRef(previous).endCell();
-    const left=shardDescriptor(leftHash,{seqno:shardSeqno,tag:invalidTag?0x9:descriptorTag});
+    const left=shardDescriptor(leftHash,{seqno:shardSeqno,tag:invalidTag?0x9:descriptorTag,badTrailing});
     const right=shardDescriptor(rightHash,{seqno:shardSeqno});
     const tree=fork
         ? beginCell().storeBit(true).storeRef(left).storeRef(right).endCell()
-        : shardDescriptor(rootHash,{seqno:shardSeqno,tag:invalidTag?0x9:0xb});
+        : shardDescriptor(rootHash,{seqno:shardSeqno,tag:invalidTag?0x9:descriptorTag,badTrailing});
     const dict=Dictionary.empty(Dictionary.Keys.Int(32),Dictionary.Values.Cell());
     if(basechain && !missingDict) dict.set(0,tree);
     else if(!missingDict) dict.set(-1,tree);
@@ -210,4 +211,12 @@ test("new descriptor variant in a split tree selects the wallet's left shard",()
     assert.equal(r.status,"SHARD_HASH_MATCHES_UNAUTHENTICATED_MASTERCHAIN_BLOCK");
     assert.equal(r.shard,LEFT_SHARD);
     checkSafety(r);
+});
+
+test("extra bits after complete old/new shard descriptor fail closed",()=>{
+    for(const descriptorTag of [0xb,0xa]) {
+        const r=inspect(fixture({descriptorTag,badTrailing:true}));
+        assert.equal(r.reason,"MASTERCHAIN_SHARD_STRUCTURE_INVALID");
+        checkSafety(r);
+    }
 });
