@@ -61,5 +61,4 @@ try {
     await vite.close();
 }
 
-process.stdout.write("page4Payment.render.test.js: all assertions passed
-");
+process.stdout.write("page4Payment.render.test.js: all assertions passed\n");
