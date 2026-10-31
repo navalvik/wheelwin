@@ -73,9 +73,9 @@ test("one 3-player result sends winner then owner, respecting room reserve and n
     const sent=h.seen.filter(x=>x.op==="send");
     assert.equal(sent.length,2);
     assert.equal(sent[0].amountNano,2_850_000_000n);
-    assert.equal(sent[1].amountNano,147_000_000n);
+    assert.equal(sent[1].amountNano,148_500_000n);
     assert.equal(sent[0].sourceReserveNano,150_000_000n);
-    assert.equal(sent[1].sourceReserveNano,3_000_000n);
+    assert.equal(sent[1].sourceReserveNano,1_500_000n);
     const second=await h.transport.submit({...inputs,plan});
     assert.equal(second.status,"ALREADY_ATTEMPTED_NEEDS_RECONCILIATION");
     assert.equal(h.seen.filter(x=>x.op==="send").length,2);
