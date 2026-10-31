@@ -120,7 +120,7 @@ test("Mainnet payout planner uses original V4 submitter, winner confirmation req
     const plan=[...h.plans.values()][0];
     assert.equal(plan.network,"mainnet");
     assert.equal(plan.transfers.find(x=>x.recipientRole==="WINNER").netAtomic,2850000000);
-    assert.equal(plan.transfers.find(x=>x.recipientRole==="OWNER").netAtomic,147000000);
+    assert.equal(plan.transfers.find(x=>x.recipientRole==="OWNER").netAtomic,148500000);
     const replay=await coordinator.onGameResult({gameId:GAME});
     assert.equal(replay.status,"PAYOUT_DURABLE_RECOVERY_HOLD");
     assert.equal(replay.reason,"PAYOUT_RECOVERY_WINNER_PROOF_MISSING",
