@@ -233,6 +233,7 @@ test("Mainnet shared observation rejects forged, foreign-network or incomplete p
     const intents=authoritativeIntents();
     for(const rows of [
         intents.slice(0,2),
+        [intents[0],intents[0],intents[2]],
         intents.map((row,i)=>i===0?{...row}:row),
         intents.map((row,i)=>i===1?new PaymentIntent({
             ...row.toRecord(),network:"testnet"
