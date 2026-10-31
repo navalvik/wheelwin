@@ -33,7 +33,9 @@ export class ToncenterIndexedFinalityEvidenceProvider extends TonPaymentSettleme
         try {base=new URL(client.baseUrl);}catch{}
         if (!base || base.origin !== chain.baseUrl || base.pathname !== "/"
             || base.search || base.hash || base.username || base.password)
-            throw new PaymentConfigurationError("indexed finality restricted to selected TON network");
+            throw new PaymentConfigurationError(chain.network === "testnet"
+                ? "indexed finality restricted to Testnet"
+                : "indexed finality restricted to selected TON network");
         if(typeof nowProvider !== "function"
             || !Number.isSafeInteger(minimumMasterchainDepth)
             || minimumMasterchainDepth<0)
