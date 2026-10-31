@@ -92,7 +92,7 @@ function sameTransaction(tx, candidate) {
     return hashHex(tx.hash) === hashHex(candidate.transactionId)
         && tx.success === true && tx.aborted === false
         && typeof tx.block === "string"
-        && /^\\(0,[1-9][0-9]*,[A-Fa-f0-9]{16}\\)$/.test(tx.block)
+        && /^\(0,[1-9][0-9]*,[A-Fa-f0-9]{16}\)$/.test(tx.block)
         && canonical(tx.account?.address) === canonical(candidate.roomWalletAddress)
         && msg?.msg_type === "int_msg"
         && msg.bounced === false
@@ -159,7 +159,7 @@ export class MainnetTonapiReadOnlyCorroborator {
                 const size = response.headers?.get?.("content-length");
                 if (response.status !== 200
                     || (size !== null && size !== undefined
-                        && (!/^\\d+$/.test(size) || Number(size) > MAX_BYTES))) {
+                        && (!/^\d+$/.test(size) || Number(size) > MAX_BYTES))) {
                     return blocked("TONAPI_TRANSACTION_UNAVAILABLE", checked);
                 }
                 tx = await response.json();
