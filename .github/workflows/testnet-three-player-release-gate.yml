@@ -14,6 +14,7 @@ on:
       - 'server/tests/mainnetTonapiReadOnlyCorroboration.test.js'
       - 'server/tests/mainnetLiteTransactionBocInspector.test.js'
       - 'server/tests/mainnetMasterchainHeaderCheckpoint.test.js'
+      - 'server/tests/mainnetMasterchainShardHashLink.test.js'
       - 'server/tests/mainnetSharedRefundPayoutParity.test.js'
       - 'server/tests/mainnetSharedRuntimeReadOnlyAdapter.test.js'
       - 'server/forensic/**'
@@ -84,4 +85,4 @@ jobs:
           cache-dependency-path: server/package-lock.json
       - run: npm ci
       - name: Mainnet isolation, active-room read-only receipts and Testnet compatibility
-        run: node --test tests/mainnetReadOnlyPreflight.test.js tests/mainnetRoomIncomingObserver.test.js tests/mainnetIndexedReceiptFinality.test.js tests/mainnetPaymentCandidateJournal.test.js tests/mainnetTonapiReadOnlyCorroboration.test.js tests/mainnetLiteTransactionBocInspector.test.js tests/mainnetMasterchainHeaderCheckpoint.test.js tests/mainnetSharedRefundPayoutParity.test.js tests/mainnetSharedRuntimeReadOnlyAdapter.test.js tests/page4IndexedFinality.test.js tests/payment/legacyRoomWalletV4.test.js
+        run: node --test tests/mainnetReadOnlyPreflight.test.js tests/mainnetRoomIncomingObserver.test.js tests/mainnetIndexedReceiptFinality.test.js tests/mainnetPaymentCandidateJournal.test.js tests/mainnetTonapiReadOnlyCorroboration.test.js tests/mainnetLiteTransactionBocInspector.test.js tests/mainnetMasterchainHeaderCheckpoint.test.js tests/mainnetMasterchainShardHashLink.test.js tests/mainnetSharedRefundPayoutParity.test.js tests/mainnetSharedRuntimeReadOnlyAdapter.test.js tests/page4IndexedFinality.test.js tests/payment/legacyRoomWalletV4.test.js
