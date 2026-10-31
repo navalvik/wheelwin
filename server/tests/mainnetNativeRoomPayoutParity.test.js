@@ -87,8 +87,8 @@ test("Mainnet uses the same native payout sequence, isolated pre-send journal, n
     assert.equal(payout.network,"mainnet");
     assert.equal(payout.principalAtomic,3000000000);
     assert.equal(payout.transfers.find(x=>x.recipientRole==="WINNER").netAtomic,2850000000);
-    assert.equal(payout.transfers.find(x=>x.recipientRole==="OWNER").netAtomic,147000000);
-    assert.equal(payout.gasReserveAtomic,3000000);
+    assert.equal(payout.transfers.find(x=>x.recipientRole==="OWNER").netAtomic,148500000);
+    assert.equal(payout.gasReserveAtomic,1500000);
     assert.equal((await h.transport.submit({...request,plan:payout})).status,"SUBMITTED_UNCONFIRMED");
     assert.equal(h.sent.length,2);
     assert.equal(h.sent[0].destination,WINNER);
