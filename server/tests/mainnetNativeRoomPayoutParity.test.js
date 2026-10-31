@@ -309,6 +309,20 @@ test("Mainnet automatic owner shortage writes one exclusive unpaid claim without
     assert.equal(h.sent.length,1,"reconnect cannot send a previously terminalized owner leg");
 });
 
+test("Mainnet closes owner as unpaid when balance equals principal but no source gas remains",async t=>{
+    const h=harness(t,{
+        credit:true,winnerLedgerSettled:true,
+        ownerBalanceNano:148_500_000n,independentBalanceNano:148_500_000n
+    });
+    const payout=plan();
+    const result=await h.transport.submit({...request,plan:payout});
+    assert.equal(result.status,"OWNER_COMMISSION_UNPAID_GAS_SHORTAGE_TERMINAL");
+    assert.equal(result.ownerPaid,false);
+    assert.equal(h.sent.length,1,"never broadcast a principal-only transfer without gas");
+    assert.equal(h.unpaidTerminals.length,1);
+    assert.equal(h.unpaidTerminals[0].evidence.tonapiBalanceAtomic,"148500000");
+});
+
 test("Mainnet missing winner credit blocks owner broadcast and duplicate retry",async t=>{
     const h=harness(t,{credit:false});
     const first=await h.transport.submit({...request,plan:plan()});
