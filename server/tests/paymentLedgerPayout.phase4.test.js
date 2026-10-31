@@ -1,4 +1,4 @@
-/** Synthetic isolated ledger regression checks: exact amounts, 95/4.9/reserve,
+/** Synthetic isolated ledger regression checks: exact amounts, 95/4.95/reserve,
  * durable obligations, verified incoming authority and no execution in ledger. */
 
 import { readdirSync, readFileSync, mkdtempSync, rmSync } from "node:fs";
@@ -499,8 +499,8 @@ const OWNER = { recipientId: "owner-collector", address: "EQOWNER_____________" 
   asset:'TON',network:NETWORK,principalAtomic:PRINCIPAL,winner:WINNER,owner:OWNER,nowMs:NOW,...options});
  const p=planFor();
  equal(p.transferFor('WINNER').netAtomic,28_500_000_000,'winner receives full 95%');
- equal(p.transferFor('OWNER').netAtomic,1_470_000_000,'owner receives full 4.9%');
- equal(p.gasReserveAtomic,30_000_000,'source reserve allocation is 0.1%');
+ equal(p.transferFor('OWNER').netAtomic,1_485_000_000,'owner receives full 4.95%');
+ equal(p.gasReserveAtomic,15_000_000,'source reserve allocation is 0.05%');
  equal(p.totalReservedFeeAtomic,0,'recipient amounts have no fee deductions');
  check(p.reconcile(),'shares plus reserve exactly equal principal');
  for(const fee of [undefined,null,NaN,-1,1.5,0,1,PRINCIPAL*2]) {
@@ -510,7 +510,7 @@ const OWNER = { recipientId: "owner-collector", address: "EQOWNER_____________" 
  }
  const override=planFor({safetyMarginAtomic:PRINCIPAL,allocation:{winnerGrossAllocationAtomic:1,numerator:1}});
  equal(override.transferFor('WINNER').netAtomic,28_500_000_000,'caller cannot override winner allocation');
- equal(override.transferFor('OWNER').netAtomic,1_470_000_000,'caller cannot override owner allocation');
+ equal(override.transferFor('OWNER').netAtomic,1_485_000_000,'caller cannot override owner allocation');
  for(const value of [0,-1,1.5,NaN,Number.MAX_SAFE_INTEGER+1]) {
   expectThrow(()=>planFor({principalAtomic:value}),'PayoutValidationError','invalid principal rejected');
  }
@@ -842,7 +842,7 @@ const OWNER = { recipientId: "owner-collector", address: "EQOWNER_____________" 
 
     equal(
         ownerObligation.netAtomic,
-        1_470_000_000,
+        1_485_000_000,
         "the owner's net obligation must be untouched by the winner's fee variance"
     );
 
@@ -899,7 +899,7 @@ const OWNER = { recipientId: "owner-collector", address: "EQOWNER_____________" 
   const allocation=RoomPayoutCalculator.allocatePrincipal(principalAtomic);
   const principal=BigInt(principalAtomic);
   equal(allocation.winnerGrossAllocationAtomic,Number(principal*95n/100n),'exact 95% rounding');
-  equal(allocation.ownerGrossAllocationAtomic,Number(principal*49n/1000n),'exact 4.9% rounding');
+  equal(allocation.ownerGrossAllocationAtomic,Number(principal*99n/2000n),'exact 4.95% rounding');
   equal(BigInt(allocation.winnerGrossAllocationAtomic)+BigInt(allocation.ownerGrossAllocationAtomic)+BigInt(allocation.gasReserveAtomic),principal,'all nanoton accounted for');
  }
  const {dataDir,ledger,intentStore}=makeLedger();
@@ -908,14 +908,14 @@ const OWNER = { recipientId: "owner-collector", address: "EQOWNER_____________" 
   ledger.planPayout({payoutId:'view',roomId:'room-view',winner:WINNER,owner:OWNER,nowMs:NOW});
   const before=ledger.getRoomLedgerView('room-view');
   equal(before.winnerGrossAtomic,28_500_000_000,'winner obligation');
-  equal(before.ownerGrossAtomic,1_470_000_000,'owner obligation');
-  equal(before.gasReserveAtomic,30_000_000,'reserve allocation recorded durably');
+  equal(before.ownerGrossAtomic,1_485_000_000,'owner obligation');
+  equal(before.gasReserveAtomic,15_000_000,'reserve allocation recorded durably');
   equal(before.networkFeesReservedAtomic,0,'no recipient fee reservation');
   ledger.settlePayout({payoutId:'view',recipientId:WINNER.recipientId,
    executionResult:{transactionId:'synthetic-winner',actualFeeAtomic:35_000_000}});
   const after=ledger.getRoomLedgerView('room-view');
   equal(after.actualNetworkFeesAtomic,35_000_000,'actual source fees recorded separately even above allocation');
-  equal(after.ownerGrossAtomic,1_470_000_000,'actual fee does not silently rewrite owner allocation');
+  equal(after.ownerGrossAtomic,1_485_000_000,'actual fee does not silently rewrite owner allocation');
   equal(after.openObligations,1,'owner remains due until independently settled');
  } finally {rmSync(dataDir,{recursive:true,force:true});}
  console.log('[11–12/14] exact rounding, reserve and actual fees: PASS');
@@ -1546,7 +1546,7 @@ console.log(
         + ` | asset=TON | 1Gram=${ONE_GRAM} | 10Gram=${TEN_GRAM}`
         + ` | transfersEnabled=false`
         + ` | sendsAnything=false`
-        + ` | reserve=0.1% plus rounding`
+        + ` | reserve=0.05% plus rounding`
 );
 
 export { checksPassed };
