@@ -7,6 +7,10 @@
 import { tonAddressIdentitiesEqual } from "../incoming/TonAddressIdentity.js";
 
 const DEFAULT_BASE = "https://testnet.tonapi.io";
+const TONAPI_BASE_BY_NETWORK = Object.freeze({
+    testnet: DEFAULT_BASE,
+    mainnet: "https://tonapi.io"
+});
 function validHash(hash) {
     // TON transaction/message hashes are 32 bytes, base64/base64url or hex.
     if(typeof hash !== "string") return false;
@@ -35,16 +39,19 @@ function transactionIsSuccessful(tx,hash,address) {
         && tx.aborted === false;
 }
 export class TonapiTestnetPayoutVerifier {
-    constructor({fetchImpl=globalThis.fetch,baseUrl=DEFAULT_BASE,
+    constructor({fetchImpl=globalThis.fetch,baseUrl=null,network="testnet",
         apiKeyProvider=()=>process.env.TONAPI_API_KEY,timeoutMs=7000}={}) {
-        if(typeof fetchImpl!=="function"||baseUrl!==DEFAULT_BASE
+        const expectedBase=TONAPI_BASE_BY_NETWORK[network];
+        if(typeof fetchImpl!=="function"||!expectedBase
+            ||(baseUrl!==null && baseUrl!==expectedBase)
             ||typeof apiKeyProvider!=="function"
             ||!Number.isSafeInteger(timeoutMs)||timeoutMs<1000||timeoutMs>30000)
             throw new TypeError("invalid TonAPI Testnet read-only configuration");
         this._fetch=fetchImpl;
         this._apiKey=apiKeyProvider;
         this._timeout=timeoutMs;
-        this._base=baseUrl;
+        this._base=expectedBase;
+        this._network=network;
     }
     async _transaction(hash) {
         if(!validHash(hash))return null;
@@ -90,7 +97,7 @@ export class TonapiTestnetPayoutVerifier {
             status:"INDEPENDENT_INDEXED_CREDIT_OBSERVED",
             sourceTransactionId,recipientTransactionId,messageHash,
             sourceWalletAddress,destinationAddress,amountAtomic,actualFeeAtomic,
-            provider:"tonapi-testnet"
+            provider:this._network==="mainnet"?"tonapi-mainnet":"tonapi-testnet"
         });
     }
 }
