@@ -6,6 +6,7 @@ on:
   pull_request:
     paths:
       - 'server/payment/**'
+      - 'server/app.js'
       - 'server/tests/mainnetToncenterTestnetParity.test.js'
       - 'server/tests/mainnetTestnetRefundParity.test.js'
       - 'server/tests/mainnetTestnetIncomingReceiptParity.test.js'
@@ -46,6 +47,7 @@ jobs:
       - run: npm ci
       - name: Validate changed financial modules
         run: |
+          node --check app.js
           node --check payment/runtime/HistoricalIncomingReceiptReconciler.js
           node --check payment/WalletPoolRegistry.js
           node --check socket/RoomLobbyBridge.js
