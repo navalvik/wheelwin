@@ -13,6 +13,9 @@
 import { PaymentIntent } from "../payment/PaymentIntent.js";
 import { PAYMENT_INTENT_STATE } from "../payment/PaymentIntentStatus.js";
 import { parseTonAddress } from "../payment/incoming/TonAddressIdentity.js";
+import { IncomingTransfer } from "../payment/incoming/IncomingTransfer.js";
+import { deriveIncomingTransactionId } from "../payment/incoming/IncomingTransferIdentity.js";
+import { matchIncomingTransferToIntent } from "../payment/incoming/IncomingTransferMatcher.js";
 import {
     isMainnetIndexedInspectionReport,
     MAINNET_INDEXED_RECEIPT_STATUS
@@ -132,10 +135,9 @@ export function assessMainnetRoomPaymentCandidates({
         transactionIds.add(hash);
         if (receipt.network !== "mainnet"
             || identity(receipt.accountId) !== wallet
-            || identity(receipt.sourceAddress) !== identity(intent.expectedSender)
+            || identity(receipt.sourceAddress) === null
             || typeof receipt.amountAtomic !== "string"
-            || !/^[0-9]+$/.test(receipt.amountAtomic)
-            || BigInt(receipt.amountAtomic) !== BigInt(intent.amountAtomic)
+            || !/^[1-9][0-9]*$/.test(receipt.amountAtomic)
             || !Number.isSafeInteger(receipt.transactionTimeMs)
             || receipt.transactionTimeMs < intent.createdAt
             || receipt.transactionTimeMs >= intent.expiresAt
@@ -144,6 +146,39 @@ export function assessMainnetRoomPaymentCandidates({
             || receipt.masterchainInclusionSeqno < 1) {
             continue;
         }
+
+        // Reuse exactly the Testnet payment-intent matcher. Mainnet does not
+        // implement a parallel sender/amount/reference algorithm. The
+        // Mainnet-only gates above still enforce authenticated network and
+        // indexed receipt metadata. No memo remains ineligible on Mainnet.
+        let matched = false;
+        try {
+            const transfer = new IncomingTransfer({
+                network: "mainnet",
+                transactionId: deriveIncomingTransactionId({
+                    network: "mainnet",
+                    providerId: "toncenter",
+                    accountId: wallet,
+                    transactionId: hash
+                }),
+                providerTransactionIdentity: {
+                    providerId: "toncenter",
+                    accountId: wallet,
+                    transactionId: hash
+                },
+                destinationWalletAddress: wallet,
+                senderAddress: receipt.sourceAddress,
+                amountAtomic: receipt.amountAtomic,
+                asset: "TON",
+                transactionTime: receipt.transactionTimeMs,
+                paymentReference: receipt.paymentReference,
+                providerConfirmed: true
+            });
+            matched = matchIncomingTransferToIntent(transfer, intent).matched;
+        } catch {
+            // Invalid or non-representable receipt cannot become a candidate.
+        }
+        if (!matched) continue;
         if (rows.has(intent.paymentReference)) {
             return block("MULTIPLE_TRANSACTIONS_FOR_ONE_INTENT");
         }
