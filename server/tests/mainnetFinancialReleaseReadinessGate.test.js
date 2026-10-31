@@ -192,6 +192,7 @@ test("Mainnet Page5 and payment observation remain shut when readiness changes o
     const throwing=new RoomPaymentSessionAdapter({
         paymentService:runtime.paymentService,coordinator:runtime.coordinator,
         ledger:runtime.ledger,manifestStore:runtime.manifestStore,
+        nowProvider:()=>NOW+10000,
         mainnetPreparationEnabled:true,
         mainnetFinancialReadinessProvider:()=>{throw Error("preflight crashed");}
     });
