@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
 import {
     STALE_GAMEPLAY_PHASE_GRACE_MS,
     shouldRequestStaleGameplayPhaseRecovery
@@ -47,4 +50,21 @@ assert.equal(shouldRequestStaleGameplayPhaseRecovery({
 assert.equal(shouldRequestStaleGameplayPhaseRecovery({
     ...args, gameId: null
 }), false, "unbound gameplay identity cannot trigger request");
+
+const sourceDirectory = dirname(fileURLToPath(import.meta.url));
+const recoveryContext = readFileSync(
+    resolve(sourceDirectory, "../../context/RecoveryExperienceContext.jsx"),
+    "utf8"
+);
+assert.match(recoveryContext,
+    /const \[recoverySettledRevision, setRecoverySettledRevision\] = useState\(0\)/,
+    "recovery completion exposes a rerender signal for a consumed stale-phase timer");
+assert.match(recoveryContext,
+    /setRecoverySettledRevision\(\(revision\) => revision \+ 1\)/,
+    "settling a recovery advances the watchdog rerender signal");
+assert.ok((recoveryContext.match(/signalRecoverySettled\(\);/g) ?? []).length >= 6,
+    "snapshot, failure, timeout and room recovery completions signal the watchdog");
+assert.match(recoveryContext,
+    /requestSessionRecovery,\s*recoverySettledRevision\s*\]\);/,
+    "stale-phase watchdog is re-armed when an overlapping recovery settles");
 console.log("staleGameplayPhasePolicy.test.js: all assertions passed");

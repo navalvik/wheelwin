@@ -116,6 +116,8 @@ export function RecoveryExperienceProvider({
 
     const [status, setStatus] = useState(RECOVERY_UI_STATUS.IDLE);
 
+    const [recoverySettledRevision, setRecoverySettledRevision] = useState(0);
+
     const pendingGameplaySnapshotRef = useRef(null);
 
     const stalePhaseRecoveryKeysRef = useRef(new Set());
@@ -127,6 +129,12 @@ export function RecoveryExperienceProvider({
     const recoveryOverlayRef = useRef(false);
 
     const recoveryRequestTimerRef = useRef(null);
+
+    const signalRecoverySettled = useCallback(() => {
+
+        setRecoverySettledRevision((revision) => revision + 1);
+
+    }, []);
 
     // Timer ids live in refs so hide scheduling survives socket-effect
     // re-subscriptions (unstable onNavigate / session updates after restore).
@@ -204,6 +212,7 @@ export function RecoveryExperienceProvider({
         recoveryRequestTimerRef.current = setTimeout(() => {
             recoveryRequestTimerRef.current = null;
             recoveryInFlightRef.current = false;
+            signalRecoverySettled();
             recoveryOverlayRef.current = false;
             clearOverlayTimer();
             setStatus(RECOVERY_UI_STATUS.FAILED);
@@ -229,7 +238,7 @@ export function RecoveryExperienceProvider({
             playerId: identity.playerId
         });
 
-    }, [clearOverlayTimer, getIdentity, scheduleOverlayHide]);
+    }, [clearOverlayTimer, getIdentity, scheduleOverlayHide, signalRecoverySettled]);
 
     const handleSetupRecoveryComplete = useCallback(() => {
 
@@ -240,6 +249,7 @@ export function RecoveryExperienceProvider({
         }
 
         recoveryInFlightRef.current = false;
+        signalRecoverySettled();
 
         if (recoveryRequestTimerRef.current) {
             clearTimeout(recoveryRequestTimerRef.current);
@@ -257,7 +267,7 @@ export function RecoveryExperienceProvider({
 
         if (showOverlay) scheduleOverlayHide();
 
-    }, [scheduleOverlayHide, getIdentity]);
+    }, [scheduleOverlayHide, getIdentity, signalRecoverySettled]);
 
     const handleRoomRecoverySync = useCallback((payload) => {
 
@@ -270,6 +280,7 @@ export function RecoveryExperienceProvider({
         })) return;
 
         recoveryInFlightRef.current = false;
+        signalRecoverySettled();
         if (recoveryRequestTimerRef.current) {
             clearTimeout(recoveryRequestTimerRef.current);
             recoveryRequestTimerRef.current = null;
@@ -287,11 +298,12 @@ export function RecoveryExperienceProvider({
         setStatus(showOverlay ? RECOVERY_UI_STATUS.COMPLETE : RECOVERY_UI_STATUS.IDLE);
         if (showOverlay) scheduleOverlayHide();
 
-    }, [currentPage, getIdentity, onNavigate, scheduleOverlayHide, setIdentity]);
+    }, [currentPage, getIdentity, onNavigate, scheduleOverlayHide, setIdentity, signalRecoverySettled]);
 
     const handleGameplaySnapshot = useCallback((payload) => {
 
         recoveryInFlightRef.current = false;
+        signalRecoverySettled();
 
         if (recoveryRequestTimerRef.current) {
             clearTimeout(recoveryRequestTimerRef.current);
@@ -492,11 +504,13 @@ export function RecoveryExperienceProvider({
         scheduleOverlayHide,
         getIdentity,
         setIdentity,
+        signalRecoverySettled
     ]);
 
     const handleRecoveryFailed = useCallback((payload) => {
 
         recoveryInFlightRef.current = false;
+        signalRecoverySettled();
 
         if (recoveryRequestTimerRef.current) {
             clearTimeout(recoveryRequestTimerRef.current);
@@ -549,7 +563,8 @@ export function RecoveryExperienceProvider({
         destroySession,
         clearIdentity,
         scheduleOverlayHide,
-        getIdentity
+        getIdentity,
+        signalRecoverySettled
     ]);
 
     /**
@@ -701,7 +716,8 @@ export function RecoveryExperienceProvider({
         clock.gameId,
         clock.endsAt,
         getIdentity,
-        requestSessionRecovery
+        requestSessionRecovery,
+        recoverySettledRevision
     ]);
 
     // R12.2 — Browser/WebView wake-up: request recovery without waiting for disconnect.
@@ -785,6 +801,7 @@ export function RecoveryExperienceProvider({
         const reconnectingCapTimer = setTimeout(() => {
 
             recoveryInFlightRef.current = false;
+            signalRecoverySettled();
 
             setStatus(RECOVERY_UI_STATUS.IDLE);
 
@@ -800,7 +817,7 @@ export function RecoveryExperienceProvider({
 
         };
 
-    }, [status, getIdentity]);
+    }, [status, getIdentity, signalRecoverySettled]);
 
     // Clear soft-hide timer only on provider unmount (sessionGeneration remount
     // / leave GameFlow). Do NOT clear it in the socket-subscription effect —
