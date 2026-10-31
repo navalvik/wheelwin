@@ -5,6 +5,9 @@ import { ToncenterTransactionsClient } from "../payment/toncenter/ToncenterTrans
 import { mapToncenterTransactionsResponse } from "../payment/toncenter/ToncenterTransactionsMapper.js";
 import { MAINNET_TONCENTER_URL } from "../mainnet/MainnetReadOnlyPreflight.js";
 import { MainnetRoomIncomingObserver } from "../mainnet/MainnetRoomIncomingObserver.js";
+import { PaymentIntent } from "../payment/PaymentIntent.js";
+import { RoomPaymentObservationService } from "../payment/toncenter/RoomPaymentObservationService.js";
+import { ToncenterIncomingProvider } from "../payment/toncenter/ToncenterIncomingProvider.js";
 
 const wallet = "0:" + "a".repeat(64);
 const payer = "0:" + "b".repeat(64);
@@ -158,4 +161,116 @@ test("shared mapper default retains Testnet network on legacy calls", () => {
         walletAddress: wallet, floorMs: query.floorMs,
         ceilingMs: query.ceilingMs, limit: 10, network: "unknown"
     }), /Toncenter mapper network scope is invalid/);
+});
+
+function authoritativeIntents() {
+    const senders=[payer, "0:"+"c".repeat(64), "0:"+"d".repeat(64)];
+    return senders.map((expectedSender, i) => new PaymentIntent({
+        roomId,playerId:["Olga","Bob","Lena"][i],
+        network:"mainnet",asset:"TON",
+        paymentReference:[reference,"WW_BOB_123","WW_LENA_123"][i],
+        destinationWalletId:"2",destinationWalletAddress:wallet,
+        expectedSender,amountAtomic:1000000000,
+        createdAt:unixSec*1000-20000,
+        expiresAt:unixSec*1000+480000,
+        roomDeadlineMs:unixSec*1000+480000
+    }));
+}
+
+test("Mainnet active room reuses Testnet observation matcher without any settlement",async()=>{
+    const f=fixture(); const o=observer(f);
+    const result=await o.observeRoomPaymentIntents({
+        ...query,paymentIntents:authoritativeIntents()
+    });
+    assert.deepEqual(f.calls.map(x=>x.path),[
+        "/api/v3/masterchainInfo","/api/v3/transactions"
+    ]);
+    assert.equal(f.calls[1].account,wallet);
+    assert.equal(result.roomId,roomId);
+    assert.equal(result.providerRequests,1);
+    assert.equal(result.resultWindowComplete,true);
+    assert.equal(result.transfers.length,1);
+    assert.equal(result.transfers[0].network,"mainnet");
+    assert.equal(result.observations[0].status,"matched");
+    assert.equal(result.observations[0].paymentReference,reference);
+    assert.equal(result.paymentConfirmation,false);
+    assert.equal(result.canConfirmPayments,false);
+    assert.equal(result.settlementEvidenceAvailable,false);
+    assert.equal(o.sendTransfer,undefined);
+    assert.equal(o.settlePayment,undefined);
+    assert.equal(o.startGame,undefined);
+});
+
+test("Mainnet shared observer marks second payment as excess, preserving both for refund accounting",async()=>{
+    const duplicate=transfer();duplicate.hash="second-valid-payment";
+    duplicate.now=unixSec+1;
+    const f=fixture({rows:[duplicate,transfer()]});
+    const result=await observer(f).observeRoomPaymentIntents({
+        ...query,paymentIntents:authoritativeIntents()
+    });
+    assert.equal(result.transfers.length,2);
+    assert.equal(result.observations.filter(x=>x.status==="matched").length,1);
+    assert.equal(result.observations.filter(x=>x.status==="excess-payment").length,1);
+    assert.equal(result.observations.find(x=>x.status==="excess-payment").excessReason,
+        "ADDITIONAL_PAYMENT_FOR_PLAYER");
+    assert.equal(result.settlementEvidenceAvailable,false);
+});
+
+test("Mainnet shared observer does not credit missing memo even for a uniquely identified payer",async()=>{
+    const row=transfer();
+    row.in_msg.message_content.decoded.comment="";
+    const f=fixture({rows:[row]});
+    const result=await observer(f).observeRoomPaymentIntents({
+        ...query,paymentIntents:authoritativeIntents()
+    });
+    assert.equal(result.transfers.length,1);
+    assert.equal(result.observations[0].status,"no-match-observed");
+    assert.equal(result.paymentConfirmation,false);
+});
+
+test("Mainnet shared observation rejects forged, foreign-network or incomplete payment intents before RPC",async()=>{
+    const f=fixture();const o=observer(f);
+    const intents=authoritativeIntents();
+    for(const rows of [
+        intents.slice(0,2),
+        intents.map((row,i)=>i===0?{...row}:row),
+        intents.map((row,i)=>i===1?new PaymentIntent({
+            ...row.toRecord(),network:"testnet"
+        }):row),
+        intents.map((row,i)=>i===1?new PaymentIntent({
+            ...row.toRecord(),roomId:"foreign-room"
+        }):row)
+    ]) {
+        await assert.rejects(o.observeRoomPaymentIntents({
+            ...query,paymentIntents:rows
+        }),/MAINNET_INCOMING_THREE_AUTHORITATIVE_INTENTS_REQUIRED/);
+    }
+    assert.equal(f.calls.length,0);
+});
+
+test("Mainnet shared observation checks active reservation and Mainnet global ID before transaction read",async()=>{
+    const wrong=fixture({globalId:-3});
+    await assert.rejects(observer(wrong).observeRoomPaymentIntents({
+        ...query,paymentIntents:authoritativeIntents()
+    }),/MAINNET_INCOMING_CHAIN_IDENTITY_INVALID/);
+    assert.deepEqual(wrong.calls.map(x=>x.path),["/api/v3/masterchainInfo"]);
+    const foreign=fixture();
+    await assert.rejects(observer(foreign,()=>null).observeRoomPaymentIntents({
+        ...query,paymentIntents:authoritativeIntents()
+    }),/MAINNET_INCOMING_WALLET_NOT_ACTIVE/);
+    assert.equal(foreign.calls.length,0);
+});
+
+test("shared Testnet observation default is unchanged; Mainnet cannot inject settlement provider",()=>{
+    const f=fixture();
+    const p=new ToncenterIncomingProvider({client:f.client});
+    const old=new RoomPaymentObservationService({provider:p});
+    assert.equal(old.canConfirmPayments(),false);
+    assert.equal(old.hasBackgroundWork(),false);
+    assert.throws(()=>new RoomPaymentObservationService({
+        provider:p,network:"mainnet",settlementEvidenceProvider:{}
+    }),/Mainnet room observation must stay without settlement evidence provider/);
+    assert.throws(()=>new RoomPaymentObservationService({
+        provider:p,network:"unknown"
+    }),/room observation network must be testnet or mainnet/);
 });
