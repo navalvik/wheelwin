@@ -193,7 +193,7 @@ test("one final R2 ZIP records unpaid owner honestly and is never republished",a
                 amountAtomic:148_500_000,
                 metadata:{payoutId,recipientId:"WheelWin",role:"OWNER",
                     paymentStatus:"UNPAID",
-                    reason:"INSUFFICIENT_PRINCIPAL_AFTER_WINNER_FINALITY",
+                    reason:"INSUFFICIENT_SOURCE_FUNDS_FOR_OWNER_AND_GAS_AFTER_WINNER",
                     evidence}
             }]
         };
