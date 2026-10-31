@@ -3,18 +3,20 @@
  *
  * Never sends or signs. Only historical transactions strictly after the
  * durable obligation, finalized at BOTH Toncenter accounts and independently
- * matched at TonAPI Testnet, may close a persisted obligation.
+ * matched at TonAPI on the selected network, may close a persisted obligation.
  *
  * A PENDING refund is never submitted by this worker. Incomplete evidence,
  * unrecognized source wallet, multiple matching transfers or provider outage
  * leaves the obligation untouched for a later pass.
  */
 import {tonAddressIdentitiesEqual,tonAddressIdentityOrNull} from "../incoming/TonAddressIdentity.js";
+import {requireToncenterChainConfig} from "../toncenter/ToncenterConstants.js";
 
 const ELIGIBLE=new Set(["SUBMISSION_UNKNOWN","SUBMITTED","RECONCILIATION_REQUIRED"]);
 export class TestnetPendingRefundReconciler {
     constructor({refundStore,intentStore,receiptStore=null,toncenterObserver,independentVerifier,
-        nowProvider=Date.now,maxPerPass=5,logger=null}={}){
+        nowProvider=Date.now,maxPerPass=5,logger=null,network="testnet"}={}){
+        const identity=requireToncenterChainConfig(network);
         if(typeof refundStore?.listPending!=="function"
             ||typeof refundStore?.completeFromVerifiedHistory!=="function"
             ||typeof intentStore?.listForRoom!=="function"
@@ -24,6 +26,7 @@ export class TestnetPendingRefundReconciler {
             ||typeof nowProvider!=="function"
             ||!Number.isSafeInteger(maxPerPass)||maxPerPass<1||maxPerPass>10)
             throw new TypeError("REFUND_RECONCILER_CONFIG_INVALID");
+        this._identity=identity;
         this._refunds=refundStore;
         this._intents=intentStore;
         this._receipts=receiptStore;
@@ -42,7 +45,8 @@ export class TestnetPendingRefundReconciler {
         this._active=true;
         try {
             const todo=this._refunds.listPending().filter(x=>ELIGIBLE.has(x.state)
-                &&x.networkName==="TESTNET"&&x.globalId===-3);
+                &&x.networkName===this._identity.network.toUpperCase()
+                &&x.globalId===this._identity.globalId);
             if(!todo.length){
                 this._cursor=0;
                 return Object.freeze({status:"NO_SUBMITTED_REFUNDS",
@@ -61,7 +65,9 @@ export class TestnetPendingRefundReconciler {
                         &&r.amountAtomic===obligation.amountAtomic
                         &&tonAddressIdentitiesEqual(r.senderAddress,obligation.refundDestination)
                         &&tonAddressIdentitiesEqual(r.destinationWalletAddress,intent?.destinationWalletAddress));
-                    if(!intent||(!receipt && intent.transactionId!==obligation.incomingTransactionId)
+                    if(!intent
+                        ||(this._identity.network==="mainnet" && intent.network!=="mainnet")
+                        ||(!receipt && intent.transactionId!==obligation.incomingTransactionId)
                         ||!tonAddressIdentitiesEqual(intent.expectedSender,obligation.refundDestination)
                         ||tonAddressIdentityOrNull(intent.destinationWalletAddress)===null){
                         status="REFUND_SOURCE_UNVERIFIED";
@@ -82,7 +88,7 @@ export class TestnetPendingRefundReconciler {
                                 amountAtomic:amount,minCreatedAtMs:obligation.createdAtMs
                             });
                             if(indexed?.status==="MASTERCHAIN_INDEXED_RECIPIENT_CREDIT_OBSERVED"
-                                &&indexed.globalId===-3
+                                &&indexed.globalId===this._identity.globalId
                                 &&indexed.sourceFinality==="finalized"
                                 &&indexed.recipientFinality==="finalized"
                                 &&indexed.sourceTransactionId===tx.transactionId
@@ -98,7 +104,7 @@ export class TestnetPendingRefundReconciler {
                                     amountAtomic:amount
                                 });
                                 if(verified?.status==="INDEPENDENT_INDEXED_CREDIT_OBSERVED"
-                                    &&verified.provider==="tonapi-testnet"
+                                    &&verified.provider==="tonapi-"+this._identity.network
                                     &&verified.sourceTransactionId===indexed.sourceTransactionId
                                     &&verified.recipientTransactionId===indexed.recipientTransactionId
                                     &&verified.messageHash===indexed.messageHash
@@ -110,7 +116,8 @@ export class TestnetPendingRefundReconciler {
                                     &&typeof indexed.sourceBlockRef.shard==="string"
                                     &&Number.isSafeInteger(indexed.sourceBlockRef.seqno)){
                                     const finalizedEvidence=Object.freeze({
-                                        networkName:"TESTNET",globalId:-3,
+                                        networkName:this._identity.network.toUpperCase(),
+                                        globalId:this._identity.globalId,
                                         transactionId:tx.transactionId,
                                         amountAtomic:amount,
                                         destination:obligation.refundDestination,
