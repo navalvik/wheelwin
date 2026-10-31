@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, readdirSync, mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { durableWriteJson } from '../DurableJson.js';
 /**
  * Connect the authoritative WINNER_DETERMINED result to the existing
@@ -25,13 +25,31 @@ export class TestnetWinnerPayoutCoordinator {
     constructor({
         paymentRuntime, roomManager, playerManager, contextResolver,
         winnerEngine, ownerWalletProvider = () => process.env.OWNER_WALLET,
-        payoutSubmitter = null
+        payoutSubmitter = null, mainnetPayoutEnabled = false
     }) {
-        // Mainnet uses this SAME Testnet payout planner. Until the outgoing
-        // native transfer executor is connected, it may only create a durable
-        // plan and must never accept a submitter.
+        // Mainnet uses the SAME Testnet payout planner, but cannot submit
+        // unless its real transport is connected to the exact same durable
+        // ledger, wallet pool and network-global seqno outbox. The production
+        // Mainnet app leaves this flag false and injects no sender.
         if (paymentRuntime?.network === 'mainnet' && payoutSubmitter !== null) {
-            throw new Error('MAINNET_PAYOUT_SUBMISSION_NOT_ENABLED');
+            if (!mainnetPayoutEnabled) {
+                throw new Error('MAINNET_PAYOUT_SUBMISSION_NOT_ENABLED');
+            }
+            const dataDir = paymentRuntime.networkDataDir;
+            if (!dataDir || payoutSubmitter._network !== 'mainnet'
+                || payoutSubmitter._globalId !== -239
+                || payoutSubmitter._pool !== paymentRuntime.walletPool
+                || payoutSubmitter._ledger !== paymentRuntime.ledger
+                || payoutSubmitter._adapter?.supportsDurableTransferRetry?.() !== true
+                || typeof payoutSubmitter._adapter?._sequenceStateDir !== 'string'
+                || resolve(payoutSubmitter._adapter._sequenceStateDir)
+                    !== resolve(dataDir,'outbound-sequences')
+                || typeof payoutSubmitter._outgoingObserver?.verifyIndexedRecipientCredit !== 'function'
+                || typeof payoutSubmitter._independentVerifier?.verifyTransfer !== 'function'
+                || typeof payoutSubmitter.submit !== 'function'
+                || typeof payoutSubmitter.reconcileAndSettle !== 'function') {
+                throw new Error('MAINNET_PAYOUT_COMPLETE_TRANSPORT_REQUIRED');
+            }
         }
         this._payment = paymentRuntime;
         this._resultsDir = paymentRuntime.networkDataDir ? join(paymentRuntime.networkDataDir, 'payout-results') : null;
