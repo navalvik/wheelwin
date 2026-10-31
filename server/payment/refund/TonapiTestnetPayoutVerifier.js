@@ -69,6 +69,40 @@ export class TonapiTestnetPayoutVerifier {
         } catch {return null;}
         finally {clearTimeout(timeout);}
     }
+    /**
+     * Read-only independent wallet balance observation. This is a different
+     * provider from the RoomWalletAdapter's Toncenter RPC. It does not prove
+     * historical absence of transfers, and is NOT a payout settlement.
+     * Every 429, stale/unknown shape and network mismatch fails closed.
+     */
+    async observeAccountBalance({address}={}) {
+        if(typeof address!=="string"||!address.trim())return null;
+        const controller=new AbortController();
+        const timeout=setTimeout(()=>controller.abort(),this._timeout);
+        try {
+            const token=this._apiKey();
+            const headers={Accept:"application/json"};
+            if(typeof token==="string"&&token.trim())
+                headers.Authorization="Bearer "+token.trim();
+            const url=this._base+"/v2/blockchain/accounts/"+encodeURIComponent(address);
+            const response=await this._fetch(url,{method:"GET",headers,signal:controller.signal});
+            if(response.status!==200)return null;
+            const data=await response.json();
+            if(!data||typeof data!=="object"||Array.isArray(data)
+                ||(data.address && !tonAddressIdentitiesEqual(data.address,address))
+                ||!["active","uninit","uninitialized","frozen","nonexist"].includes(data.status))
+                return null;
+            const balance=nano(data.balance);
+            if(balance===null)return null;
+            return Object.freeze({
+                status:"INDEPENDENT_ACCOUNT_BALANCE_OBSERVED",
+                provider:this._network==="mainnet"?"tonapi-mainnet":"tonapi-testnet",
+                network:this._network,address,balanceAtomic:String(balance),
+                observedAtMs:Date.now()
+            });
+        } catch {return null;}
+        finally {clearTimeout(timeout);}
+    }
     async verifyTransfer({sourceTransactionId,recipientTransactionId,messageHash,
         sourceWalletAddress,destinationAddress,amountAtomic}={}) {
         if(!validHash(sourceTransactionId)||!validHash(recipientTransactionId)
