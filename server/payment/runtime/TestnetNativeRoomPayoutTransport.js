@@ -479,6 +479,74 @@ export class TestnetNativeRoomPayoutTransport {
         });
     }
     /**
+     * Two independently operated sources must agree on a balance below the
+     * OWNER TRANSFER AMOUNT ITSELF. A fee quote is deliberately excluded from
+     * the terminal-candidate threshold: an inaccurate fee forecast cannot
+     * justify writing off somebody's money.
+     *
+     * Both observations are taken after the winner ledger settlement. Even
+     * this corroboration is READ ONLY: it is not a durable, seqno-locked
+     * terminal decision or authority to recycle the wallet.
+     */
+    async corroborateOwnerPrincipalShortfall(query) {
+        const hold=reason=>Object.freeze({
+            status:"OWNER_PRINCIPAL_SHORTFALL_HOLD",reason,
+            payoutId:query?.payoutId??null,terminal:false,walletReleasable:false
+        });
+        const start=Date.now();
+        const first=await this.assessOwnerCommissionGasShortfall(query);
+        if(first?.status!=="OWNER_GAS_SHORTFALL_CANDIDATE_READ_ONLY")
+            return hold(first?.reason??"OWNER_PRINCIPAL_SHORTFALL_NOT_CANDIDATE");
+        const due=BigInt(first.ownerDueAtomic);
+        const amount=BigInt(first.balanceAtomic);
+        if(amount>=due)return hold("OWNER_PRINCIPAL_STILL_FUNDED");
+        if(typeof this._independentVerifier?.observeAccountBalance!=="function")
+            return hold("OWNER_INDEPENDENT_BALANCE_SOURCE_MISSING");
+        let second;
+        try {
+            second=await this._independentVerifier.observeAccountBalance({
+                address:query.roomWalletAddress
+            });
+        } catch {return hold("OWNER_INDEPENDENT_BALANCE_READ_FAILED");}
+        const now=Date.now();
+        if(second?.status!=="INDEPENDENT_ACCOUNT_BALANCE_OBSERVED"
+            ||second.network!==this._network
+            ||second.provider!==(this._network==="mainnet"?"tonapi-mainnet":"tonapi-testnet")
+            ||!Number.isSafeInteger(second.observedAtMs)
+            ||second.observedAtMs<start||second.observedAtMs>now
+            ||now-start>10_000
+            ||typeof second.balanceAtomic!=="string"
+            ||!/^(0|[1-9][0-9]*)$/.test(second.balanceAtomic))
+            return hold("OWNER_INDEPENDENT_BALANCE_UNVERIFIED");
+        try {
+            if(canonical(second.address)!==canonical(query.roomWalletAddress)
+                ||BigInt(second.balanceAtomic)!==amount)
+                return hold("OWNER_BALANCE_SOURCES_DISAGREE");
+        } catch {return hold("OWNER_INDEPENDENT_BALANCE_IDENTITY_INVALID");}
+        // A concurrent OWNER claim can appear while the two providers query.
+        // Recheck after the last RPC. This is not an atomic release barrier.
+        const intent=join(this._dir,query.payoutId+".OWNER.json");
+        const seqDir=this._adapter?._sequenceStateDir;
+        const outbox=typeof seqDir==="string"
+            ?join(seqDir,"transfers",createHash("sha256")
+                .update(query.payoutId+":OWNER").digest("hex")+".json"):null;
+        if(existsSync(intent)||!outbox||existsSync(outbox))
+            return hold("OWNER_OUTBOUND_CLAIM_RACE_OR_AMBIGUITY");
+        return Object.freeze({
+            status:"OWNER_PRINCIPAL_SHORTFALL_CORROBORATED_READ_ONLY",
+            payoutId:query.payoutId,
+            network:this._network,
+            ownerDueAtomic:first.ownerDueAtomic,
+            toncenterBalanceAtomic:first.balanceAtomic,
+            tonapiBalanceAtomic:second.balanceAtomic,
+            tonapiObservedAtMs:second.observedAtMs,
+            estimatedFeeAtomic:first.estimatedFeeAtomic,
+            // Never use an unaudited read-only observation to mark the owner
+            // paid, waive their commission or release a wallet.
+            terminal:false,walletReleasable:false
+        });
+    }
+    /**
      * Mainnet restart recovery uses the ORIGINAL Testnet resumeUnattempted()
      * only when the winner's pre-broadcast intent AND exact signed WalletV4
      * outbox have both survived. A missing ledger/journal/outbox file is not
