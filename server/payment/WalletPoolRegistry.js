@@ -188,14 +188,21 @@ export class WalletPoolRegistry {
     constructor({
         catalogPath = null,
         network = DEFAULT_ROOM_WALLET_NETWORK,
-        logger = null
+        logger = null,
+        env = process.env
     } = {}) {
 
+        if (network !== "testnet" && network !== "mainnet") {
+            throw new PaymentConfigurationError("room wallet network must be testnet or mainnet");
+        }
         this._logger = logger;
-
-        this._catalogPath = catalogPath ?? resolveDefaultRoomWalletCatalogPath();
+        // Mainnet uses the existing Railway ROOM_WALLETS_MAINNET_JSON,
+        // never a fallback to the historical Testnet catalog file.
+        this._catalogPath = catalogPath ?? (network === "testnet"
+            ? resolveDefaultRoomWalletCatalogPath() : null);
 
         this._network = network;
+        this._env = env;
 
         /** @type {Map<string, RoomWallet>} keyed by walletId */
         this._wallets = new Map();
@@ -276,12 +283,15 @@ export class WalletPoolRegistry {
 
     _loadCatalog() {
 
-        // Railway keeps the 64-wallet Testnet catalog in Variables, not in
-        // Git. Prefer the existing local catalog for compatibility; otherwise
-        // read the variable directly without writing wallet secrets to disk.
-        const hasCatalogFile = existsSync(this._catalogPath);
-        const configuredCatalog = process.env.ROOM_WALLETS_TESTNET_JSON
-            || process.env.ROOM_WALLETS_JSON;
+        // Use the SAME 64-wallet catalog parser and reservation rules for
+        // both networks. Testnet retains its original env/file fallback.
+        // Mainnet has exactly one source: ROOM_WALLETS_MAINNET_JSON, and
+        // must never fall back to a Testnet catalog or secrets on disk.
+        const hasCatalogFile = this._network === "testnet"
+            && Boolean(this._catalogPath) && existsSync(this._catalogPath);
+        const configuredCatalog = this._network === "mainnet"
+            ? this._env.ROOM_WALLETS_MAINNET_JSON
+            : this._env.ROOM_WALLETS_TESTNET_JSON || this._env.ROOM_WALLETS_JSON;
 
         if (!hasCatalogFile && !configuredCatalog) {
 
@@ -344,6 +354,12 @@ export class WalletPoolRegistry {
                 workchain: entry.workchain ?? 0,
                 network: entry.network ?? this._network
             });
+
+            // Mainnet catalog contents must be Mainnet-only. Testnet's
+            // existing legacy catalog validation remains unchanged.
+            if (this._network === "mainnet" && wallet.network !== "mainnet") {
+                throw new PaymentConfigurationError("mainnet catalog contains a non-mainnet wallet");
+            }
 
             if (byId.has(wallet.walletId)) {
 
