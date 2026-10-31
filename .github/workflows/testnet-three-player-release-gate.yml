@@ -6,6 +6,28 @@ on:
   pull_request:
     paths:
       - 'server/payment/**'
+      - 'server/app.js'
+      - 'server/socket/RoomLobbyBridge.js'
+      - 'server/tests/mainnetToncenterTestnetParity.test.js'
+      - 'server/tests/mainnetTestnetRefundParity.test.js'
+      - 'server/tests/mainnetTestnetIncomingReceiptParity.test.js'
+      - 'server/tests/mainnetTestnetWalletPoolParity.test.js'
+      - 'server/tests/mainnetSharedPaymentRuntimePreparation.test.js'
+      - 'server/tests/mainnetTestnetOutgoingParity.test.js'
+      - 'server/tests/mainnetNativeRoomPayoutParity.test.js'
+      - 'server/tests/mainnetCrossRoomSeqnoRegression.test.js'
+      - 'server/tests/mainnetSharedRefundPayoutOutbox.test.js'
+      - 'server/tests/mainnetReadOnlyFinancialRecoveryParity.test.js'
+      - 'server/tests/mainnetOfflineFullFinanceReadiness.test.js'
+      - 'server/tests/mainnetRefundLifecycleCapabilityParity.test.js'
+      - 'server/tests/mainnetWinnerPayoutLifecycleParity.test.js'
+      - 'server/tests/mainnetFinancialReleaseReadinessGate.test.js'
+      - 'server/tests/mainnetTestnetSharedIncomingFactory.test.js'
+      - 'server/tests/mainnetSharedRuntimeReleaseIntegration.test.js'
+      - 'server/tests/mainnetHistoricalIncomingReceiptParity.test.js'
+      - 'server/tests/mainnetAppReadOnlyFinancialRecovery.test.js'
+      - 'server/tests/mainnetNativeFinancialAppBootstrap.test.js'
+      - 'server/tests/mainnetPage4LiveEnvIsolation.test.js'
       - 'server/forensic/**'
       - 'server/history/**'
       - 'server/socket/**'
@@ -35,6 +57,8 @@ jobs:
       - run: npm ci
       - name: Validate changed financial modules
         run: |
+          node --check app.js
+          node --check socket/RoomLobbyBridge.js
           node --check payment/runtime/HistoricalIncomingReceiptReconciler.js
           node --check payment/WalletPoolRegistry.js
           node --check socket/RoomLobbyBridge.js
@@ -42,6 +66,22 @@ jobs:
           node --check forensic/R2ForensicArchiveUploader.js
       - name: Deterministic payment and 3/3 gate regressions
         run: node --test tests/payment/*.test.js tests/paymentReconciliationDefects.test.js tests/paymentHistoricalCrossRoom.test.js tests/paymentObservationWithoutAcknowledgement.test.js tests/paymentThreePlayerGate.test.js tests/paymentLedgerPayout.phase4.test.js tests/restoredR2ArchiveRoomClose.test.js
+  toncenter_network_parity:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+      - name: Shared Testnet and Mainnet Toncenter payment confirmation regressions
+        run: node --test tests/mainnetToncenterTestnetParity.test.js tests/mainnetTestnetRefundParity.test.js tests/mainnetTestnetIncomingReceiptParity.test.js tests/mainnetTestnetWalletPoolParity.test.js tests/mainnetSharedPaymentRuntimePreparation.test.js tests/mainnetTestnetOutgoingParity.test.js tests/mainnetNativeRoomPayoutParity.test.js tests/mainnetCrossRoomSeqnoRegression.test.js tests/mainnetSharedRefundPayoutOutbox.test.js tests/mainnetReadOnlyFinancialRecoveryParity.test.js tests/mainnetOfflineFullFinanceReadiness.test.js tests/mainnetRefundLifecycleCapabilityParity.test.js tests/mainnetWinnerPayoutLifecycleParity.test.js tests/mainnetFinancialReleaseReadinessGate.test.js tests/mainnetTestnetSharedIncomingFactory.test.js tests/mainnetSharedRuntimeReleaseIntegration.test.js tests/mainnetHistoricalIncomingReceiptParity.test.js tests/mainnetAppReadOnlyFinancialRecovery.test.js tests/mainnetNativeFinancialAppBootstrap.test.js tests/mainnetPage4LiveEnvIsolation.test.js tests/paymentHistoricalCrossRoom.test.js tests/payment/testnetPendingRefundReconciler.test.js tests/payment/testnetPendingPayoutReconciler.test.js tests/payment/nativeRoomRefundIntegration.test.js tests/payment/legacyRoomWalletV4.test.js tests/payment/durablePayoutBroadcast.test.js tests/payment/testnetNativeRoomPayoutTransport.test.js tests/payment/testnetWinnerPayoutCoordinator.test.js tests/payment/incomingReceiptAccounting.test.js tests/refundLifecycle.test.js tests/page4IndexedFinality.test.js
+
   client:
     runs-on: ubuntu-latest
     defaults:

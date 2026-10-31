@@ -256,9 +256,13 @@ export class RoomPaymentSessionAdapter {
     #ledger;
     #manifestStore;
     #nowProvider;
+    #mainnetPreparationEnabled;
+    #mainnetFinancialReadinessProvider;
     #sessions = new Map();
 
-    constructor({ paymentService, coordinator, ledger, manifestStore, nowProvider = Date.now } = {}) {
+    constructor({ paymentService, coordinator, ledger, manifestStore, nowProvider = Date.now,
+        mainnetPreparationEnabled = false,
+        mainnetFinancialReadinessProvider = null } = {}) {
         if (!(paymentService instanceof RoomWalletPaymentService)) {
             throw new RoomPaymentSessionValidationError(
                 "paymentService must be a RoomWalletPaymentService instance"
@@ -297,6 +301,15 @@ export class RoomPaymentSessionAdapter {
         }
         this.#manifestStore = manifestStore;
         this.#nowProvider = nowProvider;
+        this.#mainnetPreparationEnabled = mainnetPreparationEnabled === true && ledger.network === "mainnet";
+        if (mainnetFinancialReadinessProvider !== null
+            && typeof mainnetFinancialReadinessProvider !== "function") {
+            throw new RoomPaymentSessionValidationError(
+                "Mainnet financial readiness must be a server-owned callback"
+            );
+        }
+        this.#mainnetFinancialReadinessProvider =
+            ledger.network === "mainnet" ? mainnetFinancialReadinessProvider : null;
     }
 
     /**
@@ -318,7 +331,7 @@ export class RoomPaymentSessionAdapter {
         }
 
         const network = nonEmptyString(input.network, "network").toLowerCase();
-        if (network === "mainnet") {
+        if (network === "mainnet" && !this.#mainnetPreparationEnabled) {
             fail("mainnet room payments are not supported by the configured incoming provider", {
                 network
             });
@@ -632,6 +645,12 @@ export class RoomPaymentSessionAdapter {
         if (!session) {
             fail("room must be prepared by this adapter before observation", { roomId });
         }
+        // This Mainnet entrypoint currently prepares only durable Page4
+        // requirements. Never settle a stake before outgoing refunds/payouts
+        // use the same complete Testnet financial lifecycle.
+        if (session.network === "mainnet" && !this.#mainnetFinancialReady()) {
+            fail("mainnet settlement is not yet enabled", { roomId });
+        }
 
         // Exactly one coordinator entry point call; no loop, retry, or polling.
         const report = await this.#coordinator.settleRoomPayments({
@@ -770,6 +789,9 @@ export class RoomPaymentSessionAdapter {
      * The roster must come from the server's authoritative room record.
      */
     getGameStartGateStatus(roomId, roomPlayerIds) {
+        if (this.#ledger.network === "mainnet" && !this.#mainnetFinancialReady()) {
+            return Object.freeze({ eligible: false, reason: "mainnet_settlement_not_enabled" });
+        }
         const session = this.#sessions.get(roomId);
         if (!session) {
             return Object.freeze({ eligible: false, reason: "payment_session_missing" });
@@ -825,6 +847,16 @@ export class RoomPaymentSessionAdapter {
             principalEntries,
             nowMs: this.#nowProvider()
         });
+    }
+
+    #mainnetFinancialReady() {
+        try {
+            return this.#mainnetFinancialReadinessProvider?.()?.ready === true;
+        } catch {
+            // A failed or unavailable financial preflight cannot authorize
+            // either incoming Mainnet payment settlement or game start.
+            return false;
+        }
     }
 
     #sameSession(left, right) {

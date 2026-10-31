@@ -60,6 +60,8 @@
  * instead of claiming that a payment does not exist.
  */
 
+import { requireToncenterChainConfig } from "./ToncenterConstants.js";
+
 import {
     TONCENTER_ASSET,
     TONCENTER_NETWORK,
@@ -282,9 +284,11 @@ export function mapToncenterTransactionsResponse(payload, {
     destinationWalletId = null,
     floorMs,
     ceilingMs,
-    limit
+    limit,
+    network = TONCENTER_NETWORK
 }) {
 
+    requireToncenterChainConfig(network);
     assertEnvelope(payload);
 
     const rows = payload.transactions;
@@ -443,7 +447,7 @@ export function mapToncenterTransactionsResponse(payload, {
         const comment = extractPaymentReferenceComment(message);
 
         records.push(Object.freeze({
-            network: TONCENTER_NETWORK,
+            network,
             accountId: walletAddressTrimmed,
             transactionId: transaction.hash,
             transactionTime: transactionTimeMs,

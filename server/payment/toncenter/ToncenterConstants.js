@@ -22,6 +22,23 @@
 /** Official Toncenter Testnet base URL. */
 export const TONCENTER_TESTNET_BASE_URL = "https://testnet.toncenter.com";
 
+/** Mainnet uses the same Toncenter v3 transport and finality checks. */
+export const TONCENTER_MAINNET_BASE_URL = "https://toncenter.com";
+
+export const TONCENTER_CHAIN_CONFIG = Object.freeze({
+    testnet: Object.freeze({network:"testnet",globalId:-3,baseUrl:TONCENTER_TESTNET_BASE_URL}),
+    mainnet: Object.freeze({network:"mainnet",globalId:-239,baseUrl:TONCENTER_MAINNET_BASE_URL})
+});
+
+/** Explicit network identity. Never guess Mainnet from wallet formatting. */
+export function requireToncenterChainConfig(network) {
+    if (typeof network !== "string" || !Object.hasOwn(TONCENTER_CHAIN_CONFIG,network)) {
+        throw new Error("TONCENTER_NETWORK_REQUIRED");
+    }
+    return TONCENTER_CHAIN_CONFIG[network];
+}
+
+
 /** Documented v3 transactions path. */
 export const TONCENTER_TRANSACTIONS_PATH = "/api/v3/transactions";
 

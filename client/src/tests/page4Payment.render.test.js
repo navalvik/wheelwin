@@ -49,6 +49,10 @@ try {
 
     assert.match(html, /PAYMENT/,
         "Page4 renders the payment page heading");
+    assert.match(html, /NETWORK UNVERIFIED/,
+        "Page4 does not falsely label a not-yet-confirmed network as Testnet");
+    assert.doesNotMatch(html, /YOUR NICKNAME:[^<]*TESTNET/,
+        "Page4 must not hardcode Testnet before a server payment status arrives");
     assert.match(html, /Payments are unavailable\. Do not send GRAM to any room wallet\./,
         "Page4 explains why payment is unavailable");
     assert.doesNotMatch(html, /Room wallet:|Transfer comment:|CHECK PAYMENT|CONNECT TESTNET WALLET/,

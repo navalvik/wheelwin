@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, openSync, closeSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { durableWriteJson } from '../DurableJson.js';
@@ -452,14 +452,35 @@ export class RoomWalletAdapter {
      */
     _enqueueOutbound(addressKey, task) {
         const previous = this._outboundQueues.get(addressKey) ?? Promise.resolve();
-        const run = previous.then(() => task());
-        this._outboundQueues.set(
-            addressKey,
-            run.then(
-                () => {},
-                () => {}
-            )
-        );
+        const run = previous.then(async () => {
+            // The in-memory queue protects one adapter instance; two server
+            // processes or separate adapters can otherwise sign the SAME
+            // on-chain seqno before either writes its durable hold.
+            // Atomic O_EXCL creation is the cross-instance single-writer gate.
+            // A crash may leave a stale lock: deliberately FAIL CLOSED until
+            // an administrator has examined the chain and durable outbox.
+            const sequencePath = this._sequencePath(addressKey);
+            if (!sequencePath) return task();
+            mkdirSync(this._sequenceStateDir, {recursive:true, mode:0o700});
+            const lockPath = sequencePath + '.lock';
+            let fd;
+            try {
+                fd = openSync(lockPath, 'wx', 0o600);
+            } catch (error) {
+                if (error?.code === 'EEXIST')
+                    throw new Error('OUTBOUND_WALLET_WRITER_LOCKED');
+                throw error;
+            }
+            try {
+                return await task();
+            } finally {
+                // Never unlock when we cannot prove ownership of the file.
+                // The exclusive handle was obtained in THIS invocation.
+                closeSync(fd);
+                unlinkSync(lockPath);
+            }
+        });
+        this._outboundQueues.set(addressKey, run.then(() => {}, () => {}));
         return run;
     }
 

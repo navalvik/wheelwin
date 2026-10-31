@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, readdirSync, mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { durableWriteJson } from '../DurableJson.js';
 /**
  * Connect the authoritative WINNER_DETERMINED result to the existing
@@ -25,8 +25,32 @@ export class TestnetWinnerPayoutCoordinator {
     constructor({
         paymentRuntime, roomManager, playerManager, contextResolver,
         winnerEngine, ownerWalletProvider = () => process.env.OWNER_WALLET,
-        payoutSubmitter = null
+        payoutSubmitter = null, mainnetPayoutEnabled = false
     }) {
+        // Mainnet uses the SAME Testnet payout planner, but cannot submit
+        // unless its real transport is connected to the exact same durable
+        // ledger, wallet pool and network-global seqno outbox. The production
+        // Mainnet app leaves this flag false and injects no sender.
+        if (paymentRuntime?.network === 'mainnet' && payoutSubmitter !== null) {
+            if (!mainnetPayoutEnabled) {
+                throw new Error('MAINNET_PAYOUT_SUBMISSION_NOT_ENABLED');
+            }
+            const dataDir = paymentRuntime.networkDataDir;
+            if (!dataDir || payoutSubmitter._network !== 'mainnet'
+                || payoutSubmitter._globalId !== -239
+                || payoutSubmitter._pool !== paymentRuntime.walletPool
+                || payoutSubmitter._ledger !== paymentRuntime.ledger
+                || payoutSubmitter._adapter?.supportsDurableTransferRetry?.() !== true
+                || typeof payoutSubmitter._adapter?._sequenceStateDir !== 'string'
+                || resolve(payoutSubmitter._adapter._sequenceStateDir)
+                    !== resolve(dataDir,'outbound-sequences')
+                || typeof payoutSubmitter._outgoingObserver?.verifyIndexedRecipientCredit !== 'function'
+                || typeof payoutSubmitter._independentVerifier?.verifyTransfer !== 'function'
+                || typeof payoutSubmitter.submit !== 'function'
+                || typeof payoutSubmitter.reconcileAndSettle !== 'function') {
+                throw new Error('MAINNET_PAYOUT_COMPLETE_TRANSPORT_REQUIRED');
+            }
+        }
         this._payment = paymentRuntime;
         this._resultsDir = paymentRuntime.networkDataDir ? join(paymentRuntime.networkDataDir, 'payout-results') : null;
         if (this._resultsDir) mkdirSync(this._resultsDir, {recursive: true});
@@ -57,6 +81,7 @@ export class TestnetWinnerPayoutCoordinator {
             && new Set(intents.map(x => x.playerId)).size === 3
             && room.players.every(id => intents.some(x => x.playerId === id
                 && x.state === PAYMENT_INTENT_STATE.SETTLED
+                && (this._payment?.network !== 'mainnet' || x.network === 'mainnet')
                 && typeof x.transactionId === "string"
                 && x.transactionId.length > 0)),
             "PAYOUT_THREE_SETTLED_PAYMENTS_REQUIRED");
@@ -74,7 +99,8 @@ export class TestnetWinnerPayoutCoordinator {
         ensure(ownerWallet !== winnerWallet, "PAYOUT_OWNER_WINNER_SAME_WALLET");
         const roomWallet = this._payment.walletPool.getReservationForRoom(roomId);
         ensure(roomWallet?.reservedByRoomId === roomId
-            && roomWallet.roomNumber !== 1
+            && (this._payment?.network === 'mainnet' || roomWallet.roomNumber !== 1)
+            && (this._payment?.network !== 'mainnet' || roomWallet.network === 'mainnet')
             && validAddress(roomWallet.address) !== ownerWallet
             && validAddress(roomWallet.address) !== winnerWallet,
             "PAYOUT_ROOM_WALLET_UNAVAILABLE");
@@ -134,8 +160,12 @@ export class TestnetWinnerPayoutCoordinator {
         if (payout.replay) {
             // A repeated result can ONLY observe the previous payout.
             // Its ledger identity remains the same and no send is retried.
-            const readOnlyReconcile=this._submitter?.resumeUnattempted
-                ?? this._submitter?.reconcileAndSettle ?? this._submitter?.reconcile;
+            // A repeated Mainnet result must NEVER resume sends. The
+            // existing Testnet restart path is retained unchanged.
+            const readOnlyReconcile=this._payment?.network === 'mainnet'
+                ? (this._submitter?.reconcileAndSettle ?? this._submitter?.reconcile)
+                : (this._submitter?.resumeUnattempted
+                    ?? this._submitter?.reconcileAndSettle ?? this._submitter?.reconcile);
             if (typeof readOnlyReconcile === "function") {
                 return readOnlyReconcile.call(this._submitter,{
                     roomId,payoutId,roomWalletAddress:roomWallet.address,

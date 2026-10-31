@@ -1,6 +1,12 @@
 import { createHash, randomBytes } from "node:crypto";
 
 export const REFUND_NETWORK = Object.freeze({ TESTNET: "TESTNET", MAINNET: "MAINNET" });
+/** Same refund model in both networks; no Mainnet sender is enabled here. */
+export const REFUND_GLOBAL_ID_BY_NETWORK = Object.freeze({
+    [REFUND_NETWORK.TESTNET]: -3,
+    [REFUND_NETWORK.MAINNET]: -239
+});
+
 export const REFUND_STATE = Object.freeze({
     PENDING: "PENDING",
     SUBMISSION_UNKNOWN: "SUBMISSION_UNKNOWN",
@@ -47,7 +53,11 @@ export class RefundObligation {
         this.networkName = text(record.networkName, "networkName");
         if (!Object.values(REFUND_NETWORK).includes(this.networkName)) throw new RefundObligationError("unsupported networkName");
         if (!Number.isSafeInteger(record.globalId)) throw new RefundObligationError("globalId must be a safe integer");
-        if (this.networkName === REFUND_NETWORK.TESTNET && record.globalId !== -3) throw new RefundObligationError("Testnet globalId must be -3");
+        if (record.globalId !== REFUND_GLOBAL_ID_BY_NETWORK[this.networkName]) {
+            throw new RefundObligationError(this.networkName === REFUND_NETWORK.TESTNET
+                ? "Testnet globalId must be -3"
+                : "Mainnet globalId must be -239");
+        }
         this.globalId = record.globalId;
         this.roomNumber = record.roomNumber;
         if (!Number.isSafeInteger(this.roomNumber) || this.roomNumber < 1) throw new RefundObligationError("roomNumber must be a positive integer");

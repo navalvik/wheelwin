@@ -13,6 +13,7 @@
  */
 
 import { PaymentValidationError } from "../PaymentErrors.js";
+import { requireToncenterChainConfig } from "../toncenter/ToncenterConstants.js";
 
 export const TON_TESTNET_GLOBAL_ID = -3;
 
@@ -45,7 +46,7 @@ function isRecord(value) {
  */
 export function assessTonPaymentSettlementEvidence(
     evidence,
-    { transactionId, accountId, nowMs }
+    { transactionId, accountId, nowMs, network = "testnet" }
 ) {
     if (!isRecord(evidence)
         || !isRecord(evidence.networkIdentity)
@@ -57,9 +58,16 @@ export function assessTonPaymentSettlementEvidence(
         return Object.freeze({ authorized: false, reason: "MALFORMED_EVIDENCE" });
     }
 
+    const expected = (() => {
+        try { return requireToncenterChainConfig(network); }
+        catch { return null; }
+    })();
+    if (!expected) {
+        return Object.freeze({authorized:false,reason:"NETWORK_IDENTITY_UNVERIFIED"});
+    }
     const { networkIdentity, transactionInclusion, finality } = evidence;
-    if (networkIdentity.globalId !== TON_TESTNET_GLOBAL_ID
-        || networkIdentity.network !== "testnet"
+    if (networkIdentity.globalId !== expected.globalId
+        || networkIdentity.network !== expected.network
         || networkIdentity.source !== "toncenter-masterchain-info"
         || !Number.isSafeInteger(networkIdentity.observedAtMs)) {
         return Object.freeze({ authorized: false, reason: "NETWORK_IDENTITY_UNVERIFIED" });
@@ -99,7 +107,9 @@ export function assessTonPaymentSettlementEvidence(
 
     return Object.freeze({
         authorized: true,
-        policyId: TON_SETTLEMENT_EVIDENCE_POLICY.id
+        policyId: network === "testnet"
+            ? TON_SETTLEMENT_EVIDENCE_POLICY.id
+            : "ton-mainnet-masterchain-finalized-v1"
     });
 }
 

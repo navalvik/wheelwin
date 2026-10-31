@@ -6,6 +6,7 @@
  * transferred nanotons, and the enclosing source transaction hash.
  */
 import {tonAddressIdentitiesEqual,tonAddressIdentityOrNull} from "../incoming/TonAddressIdentity.js";
+import {requireToncenterChainConfig} from "../toncenter/ToncenterConstants.js";
 
 function parseAmount(value) {
     if(typeof value!=="string"||!/^(0|[1-9][0-9]*)$/.test(value))return null;
@@ -36,7 +37,15 @@ function mapOutputs(row,sourceWalletAddress) {
 }
 export class ToncenterTestnetOutgoingTransferProvider {
     constructor({client,nowProvider=Date.now,lookbackMs=7*24*60*60*1000,
-        pageSize=1000,maxPages=5}={}) {
+        pageSize=1000,maxPages=5,network="testnet"}={}) {
+        const chain=requireToncenterChainConfig(network);
+        if(network==="mainnet") {
+            let url;
+            try {url=new URL(client?.baseUrl);}catch{}
+            if(!url || url.origin!==chain.baseUrl || url.pathname!=="/"
+                || url.search || url.hash || url.username || url.password)
+                throw new TypeError("Mainnet outgoing observer requires matching Toncenter endpoint");
+        }
         if(typeof client?.getTransactions!=="function"
             ||typeof nowProvider!=="function"
             ||!Number.isSafeInteger(lookbackMs)||lookbackMs<=0
@@ -44,6 +53,7 @@ export class ToncenterTestnetOutgoingTransferProvider {
             ||!Number.isSafeInteger(maxPages)||maxPages<1||maxPages>50)
             throw new TypeError("Testnet outgoing history provider requires bounded read-only client");
         this._client=client;
+        this._chain=chain;
         this._now=nowProvider;
         this._window=lookbackMs;
         this._pageSize=pageSize;
@@ -192,7 +202,7 @@ export class ToncenterTestnetOutgoingTransferProvider {
 
         const info = await this._client.getMasterchainInfo();
         const latest = info?.last;
-        if (latest?.global_id !== -3
+        if (latest?.global_id !== this._chain.globalId
             || !Number.isSafeInteger(latest.seqno)
             || latest.seqno <= observed.sourceIndex.mcBlockSeqno
             || latest.seqno <= observed.recipientIndex.mcBlockSeqno)
@@ -211,7 +221,7 @@ export class ToncenterTestnetOutgoingTransferProvider {
             sourceBlockRef: Object.freeze({...observed.sourceIndex.blockRef}),
             recipientBlockRef: Object.freeze({...observed.recipientIndex.blockRef}),
             latestIndexedMcBlockSeqno: latest.seqno,
-            globalId: -3,
+            globalId: this._chain.globalId,
             sourceFinality: "finalized",
             recipientFinality: "finalized"
         });

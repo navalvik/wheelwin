@@ -44,6 +44,8 @@ import {
 } from "../WalletPoolRegistry.js";
 import { IncomingPaymentSettlementCoordinator } from "../incoming/IncomingPaymentSettlementCoordinator.js";
 import { ToncenterIndexedFinalityEvidenceProvider } from "../toncenter/ToncenterIndexedFinalityEvidenceProvider.js";
+import { requireToncenterChainConfig } from "../toncenter/ToncenterConstants.js";
+import { mapToncenterTransactionsResponse } from "../toncenter/ToncenterTransactionsMapper.js";
 import {
     CurrencyMapping,
     LedgerStore,
@@ -63,6 +65,7 @@ import {
 import { RoomPaymentSessionAdapter } from "./RoomPaymentSessionAdapter.js";
 import { countUnsettledRoomFinancialObligations } from "./countUnsettledRoomFinancialObligations.js";
 import { LIVE_PAYMENT_ACCEPTANCE_ENABLED } from "../PaymentLifecycleAvailability.js";
+import { assessMainnetFinancialReleaseReadiness } from "./MainnetFinancialReleaseReadiness.js";
 
 const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
 
@@ -138,30 +141,37 @@ function validateNanoTonUnits(value, label) {
  * @returns {import("../refund/TestnetOutgoingRefundProvider.js").TestnetOutgoingRefundProvider|null}
  */
 export function buildTestnetOutgoingRefundProvider({ submitter, globalId, finalityEvidenceProvider }) {
+    return buildNetworkOutgoingRefundProvider({
+        submitter,globalId,finalityEvidenceProvider,network:"testnet"
+    });
+}
 
-    if (!submitter || globalId !== TON_TESTNET_GLOBAL_ID) {
-
-        return null;
-
-    }
-
+/**
+ * Use the existing native outgoing provider for either TON network.
+ * This is a capability assembler only: it creates no signer, reads no secrets,
+ * and has no ability to enable Mainnet acceptance or game start. The app's
+ * Mainnet runtime deliberately does not call it until release activation.
+ */
+export function buildNetworkOutgoingRefundProvider({
+    submitter,globalId,finalityEvidenceProvider,network
+}={}) {
+    const chain = requireToncenterChainConfig(network);
+    if (!submitter || globalId !== chain.globalId) return null;
     let provider;
     try {
         provider = new TestnetOutgoingRefundProvider({
+            networkName: network.toUpperCase(),
             globalId,
             signer: submitter.signer ?? null,
             broadcaster: submitter.broadcaster ?? null,
-            finalityEvidenceProvider: submitter.finalityEvidenceProvider ?? finalityEvidenceProvider ?? null,
+            finalityEvidenceProvider: submitter.finalityEvidenceProvider
+                ?? finalityEvidenceProvider ?? null,
             outgoingTransferProvider: submitter.outgoingTransferProvider ?? null
         });
     } catch {
-        // A non-Testnet or malformed bundle fails closed to "disabled".
         return null;
     }
-
-    // Only a fully-capable Testnet provider is exposed; otherwise stay disabled.
     return provider.canExecute() ? provider : null;
-
 }
 
 /**
@@ -181,21 +191,86 @@ export function buildTestnetOutgoingRefundProvider({ submitter, globalId, finali
  * }} [options]
  */
 export function buildPaymentRuntime(options = {}) {
+    return assemblePaymentRuntime(options, false);
+}
 
+/**
+ * Explicit Mainnet preparation entrypoint backed by EXACTLY the Testnet
+ * payment runtime and stores. The production app does not call this entrypoint.
+ * Until the native outgoing lifecycle is ported, Page4 settlement, Page5,
+ * refunds and payouts remain disabled. No signer or network fallback.
+ */
+export function buildMainnetPaymentRuntime(options = {}) {
+    if (options.network !== undefined && options.network !== "mainnet") {
+        throw new Error("MAINNET_RUNTIME_REQUIRES_EXPLICIT_MAINNET");
+    }
+    const release=options.mainnetFinancialRelease ?? null;
+    // An explicit server-only release must supply both the original refund
+    // submitter and full native payout/recovery dependencies for verification.
+    // An arbitrary "ready" boolean is not accepted.
+    if (options.refundSubmitter != null || options.refundSubmitterFactory != null
+        || options.settlementEvidenceProvider != null
+        || (release!==null
+            && (typeof release!=="object"
+                || typeof release.createRefundSubmitter!=="function"
+                || typeof release.resolveDependencies!=="function"))) {
+        throw new Error("MAINNET_RUNTIME_FINANCIAL_INJECTION_DISABLED");
+    }
+    return assemblePaymentRuntime({
+        ...options,network:"mainnet",
+        refundSubmitterFactory:release?.createRefundSubmitter ?? null
+    },true);
+}
+
+/**
+ * Select the EXISTING shared runtime for the server's configured TON network.
+ * The Mainnet route is preparation-only: requesting live entry acceptance
+ * must be rejected instead of silently ignoring ROOM_WALLET_PAYMENTS_ENABLED.
+ * No new financial engine or Mainnet signer is constructed.
+ */
+export function selectAppPaymentRuntimeBuilder({
+    tonNetwork = null,
+    roomWalletPaymentsEnabled = false,
+    mainnetNativeReleaseEnabled = false
+} = {}) {
+    const network = String(tonNetwork ?? "testnet").trim().toLowerCase();
+    if (network === "mainnet") {
+        // Two explicit, independent server switches are required; the
+        // existing Testnet opt-in must never activate Mainnet by itself.
+        if (roomWalletPaymentsEnabled === true
+            && mainnetNativeReleaseEnabled !== true) {
+            throw new Error("MAINNET_LIVE_PAYMENT_ACCEPTANCE_NOT_ENABLED");
+        }
+        if (mainnetNativeReleaseEnabled === true
+            && roomWalletPaymentsEnabled !== true) {
+            throw new Error("MAINNET_RELEASE_REQUIRES_PAYMENT_OPT_IN");
+        }
+        return buildMainnetPaymentRuntime;
+    }
+    if (network !== "testnet") {
+        throw new Error("APP_ROOM_WALLET_NETWORK_UNSUPPORTED");
+    }
+    return buildPaymentRuntime;
+}
+
+function assemblePaymentRuntime(options, mainnetPreparationOnly) {
     const {
         dataDir = resolveDefaultRoomWalletPaymentDataDir(),
         network = SUPPORTED_PAYMENT_NETWORK,
-        walletCatalogPath = resolveDefaultRoomWalletCatalogPath(),
+        walletCatalogPath = mainnetPreparationOnly ? null : resolveDefaultRoomWalletCatalogPath(),
         nowProvider = Date.now,
         logger = null,
         fetchImpl = globalThis.fetch,
         settlementEvidenceProvider = null,
         refundSubmitter = null,
-        refundSubmitterFactory = null
+        refundSubmitterFactory = null,
+        mainnetFinancialRelease = null
     } = options;
 
     // R — network identity is enforced before any store or provider exists.
-    const identity = assertTestnetNetworkIdentity(network);
+    const identity = mainnetPreparationOnly
+        ? requireToncenterChainConfig(network)
+        : assertTestnetNetworkIdentity(network);
 
     validateNanoTonUnits(NANOTONS_PER_TON, "NANOTONS_PER_TON");
 
@@ -234,19 +309,34 @@ export function buildPaymentRuntime(options = {}) {
     // session opened after the payment. Leave outgoing refund verification
     // on its existing provider; this change affects incoming stakes only.
     const client = new ToncenterTransactionsClient({
+        baseUrl: requireToncenterChainConfig(identity.network).baseUrl,
         fetchImpl,
         apiKeyProvider: options.apiKeyProvider
     });
 
     const incomingEvidenceProvider = settlementEvidenceProvider
-        ?? new ToncenterIndexedFinalityEvidenceProvider({ client, nowProvider });
-    // Do not change established refund/payout finality behavior.
-    const outgoingEvidenceProvider = settlementEvidenceProvider
-        ?? new ToncenterFinalityEvidenceProvider({ client, nowProvider });
+        ?? new ToncenterIndexedFinalityEvidenceProvider({
+            client, nowProvider, network: identity.network
+        });
+    // Existing Testnet outgoing finality is untouched. Mainnet never builds
+    // an outgoing signer or Testnet-only finality provider.
+    const outgoingEvidenceProvider = mainnetPreparationOnly ? null
+        : settlementEvidenceProvider
+            ?? new ToncenterFinalityEvidenceProvider({ client, nowProvider });
 
+    // Testnet and Mainnet use EXACTLY the same native TON incoming path.
+    // The endpoint and chain identity are the only network parameters.
+    const incomingProvider = new ToncenterIncomingProvider({
+        client,
+        mapper: (payload, window) =>
+            mapToncenterTransactionsResponse(payload, {
+                ...window, network: identity.network
+            })
+    });
     const observationService = new RoomPaymentObservationService({
-        provider: new ToncenterIncomingProvider({ client }),
+        provider: incomingProvider,
         settlementEvidenceProvider: incomingEvidenceProvider,
+        network: identity.network,
         nowProvider
     });
 
@@ -269,18 +359,22 @@ export function buildPaymentRuntime(options = {}) {
             walletPool,networkDataDir,network:identity.network,
             globalId:identity.globalId
         }));
-    const outgoingRefundProvider = buildTestnetOutgoingRefundProvider({
+    const outgoingRefundProvider = buildNetworkOutgoingRefundProvider({
+        network:identity.network,
         submitter: nativeRefundSubmitter,
         globalId: identity.globalId,
         finalityEvidenceProvider: outgoingEvidenceProvider
     });
+    if(mainnetFinancialRelease && (outgoingRefundProvider?.canExecute?.()!==true
+        || outgoingRefundProvider.canPrepareRefundTransfer?.()!==true))
+        throw new Error("MAINNET_RELEASE_REFUND_EXECUTOR_UNAVAILABLE");
 
     // The public room-wallet registry must account for outstanding prize
     // and refund debts, not merely PENDING/MATCHED incoming intents. The
     // callback is evaluated only after both durable financial stores load.
     let ledger = null;
     let refundStore = null;
-    const receiptStore = new IncomingReceiptStore({ dataDir: networkDataDir });
+    const receiptStore = new IncomingReceiptStore({ dataDir: networkDataDir, network: identity.network });
     const paymentForensicJournal = new PaymentForensicJournal({ dataDir: networkDataDir });
     let receiptAccounting = null;
     const financialObligationCountProvider = roomId =>
@@ -327,7 +421,7 @@ export function buildPaymentRuntime(options = {}) {
         dataDir: join(networkDataDir, "refunds"),
         logger
     });
-    receiptAccounting = new IncomingReceiptAccounting({store: receiptStore, intentStore, refundStore, nowProvider});
+    receiptAccounting = new IncomingReceiptAccounting({store: receiptStore, intentStore, refundStore, nowProvider, network: identity.network});
 
     const refundLifecycle = new RefundLifecycleCoordinator({
         store: refundStore,
@@ -336,15 +430,35 @@ export function buildPaymentRuntime(options = {}) {
         ledgerStore,
         nowProvider,
         logger,
-        outgoingRefundProvider
+        outgoingRefundProvider,
+        networkName: identity.network.toUpperCase(),
+        mainnetOutgoingEnabled:mainnetFinancialRelease!==null
     });
+
+    let runtimeForRelease=null;
+    const mainnetFinancialReadinessProvider=mainnetFinancialRelease===null
+        ? null
+        : ()=>{
+            try {
+                if(!runtimeForRelease?.initialized)
+                    return Object.freeze({ready:false,reason:"MAINNET_RUNTIME_NOT_INITIALIZED"});
+                const dependencies=mainnetFinancialRelease.resolveDependencies(runtimeForRelease);
+                return assessMainnetFinancialReleaseReadiness({
+                    ...(dependencies??{}),runtime:runtimeForRelease,outgoingRefundProvider
+                });
+            }catch{
+                return Object.freeze({ready:false,reason:"MAINNET_RELEASE_DEPENDENCIES_UNAVAILABLE"});
+            }
+        };
 
     const sessionAdapter = new RoomPaymentSessionAdapter({
         paymentService,
         coordinator,
         ledger,
         manifestStore,
-        nowProvider
+        nowProvider,
+        mainnetPreparationEnabled: mainnetPreparationOnly,
+        mainnetFinancialReadinessProvider
     });
 
     // The three-player game-start gate. Its shape matches exactly the
@@ -427,9 +541,10 @@ export function buildPaymentRuntime(options = {}) {
             // Refund recovery uses the identity-only Testnet provider. With no
             // authorized outgoing signer it reports each outstanding obligation
             // as PENDING_EXECUTION_DISABLED (recoverable, never fabricated).
+            const networkName = identity.network.toUpperCase();
             const providers = options.providers
-                ?? new Map([[REFUND_NETWORK.TESTNET, outgoingRefundProvider ?? {
-                    networkName: REFUND_NETWORK.TESTNET,
+                ?? new Map([[networkName, outgoingRefundProvider ?? {
+                    networkName,
                     globalId: identity.globalId
                 }]]);
 
@@ -484,18 +599,27 @@ export function buildPaymentRuntime(options = {}) {
 
             return Object.freeze({
                 network: identity.network,
-                networkName: REFUND_NETWORK.TESTNET,
+                networkName: identity.network.toUpperCase(),
                 globalId: identity.globalId,
                 roomLifetimeMs: ROOM_LIFETIME_MS,
                 incomingObservationEnabled: true,
                 incomingFinalityVerificationEnabled: true,
-                settlementEnabled: true,
+                settlementEnabled: !mainnetPreparationOnly
+                    || mainnetFinancialReadinessProvider?.()?.ready===true,
                 gameStartGateEnforced: true,
-                outgoingRefundTransfersEnabled: Boolean(outgoingRefundProvider && outgoingRefundProvider.canExecute?.()),
-                livePaymentAcceptanceEnabled: LIVE_PAYMENT_ACCEPTANCE_ENABLED && Boolean(outgoingRefundProvider?.canExecute()),
-                outgoingRefundDisabledReason: Boolean(outgoingRefundProvider && outgoingRefundProvider.canExecute?.())
-                    ? null
-                    : "NO_AUTHORIZED_TESTNET_OUTGOING_SIGNER"
+                outgoingRefundTransfersEnabled: mainnetPreparationOnly
+                    ? mainnetFinancialReadinessProvider?.()?.ready===true
+                    : Boolean(outgoingRefundProvider?.canExecute?.()),
+                livePaymentAcceptanceEnabled: mainnetPreparationOnly
+                    ? mainnetFinancialReadinessProvider?.()?.ready===true
+                    : LIVE_PAYMENT_ACCEPTANCE_ENABLED
+                        && Boolean(outgoingRefundProvider?.canExecute?.()),
+                outgoingRefundDisabledReason: mainnetPreparationOnly
+                    ? mainnetFinancialReadinessProvider?.()?.ready===true
+                        ? null : "MAINNET_OUTGOING_NOT_YET_ENABLED"
+                    : Boolean(outgoingRefundProvider && outgoingRefundProvider.canExecute?.())
+                        ? null
+                        : "NO_AUTHORIZED_TESTNET_OUTGOING_SIGNER"
             });
 
         },
@@ -513,7 +637,7 @@ export function buildPaymentRuntime(options = {}) {
 
         }
     });
-
+    runtimeForRelease=runtime;
     return runtime;
 
 }

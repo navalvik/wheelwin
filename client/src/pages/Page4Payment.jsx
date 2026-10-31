@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
 import { buildRoomWalletTransferUri } from "../payment/buildRoomWalletTransferUri.js";
+import { getPage4NetworkPresentation } from "../payment/page4NetworkPresentation.js";
 import { useTonConnectUI, useTonWallet } from "@tonconnect/ui-react";
 import { buildRoomWalletTonConnectRequest, payerMatchesConnectedWallet } from "../payment/buildRoomWalletTonConnectRequest.js";
 import {
@@ -176,6 +177,7 @@ export default function Page4Payment() {
     // The room ledger keeps TON as its protocol asset identifier; Gram is the
     // wallet-facing denomination shown in the Testnet wallet confirmation.
     const assetLabel = payment.asset === "TON" ? "GRAM" : payment.asset || "GRAM";
+    const networkPresentation = getPage4NetworkPresentation(payment.network);
 
     async function initiatePayment() {
         if (!payable || sending || sentToWallet || !walletMatches) return;
@@ -232,7 +234,7 @@ export default function Page4Payment() {
             <section className="page4Payment" aria-live="polite">
                 <div className="page4Payment__panel">
                     <div className="page4Payment__identity">
-                        YOUR NICKNAME: {localPlayer?.nickname ?? "—"} · TESTNET
+                        YOUR NICKNAME: {localPlayer?.nickname ?? "—"} · {networkPresentation.label}
                     </div>
 
                     <div className="page4Payment__players">
@@ -296,7 +298,7 @@ export default function Page4Payment() {
                                     {showTransferQr && transferQr && transferQr.reference === payment.paymentReference && (
                                         <div className="page4Payment__transferQr">
                                             <img src={transferQr.image} alt={`Payment QR for ${amount} GRAM`} />
-                                            <p>{amount} GRAM · TESTNET</p>
+                                            <p>{amount} GRAM · {networkPresentation.label}</p>
                                             <p>Comment: WW1:{payment.paymentReference}</p>
                                             <a href={transferQr.uri}>OPEN PAYMENT IN WALLET</a>
                                             <p>Scan in Gram Wallet. Confirm only once; the server checks the transfer.</p>
@@ -321,14 +323,14 @@ export default function Page4Payment() {
                                             : !connectedWallet
                                                 ? "CONNECT GRAM WALLET"
                                                 : !walletMatches
-                                                    ? "SELECT TESTNET WALLET"
+                                                    ? networkPresentation.selectWallet
                                                     : "CONFIRM PAYMENT IN GRAM WALLET"}
                                 </button>
                                 </>
                             )}
                             {connectedWallet && !walletMatches && payable && (
                                 <p className="page4Payment__error" role="alert">
-                                    Select the Testnet wallet entered on Page3 before confirming.
+                                    {networkPresentation.mismatch}
                                 </p>
                             )}
                             {paymentError && (

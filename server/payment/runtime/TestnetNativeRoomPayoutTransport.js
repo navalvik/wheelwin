@@ -7,10 +7,11 @@ import { durableWriteJson } from '../DurableJson.js';
  * No escrow/game contract, Jetton, Mainnet or blockchain finality claim.
  */
 import {mkdirSync,openSync,writeSync,fsyncSync,closeSync,readFileSync} from "node:fs";
-import {join} from "node:path";
+import {join,resolve} from "node:path";
 import {RoomWalletAdapter} from "../roomWallet/RoomWalletAdapter.js";
 import {PayoutPlan} from "../ledger/PayoutPlan.js";
 import {deriveTonAddressIdentity} from "../incoming/TonAddressIdentity.js";
+import {requireToncenterChainConfig} from "../toncenter/ToncenterConstants.js";
 
 const SAFE_PAYOUT_ID=/^payout_[a-f0-9]{32}$/;
 const RETAINED_NANO=0n; // estimate is not a send gate; plan carries the exact 0.1% reserve
@@ -32,8 +33,25 @@ function logEvent(path,record,exclusive) {
 
 export class TestnetNativeRoomPayoutTransport {
     constructor({walletPool,walletResolver,tonService,dataDir,logger=null,adapter=null,
-        outgoingObserver=null,independentVerifier=null,ledger=null}={}) {
+        outgoingObserver=null,independentVerifier=null,ledger=null,network="testnet"}={}) {
+        const chain=requireToncenterChainConfig(network);
         assert(walletPool && typeof dataDir==="string" && dataDir,"PAYOUT_RUNTIME_UNAVAILABLE");
+        // Mainnet must use an explicitly selected, network-bound pool and
+        // a caller-injected Wallet V4 adapter; never implicitly create a
+        // Mainnet sender from a possibly Testnet-configured TON service.
+        if (network==="mainnet") {
+            assert(walletPool.network==="mainnet","PAYOUT_MAINNET_WALLET_POOL_REQUIRED");
+            assert(adapter!==null,"PAYOUT_MAINNET_EXPLICIT_ADAPTER_REQUIRED");
+            // Refunds and winner/owner payouts must share ONE persistent
+            // per-network seqno outbox. A private adapter queue is not enough
+            // to protect two separate room sessions after a restart.
+            assert(adapter.supportsDurableTransferRetry?.()===true
+                && typeof adapter._sequenceStateDir==="string"
+                && resolve(adapter._sequenceStateDir)===resolve(dataDir,"outbound-sequences"),
+                "PAYOUT_MAINNET_SHARED_DURABLE_SEQNO_REQUIRED");
+        }
+        this._network=chain.network;
+        this._globalId=chain.globalId;
         assert(adapter || (walletResolver && tonService),"PAYOUT_WALLET_ADAPTER_MISSING");
         this._pool=walletPool;
         this._outgoingObserver=outgoingObserver;
@@ -42,13 +60,14 @@ export class TestnetNativeRoomPayoutTransport {
         this._adapter=adapter ?? new RoomWalletAdapter({
             walletResolver,tonService,logger,gasReserveNano:RETAINED_NANO
         });
-        this._dir=join(dataDir,"testnet-native-payout-attempts");
+        this._dir=join(dataDir,network==="mainnet" ? "mainnet-native-payout-attempts" : "testnet-native-payout-attempts");
         mkdirSync(this._dir,{recursive:true,mode:0o700});
     }
     _reservation(roomId,claimedAddress) {
         const wallet=this._pool.getReservationForRoom(roomId);
         assert(wallet && wallet.reservedByRoomId===roomId
-            && wallet.roomNumber!==1
+            && (this._network!=="testnet" || wallet.roomNumber!==1)
+            && (this._network!=="mainnet" || wallet.network==="mainnet")
             && canonical(wallet.address)===canonical(claimedAddress),
             "PAYOUT_ROOM_WALLET_MISMATCH");
         return wallet;
@@ -83,6 +102,7 @@ export class TestnetNativeRoomPayoutTransport {
         const winner=plan?.transfers?.find(x=>x.recipientRole==="WINNER");
         const owner=plan?.transfers?.find(x=>x.recipientRole==="OWNER");
         assert(plan?.roomId===roomId&&plan.payoutId===payoutId
+            &&(this._network!=="mainnet" || plan.network==="mainnet")
             &&winner?.netAtomic>0&&owner?.netAtomic>0
             &&canonical(winner.address)===canonical(winnerWallet)
             &&canonical(owner.address)===canonical(ownerWallet),
@@ -151,7 +171,7 @@ export class TestnetNativeRoomPayoutTransport {
                 return value?.status===(hasMasterchainCheck
                     ? "MASTERCHAIN_INDEXED_RECIPIENT_CREDIT_OBSERVED"
                     : "RECIPIENT_CREDIT_OBSERVED_UNFINALIZED")
-                    &&(!hasMasterchainCheck || (value.globalId===-3
+                    &&(!hasMasterchainCheck || (value.globalId===this._globalId
                         &&value.sourceFinality==="finalized"
                         &&value.recipientFinality==="finalized"
                         &&Number.isSafeInteger(value.sourceMcBlockSeqno)
@@ -231,7 +251,7 @@ export class TestnetNativeRoomPayoutTransport {
                 amountAtomic:transfer.netAtomic
             });
             if(proof?.status!=="INDEPENDENT_INDEXED_CREDIT_OBSERVED"
-                ||proof.provider!=="tonapi-testnet"
+                ||proof.provider!==(this._network==="mainnet"?"tonapi-mainnet":"tonapi-testnet")
                 ||proof.sourceTransactionId!==leg.hash
                 ||proof.recipientTransactionId!==leg.recipientTxHash
                 ||proof.messageHash!==leg.messageHash
@@ -273,6 +293,7 @@ export class TestnetNativeRoomPayoutTransport {
         const owner=plan?.transfers?.find(x=>x.recipientRole==="OWNER");
         PayoutPlan.fromJSON(plan);
         assert(plan.roomId===roomId && plan.payoutId===payoutId
+            && (this._network!=="mainnet" || plan.network==="mainnet")
             && Number.isSafeInteger(plan.gasReserveAtomic)
             && plan.gasReserveAtomic > 0
             && Array.isArray(plan.transfers)&&plan.transfers.length===2
@@ -385,7 +406,7 @@ export class TestnetNativeRoomPayoutTransport {
             && credit.recipientTransactionId.length > 0
             && credit.amountAtomic === amountAtomic
             && canonical(credit.destinationAddress) === canonical(winnerWallet)
-            && credit.globalId === -3
+            && credit.globalId === this._globalId
             && credit.sourceFinality === "finalized"
             && credit.recipientFinality === "finalized"
             && Number.isSafeInteger(credit.sourceMcBlockSeqno)

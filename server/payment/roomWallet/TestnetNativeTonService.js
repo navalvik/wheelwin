@@ -1,16 +1,28 @@
 /**
  * Minimal TON Testnet RPC surface required by the restored native Wallet V4
  * adapter. It never reads signing material; only the room-wallet resolver does.
- * No escrow, game contract, Jetton, or Mainnet endpoint.
+ * No escrow, game contract or Jetton. Mainnet requires an explicit network
+ * and a strictly verified canonical RPC endpoint; default stays Testnet.
  */
 import {Address} from "@ton/core";
 import {TonClient} from "@ton/ton";
+import {requireToncenterChainConfig} from "../toncenter/ToncenterConstants.js";
 const parseAddress = value => Address.isAddress(value) ? value : Address.parse(value);
 
 export class TestnetNativeTonService {
-    constructor({client=null,endpoint="https://testnet.toncenter.com/api/v2/jsonRPC",
+    constructor({client=null,endpoint=null,network="testnet",
         apiKey=process.env.TON_API_KEY}={}) {
-        this._client=client??new TonClient({endpoint,apiKey:apiKey||undefined});
+        const chain=requireToncenterChainConfig(network);
+        const expectedEndpoint=chain.baseUrl+"/api/v2/jsonRPC";
+        // Mainnet is never allowed to inherit a Testnet or custom endpoint.
+        // Testnet retains its historic explicit endpoint override.
+        if (network==="mainnet" && endpoint!==null && endpoint!==expectedEndpoint)
+            throw new TypeError("MAINNET_NATIVE_RPC_ENDPOINT_MISMATCH");
+        this.network=chain.network;
+        this.globalId=chain.globalId;
+        this._client=client??new TonClient({
+            endpoint:endpoint??expectedEndpoint,apiKey:apiKey||undefined
+        });
     }
     async getSeqno(address) {
         const account=parseAddress(address);

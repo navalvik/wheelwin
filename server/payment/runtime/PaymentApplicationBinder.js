@@ -101,7 +101,15 @@ export function bindPaymentRuntimeToApplication(runtime, dependencies = {}) {
          */
         prepareRoomPaymentSession(roomId, playerPayments) {
 
-            if (!paymentAcceptanceEnabled) {
+            // Mainnet uses exactly this Testnet preparation controller. Its
+            // server-owned runtime may enable acceptance only after the full
+            // native refund/payout/readiness preflight has succeeded. The
+            // existing Testnet module switch remains unchanged.
+            const accepted=runtime.network==="mainnet"
+                ? runtime.initialized===true
+                    && runtime.getCapabilities?.().livePaymentAcceptanceEnabled===true
+                : paymentAcceptanceEnabled;
+            if (!accepted) {
 
                 throw new PaymentExecutionBlockedError(
                     "live room-wallet payment acceptance is disabled: payment-"

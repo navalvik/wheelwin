@@ -3350,7 +3350,7 @@ export class RoomLobbyBridge {
                     LOBBY_SERVER_EVENTS.PAYMENT_STAGE_READY,
                     {
                         roomId,
-                        paymentAcceptanceEnabled: LIVE_PAYMENT_ACCEPTANCE_ENABLED
+                        paymentAcceptanceEnabled: this._livePaymentAcceptanceEnabled()
                     }
                 );
 
@@ -3377,7 +3377,7 @@ export class RoomLobbyBridge {
             if (this._verifyBarrierCompletedByRoom.has(roomId)) {
                 this._deliverToSocket(socketId, LOBBY_SERVER_EVENTS.PAYMENT_STAGE_READY, {
                     roomId,
-                    paymentAcceptanceEnabled: LIVE_PAYMENT_ACCEPTANCE_ENABLED
+                    paymentAcceptanceEnabled: this._livePaymentAcceptanceEnabled()
                 });
             } else {
                 const optionsReady = this._noFriendsOptionsReadyByRoom.get(roomId);
@@ -5508,9 +5508,9 @@ export class RoomLobbyBridge {
             payload: {
                 roomId,
                 enteredAt: Date.now(),
-                paymentAcceptanceEnabled: LIVE_PAYMENT_ACCEPTANCE_ENABLED,
+                paymentAcceptanceEnabled: this._livePaymentAcceptanceEnabled(),
                 paymentSessionPrepared: false,
-                paymentStatus: LIVE_PAYMENT_ACCEPTANCE_ENABLED
+                paymentStatus: this._livePaymentAcceptanceEnabled()
                     ? "AWAITING_PAYMENT_SESSION"
                     : "PAYMENT_UNAVAILABLE"
             }
@@ -5519,7 +5519,7 @@ export class RoomLobbyBridge {
         // Create payment intents before Page4 receives its first authoritative
         // snapshot; otherwise all three seats see PAYMENT_UNAVAILABLE even
         // when real intake is enabled.
-        if (LIVE_PAYMENT_ACCEPTANCE_ENABLED) {
+        if (this._livePaymentAcceptanceEnabled()) {
             this._preparePaymentSessionIfEnabled(roomId, room);
         }
 
@@ -5528,7 +5528,7 @@ export class RoomLobbyBridge {
             LOBBY_SERVER_EVENTS.PAYMENT_STAGE_READY,
             {
                 roomId,
-                paymentAcceptanceEnabled: LIVE_PAYMENT_ACCEPTANCE_ENABLED
+                paymentAcceptanceEnabled: this._livePaymentAcceptanceEnabled()
             }
         );
 
@@ -5549,7 +5549,7 @@ export class RoomLobbyBridge {
         // Payment rooms do not invoke GameStartAuthorization before Page4 has
         // settled all THREE real payments. Doing so rejects the not-yet-paid
         // room before any participant can pay.
-        if (LIVE_PAYMENT_ACCEPTANCE_ENABLED) return;
+        if (this._livePaymentAcceptanceEnabled()) return;
 
         // Historical disabled-acceptance behavior remains fail-closed.
         this._eventBus.emit({
@@ -5600,7 +5600,7 @@ export class RoomLobbyBridge {
                     roomId,
                     playerId,
                     status: "PAYMENT_UNAVAILABLE",
-                    paymentAcceptanceEnabled: LIVE_PAYMENT_ACCEPTANCE_ENABLED,
+                    paymentAcceptanceEnabled: this._livePaymentAcceptanceEnabled(),
                     reason: reason || LIVE_PAYMENT_ACCEPTANCE_DISABLED_REASON
                 }
             );
@@ -5679,7 +5679,7 @@ export class RoomLobbyBridge {
                 roomId,
                 playerId,
                 status,
-                paymentAcceptanceEnabled: LIVE_PAYMENT_ACCEPTANCE_ENABLED,
+                paymentAcceptanceEnabled: this._livePaymentAcceptanceEnabled(),
                 reason,
                 paymentReference: intent.paymentReference,
                 amountAtomic: intent.amountAtomic,
@@ -5745,7 +5745,7 @@ export class RoomLobbyBridge {
 
         // No global wallet scan. One seated player's Page4 submission signal
         // triggers observation of this active room's wallet.
-        if (!LIVE_PAYMENT_ACCEPTANCE_ENABLED) return;
+        if (!this._livePaymentAcceptanceEnabled()) return;
         const runtime = this._paymentApplicationBinding?.runtime;
         const adapter = runtime?.sessionAdapter;
         const roomId = context.roomId;
@@ -5968,12 +5968,34 @@ export class RoomLobbyBridge {
         this._roomPaymentChecks.set(roomId, pending);
     }
 
+    _livePaymentAcceptanceEnabled() {
+        // The original Testnet release switch stays authoritative and
+        // unchanged. Mainnet uses the SAME Page4 code only when its server-
+        // assembled native refund, payout, seqno and 3/3 gate are all ready.
+        const runtime=this._paymentApplicationBinding?.runtime;
+        // On Mainnet the generic env switch is also true after opt-in.
+        // Never let that Testnet switch bypass the live native preflight.
+        if (runtime?.network==="mainnet") {
+            try {
+                return runtime.initialized===true
+                    && runtime.getCapabilities?.().livePaymentAcceptanceEnabled===true;
+            } catch {
+                return false;
+            }
+        }
+        // During a failed Mainnet bootstrap there may be no runtime at all.
+        // The global Testnet switch must not expose Page4 in that state.
+        if (String(process.env.TON_NETWORK ?? "").trim().toLowerCase()==="mainnet")
+            return false;
+        return LIVE_PAYMENT_ACCEPTANCE_ENABLED;
+    }
+
     _preparePaymentSessionIfEnabled(roomId, room) {
         const binding = this._paymentApplicationBinding;
         if (!binding || typeof binding.prepareRoomPaymentSession !== "function") {
             return;
         }
-        if (!LIVE_PAYMENT_ACCEPTANCE_ENABLED) {
+        if (!this._livePaymentAcceptanceEnabled()) {
             return;
         }
         if (!room || !Array.isArray(room.players) || room.players.length !== 3) {

@@ -13,7 +13,7 @@ import { PaymentConfigurationError, PaymentValidationError } from "../PaymentErr
 import { TonPaymentSettlementEvidenceProvider, TON_TESTNET_GLOBAL_ID } from "../incoming/TonPaymentSettlementEvidence.js";
 import { tonAddressIdentitiesEqual } from "../incoming/TonAddressIdentity.js";
 import { ToncenterTransactionsClient } from "./ToncenterTransactionsClient.js";
-import { TONCENTER_TESTNET_BASE_URL } from "./ToncenterConstants.js";
+import { requireToncenterChainConfig } from "./ToncenterConstants.js";
 
 const sessions = new WeakMap();
 
@@ -24,19 +24,24 @@ function validBlock(block) {
 }
 
 export class ToncenterIndexedFinalityEvidenceProvider extends TonPaymentSettlementEvidenceProvider {
-    constructor({client,nowProvider=Date.now,minimumMasterchainDepth=1}={}) {
+    constructor({client,nowProvider=Date.now,minimumMasterchainDepth=1,network="testnet"}={}) {
         super();
         if (!(client instanceof ToncenterTransactionsClient))
             throw new PaymentConfigurationError("indexed finality requires ToncenterTransactionsClient");
+        const chain = requireToncenterChainConfig(network);
         let base;
         try {base=new URL(client.baseUrl);}catch{}
-        if (!base || base.origin !== TONCENTER_TESTNET_BASE_URL || base.pathname !== "/")
-            throw new PaymentConfigurationError("indexed finality restricted to Testnet");
+        if (!base || base.origin !== chain.baseUrl || base.pathname !== "/"
+            || base.search || base.hash || base.username || base.password)
+            throw new PaymentConfigurationError(chain.network === "testnet"
+                ? "indexed finality restricted to Testnet"
+                : "indexed finality restricted to selected TON network");
         if(typeof nowProvider !== "function"
             || !Number.isSafeInteger(minimumMasterchainDepth)
             || minimumMasterchainDepth<0)
             throw new PaymentConfigurationError("invalid indexed finality configuration");
         this._client=client;
+        this._chain=chain;
         this._now=nowProvider;
         this._depth=minimumMasterchainDepth;
     }
@@ -69,7 +74,7 @@ export class ToncenterIndexedFinalityEvidenceProvider extends TonPaymentSettleme
         try {chain=await state.masterchainPromise;}
         catch {state.valid=false; return null;}
         const head=chain?.last;
-        if(head?.global_id !== TON_TESTNET_GLOBAL_ID
+        if(head?.global_id !== this._chain.globalId
             || !Number.isSafeInteger(head.seqno)
             || head.seqno < indexedTransaction.mcBlockSeqno + this._depth) {
             return null;
@@ -81,7 +86,7 @@ export class ToncenterIndexedFinalityEvidenceProvider extends TonPaymentSettleme
         });
         return Object.freeze({
             networkIdentity:Object.freeze({
-                network:"testnet",globalId:TON_TESTNET_GLOBAL_ID,
+                network:this._chain.network,globalId:this._chain.globalId,
                 source:"toncenter-masterchain-info",observedAtMs:now
             }),
             transactionInclusion:Object.freeze({
