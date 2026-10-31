@@ -169,8 +169,8 @@ test("Mainnet offline timeout: two observed payers -> exactly two durable refund
         roomId,roomNumber:16,closureReason:"setup_expired",status:"DESTROYED"
     });
     assert.equal(debts.length,2);
-    assert.ok(debts.every(x=>x.networkName==="MAINNET"
-        && x.globalId===-239));
+    assert.ok(debts.every(x=>x.obligation?.networkName==="MAINNET"
+        && x.obligation?.globalId===-239 && x.replay===false));
     assert.equal(runtime.refundStore.listPending().length,2);
     assert.equal(runtime.refundLifecycle.prepareLateConfirmedPayments(roomId).length,2);
     assert.equal(runtime.refundStore.list().length,2,
