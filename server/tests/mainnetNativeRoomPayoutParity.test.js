@@ -26,7 +26,7 @@ const request={roomId:ROOM_ID,payoutId:PAYOUT_ID,roomWalletAddress:ROOM,
     winnerWallet:WINNER,ownerWallet:OWNER};
 
 function harness(t,{credit=true,creditGlobalId=-239,independentProvider="tonapi-mainnet",
-    payoutNetwork="mainnet",noAdapter=false,wrongPool=false,wrongOutbox=false,root=null}={}){
+    payoutNetwork="mainnet",noAdapter=false,wrongPool=false,wrongOutbox=false,ownerMissing=false,root=null}={}){
     const dataDir=root??mkdtempSync(join(tmpdir(),"wheelwin-native-outgoing-parity-"));
     if(root===null)t.after(()=>rmSync(dataDir,{recursive:true,force:true}));
     const sent=[],settled=[];
@@ -41,6 +41,7 @@ function harness(t,{credit=true,creditGlobalId=-239,independentProvider="tonapi-
         // indexed verification only when its historical API is present.
         async observeRecipientCredit(){return null;},
         async findOutgoingTransfer({destinationIdentity,amountAtomic}){
+            if(ownerMissing && destinationIdentity===OWNER)return null;
             return {transactionId:destinationIdentity===WINNER?"winner-source-tx":"owner-source-tx",
                 sourceAddress:ROOM,destinationAddress:destinationIdentity,amountAtomic};
         },
@@ -107,6 +108,24 @@ test("Mainnet uses the same native payout sequence, isolated pre-send journal, n
     assert.equal(finalized.status,"BOTH_PAYOUTS_SETTLED_FROM_DUAL_FINALITY");
     assert.equal(h.settled.length,2);
     assert.equal(h.sent.length,2);
+});
+
+test("Mainnet settles proved winner alone, never invents an owner settlement",async t=>{
+    const h=harness(t,{ownerMissing:true});
+    const payout=plan();
+    const sent=await h.transport.submit({...request,plan:payout});
+    assert.equal(sent.status,"SUBMITTED_UNCONFIRMED");
+    assert.equal(h.sent.length,2);
+    const first=await h.transport.reconcileAndSettle({...request,plan:payout});
+    assert.equal(first.status,"WINNER_SETTLED_OWNER_UNCONFIRMED");
+    assert.equal(first.ownerSettled,false);
+    assert.equal(h.settled.length,1);
+    assert.equal(h.settled[0].recipientId,"Olga");
+    assert.equal(h.sent.length,2,"read-only settlement must never send again");
+    const replay=await h.transport.reconcileAndSettle({...request,plan:payout});
+    assert.equal(replay.status,"WINNER_SETTLED_OWNER_UNCONFIRMED");
+    assert.equal(h.settled.length,2,"test ledger stub records calls; production ledger idempotently replays");
+    assert.equal(h.settled[1].recipientId,"Olga");
 });
 
 test("Mainnet missing winner credit blocks owner broadcast and duplicate retry",async t=>{
