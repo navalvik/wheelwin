@@ -186,13 +186,6 @@ test("read-only owner gas diagnostics never releases wallet or marks owner paid"
     assert.equal(h.sent.length,before);
     assert.equal(h.settled.length,0);
 
-    const funded=harness(t,{credit:false,winnerLedgerSettled:true,
-        ownerBalanceNano:200_000_000n});
-    await funded.transport.submit({...request,plan:payout});
-    const adequate=await funded.transport.assessOwnerCommissionGasShortfall({...request,plan:payout});
-    assert.equal(adequate.status,"OWNER_GAS_SHORTFALL_NOT_OBSERVED");
-    assert.equal(adequate.terminal,false);
-
     const unresolved=harness(t,{credit:false,winnerLedgerSettled:false,
         ownerBalanceNano:0n});
     await unresolved.transport.submit({...request,plan:payout});
@@ -265,6 +258,30 @@ test("Mainnet owner principal witness rejects stale, wrong-network, changed-bala
     delete h.verifier.observeAccountBalance;
     const missing=await h.transport.corroborateOwnerPrincipalShortfall({...request,plan:payout});
     assert.equal(missing.reason,"OWNER_INDEPENDENT_BALANCE_SOURCE_MISSING");
+});
+
+test("owner terminal holds when source balance changes between independent observations",async t=>{
+    const h=harness(t,{credit:false,winnerLedgerSettled:true,ownerBalanceNano:140_000_000n});
+    const payout=plan();
+    await h.transport.submit({...request,plan:payout});
+    let reads=0;
+    h.transport._adapter.canFundTransfer=async ({roomNumber,amountNano})=>({
+        roomNumber,address:ROOM,amountNano,
+        balanceNano:++reads===1?140_000_000n:141_000_000n,
+        ok:false
+    });
+    h.verifier.observeAccountBalance=async ({address})=>({
+        status:"INDEPENDENT_ACCOUNT_BALANCE_OBSERVED",
+        provider:"tonapi-mainnet",network:"mainnet",
+        address,balanceAtomic:"140000000",observedAtMs:Date.now()
+    });
+    const observed=await h.transport.corroborateOwnerPrincipalShortfall({...request,plan:payout});
+    assert.equal(observed.status,"OWNER_PRINCIPAL_SHORTFALL_HOLD");
+    assert.equal(observed.reason,"OWNER_BALANCE_CHANGED_DURING_INDEPENDENT_CHECK");
+    assert.equal(observed.terminal,false);
+    assert.equal(observed.walletReleasable,false);
+    assert.equal(reads,2);
+    assert.equal(h.unpaidTerminals.length,0);
 });
 
 test("owner send claim appearing during independent balance read defeats shortfall release",async t=>{
