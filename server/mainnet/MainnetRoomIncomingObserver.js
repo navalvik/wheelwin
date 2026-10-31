@@ -12,6 +12,8 @@
  */
 import { ToncenterTransactionsClient } from "../payment/toncenter/ToncenterTransactionsClient.js";
 import { ToncenterIncomingProvider } from "../payment/toncenter/ToncenterIncomingProvider.js";
+import { RoomPaymentObservationService } from "../payment/toncenter/RoomPaymentObservationService.js";
+import { PaymentIntent } from "../payment/PaymentIntent.js";
 import { mapToncenterTransactionsResponse } from "../payment/toncenter/ToncenterTransactionsMapper.js";
 import { parseTonAddress, tonAddressIdentitiesEqual } from "../payment/incoming/TonAddressIdentity.js";
 import { MAINNET_GLOBAL_ID, MAINNET_TONCENTER_URL } from "./MainnetReadOnlyPreflight.js";
@@ -48,7 +50,8 @@ export class MainnetRoomIncomingObserver {
     constructor({
         env = process.env,
         client = null,
-        resolveActiveRoomWallet
+        resolveActiveRoomWallet,
+        nowProvider = Date.now
     } = {}) {
         if (String(env?.TON_NETWORK ?? "").trim().toLowerCase() !== "mainnet") {
             reject("MAINNET_INCOMING_NETWORK_MISMATCH");
@@ -75,9 +78,12 @@ export class MainnetRoomIncomingObserver {
                 { ...query, network: "mainnet" }
             )
         });
+        this._sharedObservation = new RoomPaymentObservationService({
+            provider: this._incoming, network: "mainnet", nowProvider
+        });
     }
 
-    async observeRoom({
+    async _assertActiveMainnetRoom({roomId, walletAddress}) {
         roomId,
         walletAddress,
         floorMs,
@@ -118,7 +124,15 @@ export class MainnetRoomIncomingObserver {
             || chain.last.seqno < 1) {
             reject("MAINNET_INCOMING_CHAIN_IDENTITY_INVALID");
         }
+        return reservation;
+    }
 
+    async observeRoom({
+        roomId, walletAddress, floorMs, ceilingMs, limit = 50
+    } = {}) {
+        const reservation = await this._assertActiveMainnetRoom({
+            roomId, walletAddress
+        });
         try {
             return await this._incoming.listIncomingTransactions({
                 account: walletAddress,
@@ -130,6 +144,43 @@ export class MainnetRoomIncomingObserver {
             });
         } catch {
             reject("MAINNET_INCOMING_TRANSACTION_READ_FAILED");
+        }
+    }
+
+    /**
+     * On-demand Mainnet matching through the EXISTING Testnet observation
+     * and matcher service. No Mainnet settlement evidence provider exists,
+     * so this cannot authorize ledger mutations, Page5 or outgoing transfers.
+     */
+    async observeRoomPaymentIntents({
+        roomId, walletAddress, paymentIntents, floorMs, ceilingMs,
+        limit = 50
+    } = {}) {
+        if (!Array.isArray(paymentIntents)
+            || paymentIntents.length !== 3
+            || paymentIntents.some(intent =>
+                !(intent instanceof PaymentIntent)
+                || intent.roomId !== roomId
+                || intent.network !== "mainnet"
+                || intent.asset !== "TON"
+                || !mainnetAccount(intent.destinationWalletAddress)
+                || !tonAddressIdentitiesEqual(
+                    intent.destinationWalletAddress, walletAddress
+                )
+            )) {
+            reject("MAINNET_INCOMING_THREE_AUTHORITATIVE_INTENTS_REQUIRED");
+        }
+        const reservation = await this._assertActiveMainnetRoom({
+            roomId, walletAddress
+        });
+        try {
+            return await this._sharedObservation.checkRoomPayments({
+                roomId, walletAddress, paymentIntents,
+                floorMs, ceilingMs, limit,
+                destinationWalletId: String(reservation.roomNumber)
+            });
+        } catch {
+            reject("MAINNET_INCOMING_SHARED_OBSERVATION_FAILED");
         }
     }
 }
