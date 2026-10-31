@@ -203,6 +203,29 @@ export function buildMainnetPaymentRuntime(options = {}) {
     return assemblePaymentRuntime({ ...options, network: "mainnet" }, true);
 }
 
+/**
+ * Select the EXISTING shared runtime for the server's configured TON network.
+ * The Mainnet route is preparation-only: requesting live entry acceptance
+ * must be rejected instead of silently ignoring ROOM_WALLET_PAYMENTS_ENABLED.
+ * No new financial engine or Mainnet signer is constructed.
+ */
+export function selectAppPaymentRuntimeBuilder({
+    tonNetwork = null,
+    roomWalletPaymentsEnabled = false
+} = {}) {
+    const network = String(tonNetwork ?? "testnet").trim().toLowerCase();
+    if (network === "mainnet") {
+        if (roomWalletPaymentsEnabled === true) {
+            throw new Error("MAINNET_LIVE_PAYMENT_ACCEPTANCE_NOT_ENABLED");
+        }
+        return buildMainnetPaymentRuntime;
+    }
+    if (network !== "testnet") {
+        throw new Error("APP_ROOM_WALLET_NETWORK_UNSUPPORTED");
+    }
+    return buildPaymentRuntime;
+}
+
 function assemblePaymentRuntime(options, mainnetPreparationOnly) {
     const {
         dataDir = resolveDefaultRoomWalletPaymentDataDir(),
