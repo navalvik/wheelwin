@@ -101,7 +101,7 @@ test("Mainnet offline finance: three verified native TON receipts -> durable led
     const slot=runtime.walletPool.getReservationForRoom(roomId);
     for(let i=1;i<=3;i++){
         h.setPaid(desc,slot,i);
-        const report=await runtime.coordinator.settleRoomPayments({roomId});
+        const report=await runtime.coordinator.settleRoomPayments({roomId,floorMs:NOW-20000,ceilingMs:NOW+1000,now:NOW});
         assert.equal(report.refusal,null,JSON.stringify(report));
         const actual=runtime.paymentService.listPaymentIntentsForRoom(roomId)
             .filter(x=>x.state==="SETTLED");
@@ -155,7 +155,7 @@ test("Mainnet offline timeout: two observed payers -> exactly two durable refund
     runtime.sessionAdapter.prepareRoom(desc);
     const slot=runtime.walletPool.getReservationForRoom(roomId);
     h.setPaid(desc,slot,2);
-    const report=await runtime.coordinator.settleRoomPayments({roomId});
+    const report=await runtime.coordinator.settleRoomPayments({roomId,floorMs:NOW-20000,ceilingMs:NOW+1000,now:NOW});
     assert.equal(report.refusal,null,JSON.stringify(report));
     assert.equal(runtime.paymentService.listPaymentIntentsForRoom(roomId)
         .filter(x=>x.state==="SETTLED").length,2);
@@ -192,7 +192,7 @@ test("Mainnet offline aborted 3/3 before Page5: all three payers get obligations
     const desc=h.descriptor(roomId);
     runtime.sessionAdapter.prepareRoom(desc);
     h.setPaid(desc,runtime.walletPool.getReservationForRoom(roomId),3);
-    assert.equal((await runtime.coordinator.settleRoomPayments({roomId})).refusal,null);
+    assert.equal((await runtime.coordinator.settleRoomPayments({roomId,floorMs:NOW-20000,ceilingMs:NOW+1000,now:NOW})).refusal,null);
     runtime.shutdown();
     runtime=h.runtime();
     assert.equal(principalFor(runtime,roomId).length,3);
