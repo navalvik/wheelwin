@@ -25,16 +25,13 @@
  * matches the outgoing refund identity returns `verified: true`.
  */
 
-import {
-    assessTonPaymentSettlementEvidence,
-    TON_TESTNET_GLOBAL_ID
-} from "../incoming/TonPaymentSettlementEvidence.js";
+import { assessTonPaymentSettlementEvidence } from "../incoming/TonPaymentSettlementEvidence.js";
 import {
     deriveTonAddressIdentity,
     tonAddressIdentitiesEqual,
     tonAddressIdentityOrNull
 } from "../incoming/TonAddressIdentity.js";
-import { REFUND_NETWORK } from "./RefundObligation.js";
+import { REFUND_GLOBAL_ID_BY_NETWORK } from "./RefundObligation.js";
 
 /** Precise, non-secret rejection reasons for outgoing refund finality. */
 export const OUTGOING_FINALITY_REJECTION = Object.freeze({
@@ -101,10 +98,11 @@ export function verifyOutgoingRefundFinality({
     outgoingTransfer,
     nowMs
 }) {
-    // The obligation is a settled, Testnet-only refund target.
+    // Same Testnet finality verifier for both TON networks. Require the
+    // obligation's original network identity; never infer it from provider data.
     if (!obligation
-        || obligation.networkName !== REFUND_NETWORK.TESTNET
-        || obligation.globalId !== TON_TESTNET_GLOBAL_ID) {
+        || !Object.hasOwn(REFUND_GLOBAL_ID_BY_NETWORK, obligation.networkName)
+        || obligation.globalId !== REFUND_GLOBAL_ID_BY_NETWORK[obligation.networkName]) {
         return Object.freeze({ verified: false, reason: OUTGOING_FINALITY_REJECTION.OBLIGATION_NETWORK_UNSUPPORTED });
     }
 
@@ -136,7 +134,8 @@ export function verifyOutgoingRefundFinality({
     const policy = assessTonPaymentSettlementEvidence(evidence ?? {}, {
         transactionId: outgoingTransactionId,
         accountId: sourceWalletAddress,
-        nowMs
+        nowMs,
+        network: obligation.networkName.toLowerCase()
     });
     if (!policy.authorized) {
         return Object.freeze({ verified: false, reason: policy.reason });
