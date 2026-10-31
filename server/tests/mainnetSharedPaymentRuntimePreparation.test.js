@@ -4,9 +4,11 @@ import {mkdtempSync,rmSync,mkdirSync,writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {
-    buildPaymentRuntime,buildMainnetPaymentRuntime,assertTestnetNetworkIdentity
+    buildPaymentRuntime,buildMainnetPaymentRuntime,assertTestnetNetworkIdentity,
+    selectAppPaymentRuntimeBuilder
 } from "../payment/runtime/PaymentRuntimeFactory.js";
 import {RoomPaymentSessionAdapter} from "../payment/runtime/RoomPaymentSessionAdapter.js";
+import {bindPaymentRuntimeToApplication} from "../payment/runtime/PaymentApplicationBinder.js";
 
 const NOW=1800000000000;
 const wallet=n=>"0:"+n.toString(16).padStart(64,"0");
@@ -178,5 +180,76 @@ test("Mainnet descriptor cannot be used with Testnet payment data or unauthorize
         assert.equal(runtime.financialSnapshot(roomId).intents.length,0);
         assert.equal(calls.length,0);
         runtime.shutdown();
+    });
+});
+
+test("app.js selects the existing Mainnet preparation runtime and binds both fail-closed hooks",()=>{
+    fixture(({root,catalogPath})=>{
+        const calls=[];
+        const builder=selectAppPaymentRuntimeBuilder({
+            tonNetwork:"mainnet",roomWalletPaymentsEnabled:false
+        });
+        assert.equal(builder,buildMainnetPaymentRuntime);
+        const runtime=builder({
+            dataDir:join(root,"payments"),walletCatalogPath:catalogPath,
+            nowProvider:()=>NOW,
+            fetchImpl:async(...args)=>{
+                calls.push(args);
+                throw Error("preparation must not use network");
+            },
+            apiKeyProvider:()=>"SYNTHETIC-NO-LIVE"
+        });
+        runtime.initialize();
+        let attachedRefund=null,attachedGate=null;
+        const binding=bindPaymentRuntimeToApplication(runtime,{
+            roomManager:{
+                attachRefundLifecycle(value){attachedRefund=value;},
+                getRoom:()=>({createdAt:NOW-1000})
+            },
+            gameStartAuthorization:{
+                configurePaymentGate(value){attachedGate=value;}
+            },
+            paymentAcceptanceEnabled:false
+        });
+        assert.equal(binding.runtime,runtime);
+        assert.equal(attachedRefund,runtime.refundLifecycle);
+        assert.equal(attachedGate,runtime.paymentGate);
+        assert.deepEqual(attachedGate.getGameStartGateStatus(roomId,["Olga","Bob","Lena"]),{
+            eligible:false,reason:"mainnet_settlement_not_enabled"
+        });
+        assert.throws(()=>binding.prepareRoomPaymentSession(roomId,descriptor().requiredPlayers),
+            /live room-wallet payment acceptance is disabled/);
+        assert.equal(runtime.financialSnapshot(roomId).intents.length,0);
+        assert.equal(runtime.outgoingRefundProvider,null);
+        assert.equal(runtime.getCapabilities().livePaymentAcceptanceEnabled,false);
+        assert.equal(runtime.getCapabilities().outgoingRefundTransfersEnabled,false);
+        assert.equal(calls.length,0);
+        runtime.shutdown();
+    });
+});
+
+test("app.js rejects Mainnet live acceptance, other TON networks and Testnet signer reuse",()=>{
+    assert.throws(()=>selectAppPaymentRuntimeBuilder({
+        tonNetwork:"mainnet",roomWalletPaymentsEnabled:true
+    }),/MAINNET_LIVE_PAYMENT_ACCEPTANCE_NOT_ENABLED/);
+    assert.throws(()=>selectAppPaymentRuntimeBuilder({
+        tonNetwork:"mainnet",roomWalletPaymentsEnabled:true
+    }),/MAINNET_LIVE_PAYMENT_ACCEPTANCE_NOT_ENABLED/);
+    for(const network of ["other","-239","", "mainnet-testnet"]) {
+        assert.throws(()=>selectAppPaymentRuntimeBuilder({tonNetwork:network}),
+            /APP_ROOM_WALLET_NETWORK_UNSUPPORTED/);
+    }
+    assert.equal(selectAppPaymentRuntimeBuilder({
+        tonNetwork:"testnet",roomWalletPaymentsEnabled:true
+    }),buildPaymentRuntime);
+    assert.equal(selectAppPaymentRuntimeBuilder({tonNetwork:null}),buildPaymentRuntime);
+    assert.equal(selectAppPaymentRuntimeBuilder({}),buildPaymentRuntime);
+    fixture(({root,catalogPath})=>{
+        const selected=selectAppPaymentRuntimeBuilder({
+            tonNetwork:"testnet",roomWalletPaymentsEnabled:false
+        });
+        assert.throws(()=>selected({
+            dataDir:join(root,"testnet"),network:"mainnet",walletCatalogPath:catalogPath
+        }),/Testnet/);
     });
 });
