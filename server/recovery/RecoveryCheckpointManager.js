@@ -65,6 +65,7 @@ import { GAME_STATES } from "../engines/gameState/GameStates.js";
 import { CONFIGURATION_VERSION } from "../engines/configuration/ConfigurationVersion.js";
 import {
     RECOVERY_CONTRACT_VERSION,
+    RECOVERY_DATA_TERMINAL_STATUSES,
     computePayloadChecksum
 } from "../persistence/RecoveryDataPersistence.js";
 
