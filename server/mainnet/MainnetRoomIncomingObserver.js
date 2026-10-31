@@ -152,6 +152,8 @@ export class MainnetRoomIncomingObserver {
     } = {}) {
         if (!Array.isArray(paymentIntents)
             || paymentIntents.length !== 3
+            || new Set(paymentIntents.map(intent => intent?.playerId)).size !== 3
+            || new Set(paymentIntents.map(intent => intent?.paymentReference)).size !== 3
             || paymentIntents.some(intent =>
                 !(intent instanceof PaymentIntent)
                 || intent.roomId !== roomId
