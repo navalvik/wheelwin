@@ -22,6 +22,10 @@ function inTemporaryDirectory(action) {
     const dir = mkdtempSync(join(tmpdir(),"ww-mainnet-refund-parity-"));
     try { return action(dir); } finally { rmSync(dir,{recursive:true,force:true}); }
 }
+async function inTemporaryDirectoryAsync(action) {
+    const dir = mkdtempSync(join(tmpdir(),"ww-mainnet-refund-parity-"));
+    try { return await action(dir); } finally { rmSync(dir,{recursive:true,force:true}); }
+}
 function fakePrincipalData(networkName, count) {
     const network = networkName.toLowerCase();
     const intents = players.map((playerId,i) => new PaymentIntent({
@@ -116,7 +120,7 @@ test("default coordinator still creates Testnet -3 refund debts unchanged",()=>{
 });
 
 test("all Mainnet refund transfer and finality paths remain disabled even with injected provider",async()=>{
-    await inTemporaryDirectory(async dir=>{
+    await inTemporaryDirectoryAsync(async dir=>{
         let calls=0;
         const provider={
             networkName:"MAINNET",globalId:-239,canExecute:()=>true,
