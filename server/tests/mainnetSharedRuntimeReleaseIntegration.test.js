@@ -5,6 +5,8 @@ import {join} from "node:path";
 import {tmpdir} from "node:os";
 import {createHash} from "node:crypto";
 import {buildMainnetPaymentRuntime} from "../payment/runtime/PaymentRuntimeFactory.js";
+import {bindPaymentRuntimeToApplication} from "../payment/runtime/PaymentApplicationBinder.js";
+import {RoomLobbyBridge} from "../socket/RoomLobbyBridge.js";
 import {TestnetNativeRoomPayoutTransport} from "../payment/runtime/TestnetNativeRoomPayoutTransport.js";
 import {TestnetPendingRefundReconciler} from "../payment/runtime/TestnetPendingRefundReconciler.js";
 import {TestnetPendingPayoutReconciler} from "../payment/runtime/TestnetPendingPayoutReconciler.js";
@@ -169,6 +171,57 @@ test("Mainnet release reuses 3/3 original session coordinator, ledger and ready-
     });
     await assert.rejects(h.runtime.sessionAdapter.observeRoomPayments({roomId:ROOM}),
         /mainnet settlement is not yet enabled/);
+    assert.equal(h.signs,0);
+    assert.equal(h.broadcasts,0);
+});
+
+test("real Page4 binder and RoomLobbyBridge share Mainnet runtime readiness; legacy Testnet switch untouched",t=>{
+    const h=fixture(t);
+    h.runtime.initialize();
+    let gate=null,refundHook=null;
+    const binding=bindPaymentRuntimeToApplication(h.runtime,{
+        roomManager:{
+            getRoom:id=>id===ROOM?{createdAt:NOW-20000,players:PLAYERS}:null,
+            attachRefundLifecycle:hook=>{refundHook=hook;}
+        },
+        gameStartAuthorization:{configurePaymentGate:next=>{gate=next;}},
+        paymentAcceptanceEnabled:false
+    });
+    assert.equal(refundHook,h.runtime.refundLifecycle);
+    assert.equal(gate,h.runtime.paymentGate);
+    const bridge=Object.create(RoomLobbyBridge.prototype);
+    bridge._paymentApplicationBinding=binding;
+    assert.equal(bridge._livePaymentAcceptanceEnabled(),true,
+        "fully assembled runtime can drive the same Page4 socket path");
+    const prepared=binding.prepareRoomPaymentSession(ROOM,h.descriptor.requiredPlayers);
+    assert.equal(prepared.payments.length,3);
+    assert.equal(gate.getGameStartGateStatus(ROOM,PLAYERS).eligible,false);
+    assert.equal(h.signs,0);
+    assert.equal(h.broadcasts,0);
+
+    h.deps.payoutTransport._independentVerifier=null;
+    assert.equal(bridge._livePaymentAcceptanceEnabled(),false,
+        "Page4 must close instantly if independent verifier disappears");
+    assert.throws(()=>binding.prepareRoomPaymentSession(ROOM,h.descriptor.requiredPlayers),
+        /live room-wallet payment acceptance is disabled/);
+    assert.equal(gate.getGameStartGateStatus(ROOM,PLAYERS).eligible,false);
+    assert.equal(h.signs,0);
+    assert.equal(h.broadcasts,0);
+});
+
+test("Mainnet preparation-only runtime cannot enable Page4 using binding or bridge",t=>{
+    const h=fixture(t,{releaseEnabled:false});
+    h.runtime.initialize();
+    const binding=bindPaymentRuntimeToApplication(h.runtime,{
+        roomManager:{getRoom:()=>({createdAt:NOW-20000,players:PLAYERS})},
+        paymentAcceptanceEnabled:true
+    });
+    const bridge=Object.create(RoomLobbyBridge.prototype);
+    bridge._paymentApplicationBinding=binding;
+    assert.equal(bridge._livePaymentAcceptanceEnabled(),false);
+    assert.throws(()=>binding.prepareRoomPaymentSession(ROOM,h.descriptor.requiredPlayers),
+        /live room-wallet payment acceptance is disabled/);
+    assert.equal(h.runtime.paymentService.listPaymentIntentsForRoom(ROOM).length,0);
     assert.equal(h.signs,0);
     assert.equal(h.broadcasts,0);
 });
