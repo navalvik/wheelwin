@@ -160,8 +160,12 @@ export class TestnetWinnerPayoutCoordinator {
         if (payout.replay) {
             // A repeated result can ONLY observe the previous payout.
             // Its ledger identity remains the same and no send is retried.
-            const readOnlyReconcile=this._submitter?.resumeUnattempted
-                ?? this._submitter?.reconcileAndSettle ?? this._submitter?.reconcile;
+            // A repeated Mainnet result must NEVER resume sends. The
+            // existing Testnet restart path is retained unchanged.
+            const readOnlyReconcile=this._payment?.network === 'mainnet'
+                ? (this._submitter?.reconcileAndSettle ?? this._submitter?.reconcile)
+                : (this._submitter?.resumeUnattempted
+                    ?? this._submitter?.reconcileAndSettle ?? this._submitter?.reconcile);
             if (typeof readOnlyReconcile === "function") {
                 return readOnlyReconcile.call(this._submitter,{
                     roomId,payoutId,roomWalletAddress:roomWallet.address,
