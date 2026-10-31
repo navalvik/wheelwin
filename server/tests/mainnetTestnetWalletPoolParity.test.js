@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {mkdtempSync,rmSync,readFileSync} from "node:fs";
+import {mkdtempSync,rmSync,readFileSync,writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {
@@ -93,4 +93,17 @@ test("unknown pool network rejects at construction without touching catalog",()=
         /room wallet network must be testnet or mainnet/);
     assert.throws(()=>new WalletPoolRegistry({network:"invalid"}),
         /room wallet network must be testnet or mainnet/);
+});
+
+test("existing synthetic Mainnet file-based mismatch test retains explicit fixture support",()=>{
+    withFolder(root=>{
+        const path=join(root,"explicit-mainnet-fixture.json");
+        writeFileSync(path,JSON.stringify(catalog("mainnet")));
+        const pool=new WalletPoolRegistry({
+            catalogPath:path,network:"mainnet",env:{}
+        });
+        pool.initialize();
+        assert.equal(pool.listWallets().length,64);
+        assert.ok(pool.listWallets().every(w=>w.network==="mainnet"));
+    });
 });
