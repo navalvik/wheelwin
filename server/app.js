@@ -118,7 +118,8 @@ import { RecoveryDataPersistence } from "./persistence/RecoveryDataPersistence.j
 // durable refund obligations. Assembled once and bound to the real managers
 // below. App.js is the real entry point (package.json: node app.js).
 import {
-    buildPaymentRuntime,
+    buildMainnetPaymentRuntime,
+    selectAppPaymentRuntimeBuilder,
     resolveDefaultRoomWalletPaymentDataDir
 } from "./payment/runtime/PaymentRuntimeFactory.js";
 import { bindPaymentRuntimeToApplication } from "./payment/runtime/PaymentApplicationBinder.js";
@@ -1228,10 +1229,18 @@ class WheelWinApplication {
             // Transfers stay closed by default. An explicit Testnet opt-in
             // resolves secrets only in server memory and wires all recovery workers.
             let nativeRoomWalletAdapter = null;
-            const paymentRuntime = buildPaymentRuntime({
+            const paymentRuntimeBuilder = selectAppPaymentRuntimeBuilder({
+                tonNetwork: process.env.TON_NETWORK,
+                roomWalletPaymentsEnabled: process.env.ROOM_WALLET_PAYMENTS_ENABLED === "true"
+            });
+            const mainnetPreparationOnly = paymentRuntimeBuilder === buildMainnetPaymentRuntime;
+            const paymentRuntime = paymentRuntimeBuilder({
                 logger: this._logger,
                 dataDir: resolveDefaultRoomWalletPaymentDataDir(),
-                refundSubmitterFactory: LIVE_PAYMENT_ACCEPTANCE_ENABLED
+                // Testnet keeps its existing signer setup exactly as before.
+                // Mainnet receives no signing capability and cannot admit
+                // Page4 payment acceptance or authorize Page5.
+                refundSubmitterFactory: !mainnetPreparationOnly && LIVE_PAYMENT_ACCEPTANCE_ENABLED
                     ? ({walletPool,networkDataDir,network}) => {
                         if(network !== "testnet"
                             || String(process.env.TON_NETWORK ?? "").toLowerCase() !== "testnet") {
@@ -1387,11 +1396,11 @@ class WheelWinApplication {
                             gameId: envelope.payload?.gameId
                         }))
                         .then((outcome) => this._logger.info(
-                            `TESTNET_WINNER_PAYOUT | gameId=${envelope.payload?.gameId}`
+                            `${paymentRuntime.network.toUpperCase()}_WINNER_PAYOUT | gameId=${envelope.payload?.gameId}`
                                 + ` | status=${outcome.status}`
                         ))
                         .catch((error) => this._logger.warn(
-                            `TESTNET_WINNER_PAYOUT_PENDING | gameId=${envelope.payload?.gameId}`
+                            `${paymentRuntime.network.toUpperCase()}_WINNER_PAYOUT_PENDING | gameId=${envelope.payload?.gameId}`
                                 + ` | reason=${error?.message ?? "unavailable"}`
                         ));
                 }
@@ -1402,7 +1411,7 @@ class WheelWinApplication {
             const refundExecutionEnabled = paymentRuntime.outgoingRefundProvider?.canExecute?.() === true;
 
             this._logger.startupLine(
-                `RoomWalletPayment (TESTNET globalId=${paymentRuntime.globalId}`
+                `RoomWalletPayment (${paymentRuntime.network.toUpperCase()} globalId=${paymentRuntime.globalId}`
                     + ` | gate=enforced | refundExecution=${refundExecutionEnabled ? "enabled" : "disabled"}`
                     + ` | liveAcceptance=${
                         LIVE_PAYMENT_ACCEPTANCE_ENABLED ? "enabled" : "disabled"}`
