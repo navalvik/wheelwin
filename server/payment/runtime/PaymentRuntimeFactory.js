@@ -230,12 +230,20 @@ export function buildMainnetPaymentRuntime(options = {}) {
  */
 export function selectAppPaymentRuntimeBuilder({
     tonNetwork = null,
-    roomWalletPaymentsEnabled = false
+    roomWalletPaymentsEnabled = false,
+    mainnetNativeReleaseEnabled = false
 } = {}) {
     const network = String(tonNetwork ?? "testnet").trim().toLowerCase();
     if (network === "mainnet") {
-        if (roomWalletPaymentsEnabled === true) {
+        // Two explicit, independent server switches are required; the
+        // existing Testnet opt-in must never activate Mainnet by itself.
+        if (roomWalletPaymentsEnabled === true
+            && mainnetNativeReleaseEnabled !== true) {
             throw new Error("MAINNET_LIVE_PAYMENT_ACCEPTANCE_NOT_ENABLED");
+        }
+        if (mainnetNativeReleaseEnabled === true
+            && roomWalletPaymentsEnabled !== true) {
+            throw new Error("MAINNET_RELEASE_REQUIRES_PAYMENT_OPT_IN");
         }
         return buildMainnetPaymentRuntime;
     }
