@@ -25,6 +25,7 @@ function harness(t) {
     }))));
     const dataDir=join(root,"payments"),calls=[];
     let transactions=[];
+    let clock=NOW;
     const fetchImpl=async(url,init)=>{
         const path=new URL(url).pathname;
         calls.push({path,method:init.method});
@@ -38,7 +39,7 @@ function harness(t) {
     function runtime(){
         const r=buildMainnetPaymentRuntime({
             dataDir,walletCatalogPath:catalogPath,
-            nowProvider:()=>NOW,fetchImpl,
+            nowProvider:()=>clock,fetchImpl,
             apiKeyProvider:()=>"OFFLINE-SYNTHETIC-NO-REAL-KEY"
         });
         r.initialize();
@@ -56,7 +57,7 @@ function harness(t) {
     function txFor(requirement,slot,ordinal) {
         return {
             hash:createHash("sha256").update(requirement.paymentReference).digest("hex"),
-            account:slot.address,now:NOW/1000-5,emulated:false,
+            account:slot.address,now:NOW/1000+5,emulated:false,
             block_ref:{workchain:0,shard:"8000000000000000",seqno:200+ordinal},
             mc_block_seqno:9000+ordinal,
             description:{aborted:false,compute_ph:{success:true},action:{success:true}},
@@ -69,6 +70,7 @@ function harness(t) {
         };
     }
     function setPaid(d,slot,count){
+        clock=NOW+10000;
         transactions=d.requiredPlayers.slice(0,count).map((p,i)=>txFor(p,slot,i));
     }
     return {root,dataDir,runtime,descriptor,setPaid,calls};
@@ -101,7 +103,7 @@ test("Mainnet offline finance: three verified native TON receipts -> durable led
     const slot=runtime.walletPool.getReservationForRoom(roomId);
     for(let i=1;i<=3;i++){
         h.setPaid(desc,slot,i);
-        const report=await runtime.coordinator.settleRoomPayments({roomId,floorMs:NOW-20000,ceilingMs:NOW+1000,now:NOW});
+        const report=await runtime.coordinator.settleRoomPayments({roomId,floorMs:NOW-20000,ceilingMs:NOW+10000,now:NOW+10000});
         assert.equal(report.refusal,null,JSON.stringify(report));
         const actual=runtime.paymentService.listPaymentIntentsForRoom(roomId)
             .filter(x=>x.state==="SETTLED");
@@ -155,7 +157,7 @@ test("Mainnet offline timeout: two observed payers -> exactly two durable refund
     runtime.sessionAdapter.prepareRoom(desc);
     const slot=runtime.walletPool.getReservationForRoom(roomId);
     h.setPaid(desc,slot,2);
-    const report=await runtime.coordinator.settleRoomPayments({roomId,floorMs:NOW-20000,ceilingMs:NOW+1000,now:NOW});
+    const report=await runtime.coordinator.settleRoomPayments({roomId,floorMs:NOW-20000,ceilingMs:NOW+10000,now:NOW+10000});
     assert.equal(report.refusal,null,JSON.stringify(report));
     assert.equal(runtime.paymentService.listPaymentIntentsForRoom(roomId)
         .filter(x=>x.state==="SETTLED").length,2);
@@ -192,7 +194,7 @@ test("Mainnet offline aborted 3/3 before Page5: all three payers get obligations
     const desc=h.descriptor(roomId);
     runtime.sessionAdapter.prepareRoom(desc);
     h.setPaid(desc,runtime.walletPool.getReservationForRoom(roomId),3);
-    assert.equal((await runtime.coordinator.settleRoomPayments({roomId,floorMs:NOW-20000,ceilingMs:NOW+1000,now:NOW})).refusal,null);
+    assert.equal((await runtime.coordinator.settleRoomPayments({roomId,floorMs:NOW-20000,ceilingMs:NOW+10000,now:NOW+10000})).refusal,null);
     runtime.shutdown();
     runtime=h.runtime();
     assert.equal(principalFor(runtime,roomId).length,3);
