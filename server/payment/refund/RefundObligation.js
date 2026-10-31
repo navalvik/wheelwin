@@ -48,8 +48,12 @@ export class RefundObligation {
         this.networkName = text(record.networkName, "networkName");
         if (!Object.values(REFUND_NETWORK).includes(this.networkName)) throw new RefundObligationError("unsupported networkName");
         if (!Number.isSafeInteger(record.globalId)) throw new RefundObligationError("globalId must be a safe integer");
-        if (record.globalId !== REFUND_GLOBAL_ID_BY_NETWORK[this.networkName]) {
-            throw new RefundObligationError(`${this.networkName} refund globalId does not match the TON network`);
+        if (this.networkName === REFUND_NETWORK.TESTNET && record.globalId !== -3) {
+            throw new RefundObligationError("Testnet globalId must be -3");
+        }
+        if (this.networkName === REFUND_NETWORK.MAINNET
+            && record.globalId !== REFUND_GLOBAL_ID_BY_NETWORK[REFUND_NETWORK.MAINNET]) {
+            throw new RefundObligationError("Mainnet globalId must be -239");
         }
         this.globalId = record.globalId;
         this.roomNumber = record.roomNumber;
