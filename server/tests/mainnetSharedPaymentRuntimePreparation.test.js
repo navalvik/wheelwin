@@ -21,8 +21,16 @@ function fixture(callback) {
         writeFileSync(catalogPath,JSON.stringify(Array.from({length:64},(_,i)=>({
             roomNumber:i+1,network:"mainnet",address:wallet(i+1)
         }))));
-        return callback({root,catalogPath});
-    } finally {rmSync(root,{recursive:true,force:true});}
+        const result=callback({root,catalogPath});
+        if (result && typeof result.then==="function") {
+            return result.finally(()=>rmSync(root,{recursive:true,force:true}));
+        }
+        rmSync(root,{recursive:true,force:true});
+        return result;
+    } catch (error) {
+        rmSync(root,{recursive:true,force:true});
+        throw error;
+    }
 }
 function descriptor(room=roomId) {
     return {
