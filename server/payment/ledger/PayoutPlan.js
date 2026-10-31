@@ -6,7 +6,7 @@
  * source-wallet expenses after chain verification.
  *
  * Approved payout rules enforced here:
- *   - winner amount is 95%, owner amount is 4.9%, and remaining 0.1% plus
+ *   - winner amount is 95%, owner amount is 4.95%, and remaining 0.05% plus
  *     rounding dust stays in the source Room Wallet;
  *   - `netAtomic` equals the full recipient amount; `reservedFeeAtomic` is
  *     zero because the Room Wallet pays actual network fees separately.
@@ -21,6 +21,7 @@
  */
 
 import { PayoutValidationError } from "./LedgerErrors.js";
+import { LEGACY_OWNER_4_9_RULE_ID } from "./PayoutAllocationConfig.js";
 
 function assertPositiveSafeInteger(value, field) {
 
@@ -190,7 +191,18 @@ export class PayoutPlan {
             (transfer) => transfer.recipientRole === "OWNER");
         const principal = BigInt(input.principalAtomic);
         const expectedWinnerAtomic = Number((principal * 95n) / 100n);
-        const expectedOwnerAtomic = Number((principal * 49n) / 1000n);
+        // Never rewrite an already-recorded obligation. Historic 4.9% plans
+        // remain readable *only* through fromJSON with their original fixed
+        // allocation identity; fresh plans always use 4.95%.
+        const historical = input.historicalRecord === true
+            && input.allocation?.ruleId === LEGACY_OWNER_4_9_RULE_ID
+            && input.allocation?.ownerNumerator === 49
+            && input.allocation?.ownerDenominator === 1000
+            && input.allocation?.numerator === 95
+            && input.allocation?.denominator === 100;
+        const expectedOwnerAtomic = historical
+            ? Number((principal * 49n) / 1000n)
+            : Number((principal * 99n) / 2000n);
 
         if (input.transfers.length !== 2
             || !winnerTransfer
@@ -201,7 +213,7 @@ export class PayoutPlan {
                 principal - BigInt(expectedWinnerAtomic) - BigInt(expectedOwnerAtomic))) {
 
             throw new PayoutValidationError(
-                "payout plan must preserve the fixed 95% winner, 4.9% owner, and retained remainder",
+                "payout plan must preserve the fixed 95% winner and owner allocation for its recorded policy",
                 {
                     expectedWinnerAtomic,
                     actualWinnerAtomic: winnerTransfer?.grossAtomic ?? null,
@@ -342,7 +354,8 @@ export class PayoutPlan {
             allocation: record.allocation,
             transfers: (record.transfers ?? []).map((t) => PayoutTransfer.fromJSON(t)),
             createdAtMs: record.createdAtMs,
-            planId: record.planId
+            planId: record.planId,
+            historicalRecord: record.allocation?.ruleId === LEGACY_OWNER_4_9_RULE_ID
         });
 
     }
