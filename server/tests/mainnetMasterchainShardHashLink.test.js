@@ -202,10 +202,12 @@ test("new TL-B shard_descr_new#a variant with fee ref is accepted without auth",
     checkSafety(r);
 });
 
-test("malformed shard descriptor extra fields cannot masquerade as a valid shard",()=>{
-    // The full TL-B parser rejects an incompatible variant's trailing layout.
+test("new descriptor variant in a split tree selects the wallet's left shard",()=>{
     const f=fixture({descriptorTag:0xa, fork:true});
-    const r=inspect(f);
+    const r=inspect(f,{shardBlock:{
+        workchain:0,shard:LEFT_SHARD,seqno:5500,rootHash:ROOT_HASH
+    }});
     assert.equal(r.status,"SHARD_HASH_MATCHES_UNAUTHENTICATED_MASTERCHAIN_BLOCK");
+    assert.equal(r.shard,LEFT_SHARD);
     checkSafety(r);
 });
