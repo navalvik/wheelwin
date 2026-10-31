@@ -5972,15 +5972,22 @@ export class RoomLobbyBridge {
         // The original Testnet release switch stays authoritative and
         // unchanged. Mainnet uses the SAME Page4 code only when its server-
         // assembled native refund, payout, seqno and 3/3 gate are all ready.
-        if (LIVE_PAYMENT_ACCEPTANCE_ENABLED) return true;
         const runtime=this._paymentApplicationBinding?.runtime;
-        if (runtime?.network!=="mainnet") return false;
-        try {
-            return runtime.initialized===true
-                && runtime.getCapabilities?.().livePaymentAcceptanceEnabled===true;
-        } catch {
-            return false;
+        // On Mainnet the generic env switch is also true after opt-in.
+        // Never let that Testnet switch bypass the live native preflight.
+        if (runtime?.network==="mainnet") {
+            try {
+                return runtime.initialized===true
+                    && runtime.getCapabilities?.().livePaymentAcceptanceEnabled===true;
+            } catch {
+                return false;
+            }
         }
+        // During a failed Mainnet bootstrap there may be no runtime at all.
+        // The global Testnet switch must not expose Page4 in that state.
+        if (String(process.env.TON_NETWORK ?? "").trim().toLowerCase()==="mainnet")
+            return false;
+        return LIVE_PAYMENT_ACCEPTANCE_ENABLED;
     }
 
     _preparePaymentSessionIfEnabled(roomId, room) {
