@@ -23,9 +23,8 @@ function stateUpdate() {
         .storeRef(before).storeRef(after).endCell({exotic:true});
 }
 function shardDescriptor(rootHash = ROOT_HASH,{seqno = 5500,tag = 0xb} = {}) {
-    // ShardDescr old variant; remaining flags and zero currency collections
-    // are well-formed TON TL-B fields, not merely a truncated header.
-    return beginCell().storeBit(false).storeUint(tag,4)
+    // ShardDescr TL-B old (#b) and new (#a) variants.
+    const builder=beginCell().storeBit(false).storeUint(tag,4)
         .storeUint(seqno,32).storeUint(120040,32)
         .storeUint(10n,64).storeUint(20n,64)
         .storeBuffer(Buffer.from(rootHash,"hex"))
@@ -34,15 +33,22 @@ function shardDescriptor(rootHash = ROOT_HASH,{seqno = 5500,tag = 0xb} = {}) {
         .storeBit(false).storeBit(false).storeBit(false)
         .storeUint(0,3).storeUint(1,32).storeUint(0n,64)
         .storeUint(100,32).storeUint(1793451600,32)
-        .storeBit(false) // FutureSplitMerge none
-        .storeCoins(0n).storeBit(false)
-        .storeCoins(0n).storeBit(false)
-        .endCell();
+        .storeBit(false); // FutureSplitMerge none
+    if(tag===0xa) {
+        builder.storeRef(beginCell()
+            .storeCoins(0n).storeBit(false)
+            .storeCoins(0n).storeBit(false).endCell());
+    } else {
+        builder.storeCoins(0n).storeBit(false)
+            .storeCoins(0n).storeBit(false);
+    }
+    return builder.endCell();
 }
 function fixture({
     fork = false, rootHash = ROOT_HASH, leftHash = ROOT_HASH,
     rightHash = ALT_HASH, shardSeqno=5500, basechain=true,
-    custom=true, badExtra=false, invalidTag=false, missingDict=false
+    custom=true, badExtra=false, invalidTag=false, missingDict=false,
+    descriptorTag=0xb
 } = {}) {
     const previous=beginCell().storeUint(9n,64).storeUint(SEQNO-1,32)
         .storeBuffer(Buffer.alloc(32,1)).storeBuffer(Buffer.alloc(32,2))
@@ -57,7 +63,7 @@ function fixture({
         .storeUint(1793451600,32).storeUint(20n,64).storeUint(30n,64)
         .storeUint(0,32).storeUint(0,32).storeUint(1,32).storeUint(1,32)
         .storeRef(previous).endCell();
-    const left=shardDescriptor(leftHash,{seqno:shardSeqno,tag:invalidTag?0x9:0xb});
+    const left=shardDescriptor(leftHash,{seqno:shardSeqno,tag:invalidTag?0x9:descriptorTag});
     const right=shardDescriptor(rightHash,{seqno:shardSeqno});
     const tree=fork
         ? beginCell().storeBit(true).storeRef(left).storeRef(right).endCell()
@@ -186,5 +192,20 @@ test("a different valid block cannot be substituted under a supplied checkpoint"
     const g=fixture({rootHash:ALT_HASH});
     const r=inspect(f,{masterchainBlockBocBase64:g.boc});
     assert.equal(r.reason,"MASTERCHAIN_BLOCK_ROOT_HASH_MISMATCH");
+    checkSafety(r);
+});
+
+
+test("new TL-B shard_descr_new#a variant with fee ref is accepted without auth",()=>{
+    const r=inspect(fixture({descriptorTag:0xa}));
+    assert.equal(r.status,"SHARD_HASH_MATCHES_UNAUTHENTICATED_MASTERCHAIN_BLOCK");
+    checkSafety(r);
+});
+
+test("malformed shard descriptor extra fields cannot masquerade as a valid shard",()=>{
+    // The full TL-B parser rejects an incompatible variant's trailing layout.
+    const f=fixture({descriptorTag:0xa, fork:true});
+    const r=inspect(f);
+    assert.equal(r.status,"SHARD_HASH_MATCHES_UNAUTHENTICATED_MASTERCHAIN_BLOCK");
     checkSafety(r);
 });
