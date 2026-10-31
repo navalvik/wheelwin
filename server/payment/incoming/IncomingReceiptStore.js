@@ -4,10 +4,16 @@ import { join } from 'node:path';
 import { durableWriteJson } from '../DurableJson.js';
 import { deriveIncomingTransactionId } from './IncomingTransferIdentity.js';
 import { deriveTonAddressIdentity } from './TonAddressIdentity.js';
+import { requireToncenterChainConfig } from '../toncenter/ToncenterConstants.js';
 
 /** Durable receipts are independent of eligibility to play. No signing keys. */
 export class IncomingReceiptStore {
-    constructor({ dataDir }) { this.dir = join(dataDir, 'incoming-receipts'); this.records = new Map(); }
+    constructor({ dataDir, network = 'testnet' }) {
+        requireToncenterChainConfig(network);
+        this.network = network;
+        this.dir = join(dataDir, 'incoming-receipts');
+        this.records = new Map();
+    }
     initialize() {
         mkdirSync(this.dir, { recursive: true });
         this.records.clear();
@@ -20,7 +26,7 @@ export class IncomingReceiptStore {
     }
     filename(id) { return createHash('sha256').update(id).digest('hex') + '.json'; }
     validate(r) {
-        if (r.schemaVersion !== 1 || r.network !== 'testnet' || r.asset !== 'TON'
+        if (!r || r.schemaVersion !== 1 || r.network !== this.network || r.asset !== 'TON'
             || r.transactionId !== deriveIncomingTransactionId({ network: r.network, providerId: 'toncenter',
                 accountId: r.providerAccountId, transactionId: r.providerTransactionId })
             || !Number.isSafeInteger(r.amountAtomic) || r.amountAtomic <= 0
