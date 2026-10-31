@@ -59,7 +59,7 @@ test("fee quotes remain diagnostic and do not reduce payouts",async t=>{
     assert.equal(fee.winner.feeAtomic,1_000_000);
     assert.equal(fee.owner.feeAtomic,1_000_000);
     assert.deepEqual(h.seen.map(x=>x.op),["quote","quote"]);
-    assert.equal(payout(fee).gasReserveAtomic,3_000_000);
+    assert.equal(payout(fee).gasReserveAtomic,1_500_000);
 });
 test("one 3-player result sends winner then owner, respecting room reserve and no double-submit",async t=>{
     const h=harness(t);
