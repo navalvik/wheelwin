@@ -1,4 +1,5 @@
 import {join} from "node:path";
+import {tonAddressIdentitiesEqual} from "../incoming/TonAddressIdentity.js";
 import {requireToncenterChainConfig} from "../toncenter/ToncenterConstants.js";
 import {ToncenterTransactionsClient} from "../toncenter/ToncenterTransactionsClient.js";
 import {ToncenterIndexedFinalityEvidenceProvider} from "../toncenter/ToncenterIndexedFinalityEvidenceProvider.js";
@@ -38,7 +39,7 @@ export function createMainnetNativeFinancialRelease({
     })
 }={}) {
     const chain=requireToncenterChainConfig("mainnet");
-    let prepared=null,deps=null;
+    let prepared=null,deps=null,signingCatalogValidated=false;
     const createRefundSubmitter=({walletPool,networkDataDir,network,globalId})=>{
         if (prepared || network!==chain.network || globalId!==chain.globalId
             || walletPool?.network!=="mainnet" || !networkDataDir)
@@ -80,8 +81,33 @@ export function createMainnetNativeFinancialRelease({
             finalityEvidenceProvider:indexedFinality
         });
     };
+    // Validate ALL 64 existing public pool addresses against the loaded native
+    // wallet resolver, not just the address of the first assigned room.
+    // Without this check a stale/private-key catalog could sign from a
+    // DIFFERENT source wallet while the ledger expects the public pool slot.
+    // The check is read-only, never fetches the chain or exposes secrets.
+    const validateSigningCatalog=async runtime=>{
+        if(!prepared || runtime?.network!=="mainnet"
+            || runtime.globalId!==-239 ||runtime.initialized!==true
+            ||runtime.walletPool!==prepared.walletPool
+            ||runtime.networkDataDir!==prepared.networkDataDir)
+            throw new Error("MAINNET_SIGNING_CATALOG_RUNTIME_MISMATCH");
+        signingCatalogValidated=false;
+        const pool=runtime.walletPool;
+        for(let roomNumber=1;roomNumber<=64;roomNumber++){
+            const expected=pool.getWalletByRoomNumber(roomNumber);
+            const actual=await prepared.roomWalletAdapter._walletResolver(roomNumber);
+            if(!expected || !actual ||actual.roomNumber!==roomNumber
+                ||(actual.network!=null && actual.network!=="mainnet")
+                ||!tonAddressIdentitiesEqual(expected.address,actual.address))
+                throw new Error("MAINNET_SIGNING_CATALOG_ADDRESS_MISMATCH");
+        }
+        signingCatalogValidated=true;
+        return true;
+    };
     const resolveDependencies=runtime=>{
-        if(!prepared ||runtime?.network!=="mainnet" ||runtime.globalId!==-239
+        if(!prepared ||!signingCatalogValidated
+            ||runtime?.network!=="mainnet" ||runtime.globalId!==-239
             ||runtime.walletPool!==prepared.walletPool
             ||runtime.networkDataDir!==prepared.networkDataDir
             ||runtime.initialized!==true)
@@ -116,5 +142,5 @@ export function createMainnetNativeFinancialRelease({
         });
         return deps;
     };
-    return Object.freeze({createRefundSubmitter,resolveDependencies});
+    return Object.freeze({createRefundSubmitter,validateSigningCatalog,resolveDependencies});
 }
