@@ -5,6 +5,15 @@ import { requireToncenterChainConfig } from '../toncenter/ToncenterConstants.js'
 
 const address = deriveTonAddressIdentity;
 
+// Legacy Testnet historical recovery used partial intent descriptors without
+// network/asset fields. Preserve that working path. Mainnet requires explicit
+// network identity and TON asset; never infer it from such a legacy descriptor.
+function intentBelongsToNetwork(intent, network) {
+    if (network === 'mainnet') return intent.network === 'mainnet' && intent.asset === 'TON';
+    return (intent.network == null || intent.network === 'testnet')
+        && (intent.asset == null || intent.asset === 'TON');
+}
+
 /** Capture finalized money before stake matching, then refund uncredited receipts. */
 export class IncomingReceiptAccounting {
     constructor({ store, intentStore, refundStore, nowProvider = Date.now, network = 'testnet' }) {
@@ -17,7 +26,7 @@ export class IncomingReceiptAccounting {
         if (observation.resultWindowComplete !== true) return;
         const intents = this.intentStore.listForRoom(observation.roomId);
         if (!intents.length) return;
-        if (intents.some(i => i.network !== this.network || i.asset !== 'TON'
+        if (intents.some(i => !intentBelongsToNetwork(i, this.network)
             || address(i.destinationWalletAddress) !== address(intents[0].destinationWalletAddress)))
             throw new Error('RECEIPT_ACCOUNTING_INTENT_NETWORK_MISMATCH');
         for (const transfer of observation.transfers) {
@@ -69,7 +78,7 @@ export class IncomingReceiptAccounting {
             || closed.globalId !== this.chain.globalId)
             throw new Error('RECEIPT_ACCOUNTING_CLOSED_ROOM_NETWORK_MISMATCH');
         const intents = this.intentStore.listForRoom(roomId);
-        if (intents.some(i => i.network !== this.network || i.asset !== 'TON'))
+        if (intents.some(i => !intentBelongsToNetwork(i, this.network)))
             throw new Error('RECEIPT_ACCOUNTING_INTENT_NETWORK_MISMATCH');
         const results = [];
         for (const receipt of this.store.listForRoom(roomId)) {
