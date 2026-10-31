@@ -88,15 +88,17 @@ test("same Testnet refund provider builder verifies explicit Mainnet chain, no a
 
 test("Mainnet refunds stay closed without explicit provider-approved lifecycle activation",async t=>{
     const h=fixture(t);
-    assert.throws(()=>h.lifecycle(true).submitRefund(ID,{provider:{}}),
-        /ignored-synchronous-error/);
+    await assert.rejects(h.lifecycle(false).submitRefund(ID),
+        /Mainnet outgoing refunds are not yet enabled/);
+    assert.equal(h.store.get(ID).state,"PENDING");
+    assert.equal(h.seen.broadcasted.length,0);
 });
 
 test("explicitly approved Mainnet lifecycle persists one mocked transfer and refuses replay",async t=>{
     const h=fixture(t);
     const lifecycle=h.lifecycle(true);
     const recovery=lifecycle.recover({providers:new Map([["MAINNET",h.outgoing]])});
-    assert.equal(recovery[0].outcome,"PENDING_EXECUTION_READY");
+    assert.equal(recovery[0].outcome,"PENDING_AWAITING_SUBMISSION");
     const result=await lifecycle.submitRefund(ID);
     assert.equal(result.outcome,"SUBMITTED");
     assert.equal(result.outgoingTransactionId,"mock-outgoing-1");
