@@ -390,7 +390,8 @@ export class TestnetNativeRoomPayoutTransport {
         if(typeof query?.payoutId!=="string"||!SAFE_PAYOUT_ID.test(query.payoutId)
             ||query?.plan?.payoutId!==query.payoutId
             ||query.plan.roomId!==query.roomId
-            ||query.plan.network!==this._network)
+            ||query.plan.network!==this._network
+            ||!Array.isArray(query.plan.transfers)||query.plan.transfers.length!==2)
             return hold("PAYOUT_ASSESSMENT_PLAN_INVALID");
         let wallet;
         try {wallet=this._reservation(query.roomId,query.roomWalletAddress);}
@@ -407,6 +408,11 @@ export class TestnetNativeRoomPayoutTransport {
                 !==owner.netAtomic)
             return hold("PAYOUT_ASSESSMENT_WINNER_UNFINALIZED_OR_OWNER_CLOSED");
 
+        try {
+            if(canonical(query.plan.transfers.find(x=>x.recipientRole==="OWNER")?.address)
+                !==canonical(query.ownerWallet))
+                return hold("PAYOUT_ASSESSMENT_OWNER_ADDRESS_MISMATCH");
+        } catch {return hold("PAYOUT_ASSESSMENT_OWNER_ADDRESS_MISMATCH");}
         const intent=join(this._dir,query.payoutId+".OWNER.json");
         const outbox=typeof this._adapter?._sequenceStateDir==="string"
             ?join(this._adapter._sequenceStateDir,"transfers",
@@ -447,14 +453,16 @@ export class TestnetNativeRoomPayoutTransport {
                 amountNano:BigInt(owner.netAtomic),bounce:false
             });
         } catch {return hold("PAYOUT_ASSESSMENT_RPC_UNAVAILABLE");}
-        if(funding?.roomNumber!==wallet.roomNumber
-            ||canonical(funding.address)!==canonical(wallet.address)
-            ||typeof funding.balanceNano!=="bigint"||funding.balanceNano<0n
-            ||quote?.ok!==true||quote.roomNumber!==wallet.roomNumber
-            ||typeof quote.totalNano!=="bigint"||quote.totalNano<0n
-            ||quote.amountNano!==BigInt(owner.netAtomic)
-            ||canonical(quote.destination)!==canonical(query.ownerWallet))
-            return hold("PAYOUT_ASSESSMENT_RPC_INVALID");
+        try {
+            if(funding?.roomNumber!==wallet.roomNumber
+                ||canonical(funding.address)!==canonical(wallet.address)
+                ||typeof funding.balanceNano!=="bigint"||funding.balanceNano<0n
+                ||quote?.ok!==true||quote.roomNumber!==wallet.roomNumber
+                ||typeof quote.totalNano!=="bigint"||quote.totalNano<0n
+                ||quote.amountNano!==BigInt(owner.netAtomic)
+                ||canonical(quote.destination)!==canonical(query.ownerWallet))
+                return hold("PAYOUT_ASSESSMENT_RPC_INVALID");
+        } catch {return hold("PAYOUT_ASSESSMENT_RPC_INVALID");}
         const needed=BigInt(owner.netAtomic)+quote.totalNano;
         const shortfall=needed>funding.balanceNano?needed-funding.balanceNano:0n;
         return Object.freeze({
