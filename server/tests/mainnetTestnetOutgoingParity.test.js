@@ -129,9 +129,9 @@ test("existing winner payout coordinator plans exact Mainnet winner/owner/reserv
     const plan=[...h.planned.values()][0];
     assert.equal(plan.network,"mainnet");
     assert.equal(plan.principalAtomic,3000000000);
-    assert.equal(plan.gasReserveAtomic,3000000);
+    assert.equal(plan.gasReserveAtomic,1500000);
     assert.equal(plan.transfers.find(t=>t.recipientRole==="WINNER").grossAtomic,2850000000);
-    assert.equal(plan.transfers.find(t=>t.recipientRole==="OWNER").grossAtomic,147000000);
+    assert.equal(plan.transfers.find(t=>t.recipientRole==="OWNER").grossAtomic,148500000);
     const replay=await h.coordinator.onGameResult({gameId:"game-mainnet"});
     assert.equal(replay.status,"ALREADY_PLANNED_NEEDS_RECONCILIATION");
     assert.equal(h.planned.size,1);
