@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { verifyOutgoingRefundFinality } from "../payment/refund/OutgoingRefundFinality.js";
+import { TestnetOutgoingRefundProvider } from "../payment/refund/TestnetOutgoingRefundProvider.js";
+import { ToncenterTestnetOutgoingTransferProvider } from "../payment/refund/ToncenterTestnetOutgoingTransferProvider.js";
+
 import { TestnetWinnerPayoutCoordinator } from "../payment/runtime/TestnetWinnerPayoutCoordinator.js";
 import { RoomPayoutCalculator } from "../payment/ledger/RoomPayoutCalculator.js";
 
@@ -158,4 +161,138 @@ test("historical Testnet room-wallet #1 quarantine does not extend to distinct M
     const mainnet=payoutHarness({network:"mainnet",roomNumber:1});
     assert.equal((await mainnet.coordinator.onGameResult({gameId:"game-mainnet"})).status,
         "PAYOUT_PLANNED_EXECUTOR_UNAVAILABLE");
+});
+
+test("existing native refund provider uses exact chain identity with mocked signer/broadcaster only",async()=>{
+    for(const network of ["testnet","mainnet"]) {
+        const name=network.toUpperCase(),globalId=network==="testnet"?-3:-239;
+        const seen={signed:[],broadcasted:[]};
+        const provider=new TestnetOutgoingRefundProvider({
+            networkName:name,globalId,
+            signer:{signTransfer:async descriptor=>{
+                seen.signed.push(descriptor);
+                return {testOnly:"signed-transfer-mock"};
+            }},
+            broadcaster:{broadcast:async message=>{
+                seen.broadcasted.push(message);
+                return {status:"SUBMITTED",transactionId:"mock-sent-1"};
+            }},
+            finalityEvidenceProvider:{getSettlementEvidence:async()=>evidence(network,"mock-sent-1")},
+            outgoingTransferProvider:{
+                getOutgoingTransfer:async()=>({transactionId:"mock-sent-1",sourceAddress:source,
+                    destinationAddress:payer,amountAtomic:1000000000}),
+                findOutgoingTransfer:async()=>null
+            }
+        });
+        assert.equal(provider.canExecute(),true);
+        assert.deepEqual(await provider.verifyNetwork(),{networkName:name,globalId});
+        const debt=obligation(network);
+        const authorization=provider.authorizeSubmission({
+            obligation:debt,sourceWalletAddress:source
+        });
+        assert.equal(authorization.globalId,globalId);
+        const attempt=await provider.signAndBroadcast({
+            obligation:debt,sourceWalletAddress:source,nowMs:NOW
+        });
+        assert.equal(attempt.outcome,"SUBMITTED");
+        assert.equal(attempt.outgoingTransactionId,"mock-sent-1");
+        assert.equal(seen.signed.length,1);
+        assert.equal(seen.broadcasted.length,1);
+        assert.equal(seen.signed[0].networkName,name);
+        assert.equal(seen.signed[0].globalId,globalId);
+        const final=await provider.observeAndVerifyFinality({
+            obligation:debt,sourceWalletAddress:source,
+            outgoingTransactionId:"mock-sent-1",nowMs:NOW
+        });
+        assert.equal(final.verified,true);
+        assert.throws(()=>provider.authorizeSubmission({
+            obligation:obligation(network==="mainnet"?"testnet":"mainnet"),
+            sourceWalletAddress:source
+        }),/refund obligation/);
+    }
+});
+
+test("Testnet provider default remains Testnet-only; Mainnet explicit global ID must match",()=>{
+    assert.throws(()=>new TestnetOutgoingRefundProvider({globalId:-239}),
+        /requires verified TON Testnet global ID -3/);
+    assert.throws(()=>new TestnetOutgoingRefundProvider({
+        networkName:"MAINNET",globalId:-3
+    }),/verified TON network identity/);
+    const p=new TestnetOutgoingRefundProvider({networkName:"MAINNET",globalId:-239});
+    assert.equal(p.canExecute(),false);
+    assert.equal(p.networkName,"MAINNET");
+});
+
+function outgoingIndexer(network,reportedId=null) {
+    const globalId=network==="mainnet"?-239:-3;
+    const messageHash="test-only-message";
+    const sourceTx="outgoing-source-hash";
+    const recipientTx="incoming-recipient-hash";
+    const row=(account)=>account===source
+        ? {
+            account:source,hash:sourceTx,now:NOW/1000-2,
+            description:{aborted:false,action:{success:true}},
+            mc_block_seqno:250,block_ref:{workchain:0,seqno:200,shard:"8000000000000000"},
+            finality:2,emulated:false,
+            out_msgs:[{hash:messageHash,source,destination:payer,
+                bounced:false,value:"1000000000"}]
+        }
+        : {
+            account:payer,hash:recipientTx,now:NOW/1000-2,
+            description:{aborted:false},
+            mc_block_seqno:251,block_ref:{workchain:0,seqno:201,shard:"8000000000000000"},
+            finality:2,emulated:false,
+            in_msg:{hash:messageHash,source,destination:payer,bounced:false,value:"1000000000"}
+        };
+    const client={
+        baseUrl:network==="mainnet"?"https://toncenter.com":"https://testnet.toncenter.com",
+        async getTransactions({account}){return {transactions:[row(account)]};},
+        async getMasterchainInfo(){return {last:{global_id:reportedId??globalId,seqno:260}};}
+    };
+    const provider=new ToncenterTestnetOutgoingTransferProvider({
+        client,network,nowProvider:()=>NOW,
+        lookbackMs:100000,pageSize:50,maxPages:2
+    });
+    return {provider,client};
+}
+
+test("same outgoing Toncenter history verifies source and recipient Mainnet indexed credit",async()=>{
+    for(const network of ["testnet","mainnet"]) {
+        const {provider}=outgoingIndexer(network);
+        const expected=await provider.verifyIndexedRecipientCredit({
+            sourceWalletAddress:source,destinationIdentity:payer,
+            transactionId:"outgoing-source-hash",amountAtomic:1000000000,
+            minCreatedAtMs:NOW-5000
+        });
+        assert.equal(expected.status,"MASTERCHAIN_INDEXED_RECIPIENT_CREDIT_OBSERVED");
+        assert.equal(expected.globalId,network==="mainnet"?-239:-3);
+        assert.equal(expected.sourceTransactionId,"outgoing-source-hash");
+        assert.equal(expected.recipientTransactionId,"incoming-recipient-hash");
+        assert.equal(expected.amountAtomic,1000000000);
+        assert.equal((await provider.getOutgoingTransfer({
+            sourceWalletAddress:source,transactionId:"outgoing-source-hash",
+            minCreatedAtMs:NOW-5000
+        })).destinationAddress,payer);
+        assert.equal((await provider.findOutgoingTransfer({
+            sourceWalletAddress:source,destinationIdentity:payer,
+            amountAtomic:1000000000,minCreatedAtMs:NOW-5000
+        })).transactionId,"outgoing-source-hash");
+    }
+});
+
+test("Mainnet history refuses Testnet masterchain ID and endpoint",async()=>{
+    const h=outgoingIndexer("mainnet",-3);
+    assert.equal(await h.provider.verifyIndexedRecipientCredit({
+        sourceWalletAddress:source,destinationIdentity:payer,
+        transactionId:"outgoing-source-hash",amountAtomic:1000000000,
+        minCreatedAtMs:NOW-5000
+    }),null);
+    assert.throws(()=>new ToncenterTestnetOutgoingTransferProvider({
+        network:"mainnet",
+        client:{baseUrl:"https://testnet.toncenter.com",getTransactions:async()=>({transactions:[]})}
+    }),/matching Toncenter endpoint/);
+    assert.throws(()=>new ToncenterTestnetOutgoingTransferProvider({
+        network:"mainnet",
+        client:{baseUrl:"https://toncenter.com.evil.example",getTransactions:async()=>({transactions:[]})}
+    }),/matching Toncenter endpoint/);
 });
