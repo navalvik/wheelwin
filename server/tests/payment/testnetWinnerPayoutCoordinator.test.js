@@ -51,7 +51,7 @@ function harness({ allPaid=true, fees=true, submit=true, dataDir=null }={}) {
     });
     return {c,calls,sent};
 }
-test("result binds exact 3 settled payments, winner wallet, full 95% and 4.9% transfers",async()=>{
+test("result binds exact 3 settled payments, winner wallet, full 95% and 4.95% transfers",async()=>{
     const {c,calls,sent}=harness();
     const result=await c.onGameResult({gameId:"game-123"});
     assert.equal(result.status,"SUBMITTED_UNCONFIRMED");
@@ -61,9 +61,9 @@ test("result binds exact 3 settled payments, winner wallet, full 95% and 4.9% tr
     assert.equal(calls[0].owner.address,D);
     assert.equal(sent.length,1);
     assert.equal(sent[0].plan.principalAtomic,3_000_000_000);
-    assert.equal(sent[0].plan.gasReserveAtomic,3_000_000);
+    assert.equal(sent[0].plan.gasReserveAtomic,1_500_000);
     assert.equal(sent[0].plan.transfers.find(x=>x.recipientRole==="WINNER").grossAtomic,2_850_000_000);
-    assert.equal(sent[0].plan.transfers.find(x=>x.recipientRole==="OWNER").grossAtomic,147_000_000);
+    assert.equal(sent[0].plan.transfers.find(x=>x.recipientRole==="OWNER").grossAtomic,148_500_000);
 });
 test("second result and reconnect cannot call payout submitter twice",async()=>{
     const {c,calls,sent}=harness();
@@ -112,5 +112,5 @@ test('restart pays a durably captured result without live room or player objects
     assert.equal(result[0].status, 'SUBMITTED_UNCONFIRMED');
     assert.equal(recovered.length, 1);
     assert.equal(recovered[0].winnerWallet, B);
-    assert.equal(recovered[0].plan.gasReserveAtomic, 3_000_000);
+    assert.equal(recovered[0].plan.gasReserveAtomic, 1_500_000);
 });
