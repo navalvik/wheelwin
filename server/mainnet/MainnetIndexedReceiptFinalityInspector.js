@@ -16,6 +16,14 @@ import { tonAddressIdentitiesEqual, parseTonAddress } from "../payment/incoming/
 import { MAINNET_GLOBAL_ID, MAINNET_TONCENTER_URL } from "./MainnetReadOnlyPreflight.js";
 import { MainnetRoomIncomingObserver } from "./MainnetRoomIncomingObserver.js";
 
+// Inspection results are provenance-bound to this module, not to untrusted
+// caller-supplied objects. Does not imply cryptographic finality or settlement.
+const inspectorReports = new WeakSet();
+
+export function isMainnetIndexedInspectionReport(value) {
+    return value !== null && typeof value === "object" && inspectorReports.has(value);
+}
+
 export const MAINNET_INDEXED_RECEIPT_STATUS = Object.freeze({
     INDEXED_DEPTH_OK: "INDEXED_MASTERCHAIN_DEPTH_OK",
     NOT_INDEXED: "NOT_INDEXED",
@@ -74,7 +82,9 @@ function readonlyResult({ roomId, observation, chainHead, minimumMasterchainDept
             || record?.asset !== "TON"
             || typeof record?.amountAtomic !== "string"
             || !/^[0-9]+$/.test(record.amountAtomic)
-            || BigInt(record.amountAtomic) <= 0n) {
+            || BigInt(record.amountAtomic) <= 0n
+            || !Number.isSafeInteger(record.transactionTime)
+            || record.transactionTime <= 0) {
             status = duplicated.has(hash)
                 ? MAINNET_INDEXED_RECEIPT_STATUS.DUPLICATE_TRANSACTION
                 : MAINNET_INDEXED_RECEIPT_STATUS.INVALID_TRANSACTION;
@@ -110,6 +120,8 @@ function readonlyResult({ roomId, observation, chainHead, minimumMasterchainDept
                 ? record.amountAtomic : null,
             paymentReference: status === MAINNET_INDEXED_RECEIPT_STATUS.INDEXED_DEPTH_OK
                 ? (record.comment ?? null) : null,
+            transactionTimeMs: status === MAINNET_INDEXED_RECEIPT_STATUS.INDEXED_DEPTH_OK
+                ? record.transactionTime : null,
             masterchainInclusionSeqno: status === MAINNET_INDEXED_RECEIPT_STATUS.INDEXED_DEPTH_OK
                 ? indexed.mcBlockSeqno : null,
             providerReportedFinality: status === MAINNET_INDEXED_RECEIPT_STATUS.INDEXED_DEPTH_OK,
@@ -199,11 +211,13 @@ export class MainnetIndexedReceiptFinalityInspector {
             fail("MAINNET_FINALITY_ROOM_NO_LONGER_ACTIVE");
         }
 
-        return readonlyResult({
+        const report = readonlyResult({
             roomId: options.roomId,
             observation: { walletAddress, response },
             chainHead: head.seqno,
             minimumMasterchainDepth: this._depth
         });
+        inspectorReports.add(report);
+        return report;
     }
 }
