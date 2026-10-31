@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {mkdtempSync,rmSync} from "node:fs";
+import {mkdtempSync,rmSync,mkdirSync,writeFileSync} from "node:fs";
+import {createHash} from "node:crypto";
 import {join} from "node:path";
 import {tmpdir} from "node:os";
 import {keyPairFromSeed} from "@ton/crypto";
@@ -17,9 +18,10 @@ function harness(t) {
     const identity={roomNumber:1,network:"mainnet",workchain:0,
         address,publicKey:keys.publicKey,secretKey:keys.secretKey};
     const state={now:1800000000000,seqno:7,broadcasts:[],
-        loseReply:false,seqnoUnavailable:false};
+        loseReply:false,seqnoUnavailable:false,beforeSeqno:null};
     const service={
         getSeqno:async()=>{
+            if(state.beforeSeqno)await state.beforeSeqno();
             if(state.seqnoUnavailable)throw Error("SIMULATED_SEQNO_RPC_UNAVAILABLE");
             return state.seqno;
         },
@@ -112,4 +114,54 @@ test("failed seqno read before signing never falls back to seqno zero",async t=>
     await assert.rejects(h.make().sendTransfer(h.payload("SESSION_A","Olga",800000000)),
         /SIMULATED_SEQNO_RPC_UNAVAILABLE/);
     assert.equal(h.state.broadcasts.length,0);
+});
+
+test("forced overlapping Mainnet RPC reads are serialized across TWO adapter instances",async t=>{
+    const h=harness(t);
+    let releaseRead,notifyStarted;
+    const readStarted=new Promise(resolve=>{notifyStarted=resolve;});
+    const waitForRelease=new Promise(resolve=>{releaseRead=resolve;});
+    let reads=0;
+    h.state.beforeSeqno=async()=>{
+        reads++;
+        notifyStarted();
+        await waitForRelease;
+    };
+    const first=h.make(),second=h.make();
+    const sendingA=first.sendTransfer(h.payload("SESSION_A","Olga",900000000));
+    await readStarted;
+    // First adapter has the wallet writer lock but has not yet received
+    // seqno=7. The second must not read 7, sign or broadcast.
+    await assert.rejects(
+        second.sendTransfer(h.payload("SESSION_B","Bob",800000000)),
+        /OUTBOUND_WALLET_WRITER_LOCKED/
+    );
+    assert.equal(reads,1,"only the lock owner can read the authoritative seqno");
+    assert.equal(h.state.broadcasts.length,0);
+    releaseRead();
+    const result=await sendingA;
+    assert.equal(result.ok,true);
+    assert.equal(result.seqno,7);
+    assert.equal(h.state.broadcasts.length,1);
+    // Even after the writer exits, the durable seqno hold prevents the next
+    // adapter from writing a different message until chain seqno advances.
+    h.state.beforeSeqno=null;
+    const withheld=await h.make().sendTransfer(h.payload("SESSION_B","Bob",800000000));
+    assert.equal(withheld.ok,false);
+    assert.equal(withheld.code,"SEQNO_CONFIRMATION_TIMEOUT");
+    assert.equal(h.state.broadcasts.length,1);
+});
+
+test("an abandoned writer lock fails closed, never auto-clears across restart",async t=>{
+    const h=harness(t);
+    mkdirSync(h.sequenceStateDir,{recursive:true});
+    const lockPath=join(h.sequenceStateDir,createHash("sha256")
+        .update(h.address).digest("hex")+".json.lock");
+    writeFileSync(lockPath,"unverified previous writer");
+    await assert.rejects(
+        h.make().sendTransfer(h.payload("SESSION_B","Bob",800000000)),
+        /OUTBOUND_WALLET_WRITER_LOCKED/
+    );
+    assert.equal(h.state.broadcasts.length,0);
+    assert.equal(h.state.seqno,7);
 });
