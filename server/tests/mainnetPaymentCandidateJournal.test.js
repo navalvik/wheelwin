@@ -5,6 +5,10 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ToncenterTransactionsClient } from "../payment/toncenter/ToncenterTransactionsClient.js";
 import { PaymentIntent } from "../payment/PaymentIntent.js";
+import { Address } from "@ton/core";
+import { IncomingTransfer } from "../payment/incoming/IncomingTransfer.js";
+import { deriveIncomingTransactionId } from "../payment/incoming/IncomingTransferIdentity.js";
+import { matchIncomingTransferToIntent } from "../payment/incoming/IncomingTransferMatcher.js";
 import { MainnetIndexedReceiptFinalityInspector } from "../mainnet/MainnetIndexedReceiptFinalityInspector.js";
 import { assessMainnetRoomPaymentCandidates } from "../mainnet/MainnetPaymentCandidateEvaluator.js";
 import { MainnetCandidateReviewJournal } from "../mainnet/MainnetCandidateReviewJournal.js";
@@ -311,4 +315,58 @@ test("missing or corrupted reference claim fails closed on restart",async()=>{
             /REFERENCE_CLAIM_MISSING_OR_CONFLICT/
         );
     });
+});
+
+
+test("Mainnet candidate matching uses shared Testnet raw/friendly address identity rules",async()=>{
+    const friendly=intents().map((intent,i)=>new PaymentIntent({
+        ...intent.toRecord(),
+        expectedSender:Address.parse(senders[i]).toString({
+            testOnly:false,bounceable:false,urlSafe:true
+        }),
+        destinationWalletAddress:Address.parse(wallet).toString({
+            testOnly:false,bounceable:true,urlSafe:true
+        })
+    }));
+    const {report}=await assessed({intentList:friendly});
+    assert.equal(report.status,"THREE_CANDIDATES_FOR_REVIEW");
+    assert.equal(report.candidateCount,3);
+    assert.equal(report.settlementAuthorized,false);
+    assert.equal(report.gameStartAuthorized,false);
+});
+
+test("same-amount Mainnet memo swaps do not reassign Olga and Bob",async()=>{
+    const rows=[tx(0),tx(1),tx(2)];
+    rows[0].in_msg.message_content.decoded.comment="WW1:"+references[1];
+    rows[1].in_msg.message_content.decoded.comment="WW1:"+references[0];
+    const {report}=await assessed({rows});
+    assert.equal(report.candidateCount,1);
+    assert.deepEqual(report.candidates.map(x=>x.playerId),["Lena"]);
+    assert.equal(report.gameStartAuthorized,false);
+});
+
+test("one shared Testnet matcher enforces Mainnet explicit memo without changing Testnet history",()=>{
+    const testnetIntent=new PaymentIntent({
+        ...intents()[0].toRecord(),network:"testnet"
+    });
+    const mainnetIntent=intents()[0];
+    const makeTransfer=network=>new IncomingTransfer({
+        network,
+        transactionId:deriveIncomingTransactionId({
+            network,providerId:"toncenter",
+            accountId:wallet,transactionId:"raw-no-memo-"+network
+        }),
+        providerTransactionIdentity:{
+            providerId:"toncenter",accountId:wallet,
+            transactionId:"raw-no-memo-"+network
+        },
+        destinationWalletAddress:wallet,
+        senderAddress:senders[0],amountAtomic:"1000000000",
+        asset:"TON",transactionTime:t-5000,
+        paymentReference:null,providerConfirmed:true
+    });
+    assert.equal(matchIncomingTransferToIntent(makeTransfer("testnet"),
+        testnetIntent).matched,true);
+    assert.equal(matchIncomingTransferToIntent(makeTransfer("mainnet"),
+        mainnetIntent).matched,false);
 });
