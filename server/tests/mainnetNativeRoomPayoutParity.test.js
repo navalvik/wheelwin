@@ -27,10 +27,10 @@ const request={roomId:ROOM_ID,payoutId:PAYOUT_ID,roomWalletAddress:ROOM,
 
 function harness(t,{credit=true,creditGlobalId=-239,independentProvider="tonapi-mainnet",
     payoutNetwork="mainnet",noAdapter=false,wrongPool=false,wrongOutbox=false,ownerMissing=false,
-    winnerLedgerSettled=false,ownerBalanceNano=150_000_000n,root=null}={}){
+    winnerLedgerSettled=false,ownerBalanceNano=150_000_000n,independentBalanceNano=null,root=null}={}){
     const dataDir=root??mkdtempSync(join(tmpdir(),"wheelwin-native-outgoing-parity-"));
     if(root===null)t.after(()=>rmSync(dataDir,{recursive:true,force:true}));
-    const sent=[],settled=[];
+    const sent=[],settled=[],unpaidTerminals=[];
     const adapter={
         _sequenceStateDir:join(dataDir,"outbound-sequences"),
         supportsDurableTransferRetry:()=>true,
@@ -75,6 +75,13 @@ function harness(t,{credit=true,creditGlobalId=-239,independentProvider="tonapi-
                 actualFeeAtomic:800000};
         }
     };
+    if(independentBalanceNano!==null) {
+        verifier.observeAccountBalance=async ({address})=>({
+            status:"INDEPENDENT_ACCOUNT_BALANCE_OBSERVED",
+            network:"mainnet",provider:"tonapi-mainnet",address,
+            balanceAtomic:String(independentBalanceNano),observedAtMs:Date.now()
+        });
+    }
     const transport=new TestnetNativeRoomPayoutTransport({
         network:"mainnet",dataDir,
         walletPool:{network:wrongPool?"testnet":"mainnet",
@@ -86,6 +93,7 @@ function harness(t,{credit=true,creditGlobalId=-239,independentProvider="tonapi-
         outgoingObserver:observer,independentVerifier:verifier,
         ledger:{
             settlePayout:args=>{settled.push(args);return {replay:false};},
+            terminateOwnerCommissionUnpaid:args=>{unpaidTerminals.push(args);return {replay:false,terminal:true,paid:false};},
             listPayoutObligations:()=>[
                 {payoutId:PAYOUT_ID,recipientId:"Olga",role:"WINNER",
                     netAtomic:2_850_000_000,settled:winnerLedgerSettled},
@@ -94,7 +102,7 @@ function harness(t,{credit=true,creditGlobalId=-239,independentProvider="tonapi-
             ]
         }
     });
-    return {transport,sent,settled,dataDir,verifier};
+    return {transport,sent,settled,unpaidTerminals,dataDir,verifier};
 }
 
 test("Mainnet uses the same native payout sequence, isolated pre-send journal, no duplicate",async t=>{
@@ -269,6 +277,30 @@ test("owner send claim appearing during independent balance read defeats shortfa
     assert.equal(r.reason,"OWNER_OUTBOUND_CLAIM_RACE_OR_AMBIGUITY");
     assert.equal(r.walletReleasable,false);
     assert.equal(r.terminal,false);
+});
+
+test("Mainnet automatic owner shortage writes one exclusive unpaid claim without owner send",async t=>{
+    const h=harness(t,{
+        credit:true,winnerLedgerSettled:true,
+        ownerBalanceNano:140_000_000n,independentBalanceNano:140_000_000n
+    });
+    const payout=plan();
+    const first=await h.transport.submit({...request,plan:payout});
+    assert.equal(first.status,"OWNER_COMMISSION_UNPAID_GAS_SHORTAGE_TERMINAL");
+    assert.equal(first.ownerPaid,false);
+    assert.equal(first.unpaidAtomic,148_500_000);
+    assert.equal(h.sent.length,1);
+    assert.equal(h.sent[0].destination,WINNER);
+    assert.equal(h.unpaidTerminals.length,1);
+    assert.equal(h.unpaidTerminals[0].recipientId,"WheelWin");
+    const marker=join(h.dataDir,"mainnet-native-payout-attempts",
+        PAYOUT_ID+".OWNER.json");
+    assert.equal(existsSync(marker),true);
+    const receipt=JSON.parse((await import("node:fs")).readFileSync(marker,"utf8"));
+    assert.equal(receipt.state,"OWNER_COMMISSION_UNPAID_GAS_SHORTAGE_TERMINAL");
+    const replay=await h.transport.submit({...request,plan:payout,resume:true});
+    assert.equal(replay.status,"OWNER_COMMISSION_UNPAID_GAS_SHORTAGE_TERMINAL");
+    assert.equal(h.sent.length,1,"reconnect cannot send a previously terminalized owner leg");
 });
 
 test("Mainnet missing winner credit blocks owner broadcast and duplicate retry",async t=>{
