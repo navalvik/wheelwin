@@ -73,7 +73,8 @@ function harness(t) {
         clock=NOW+10000;
         transactions=d.requiredPlayers.slice(0,count).map((p,i)=>txFor(p,slot,i));
     }
-    return {root,dataDir,runtime,descriptor,setPaid,calls};
+    return {root,dataDir,runtime,descriptor,setPaid,calls,
+        advancePastRoomTimeout:()=>{clock=NOW+500000;}};
 }
 function principalFor(r,roomId){
     return r.ledgerStore.listForRoom(roomId)
@@ -119,6 +120,10 @@ test("Mainnet offline finance: three verified native TON receipts -> durable led
     assert.equal(principalFor(runtime,roomId).length,3,
         "startup repairs one authoritative principal per persisted settled intent");
     assert.equal(runtime.ledger.getConfirmedPrincipalAtomic(roomId),3*AMOUNT);
+    assert.equal(gateSnapshot(runtime,desc).eligible,true,
+        "unmodified three-player gate algorithm agrees with settled Mainnet receipts and ledger");
+    assert.equal(runtime.paymentGate.getGameStartGateStatus(roomId,PLAYERS).eligible,false,
+        "the real Mainnet Page5 gate deliberately remains disabled");
     assert.equal(runtime.getCapabilities().outgoingRefundTransfersEnabled,false);
     const playerWallet=Object.fromEntries(desc.requiredPlayers.map(p=>[p.playerId,p.expectedSender]));
     const payout=new TestnetWinnerPayoutCoordinator({
@@ -162,9 +167,13 @@ test("Mainnet offline timeout: two observed payers -> exactly two durable refund
     assert.equal(runtime.paymentService.listPaymentIntentsForRoom(roomId)
         .filter(x=>x.state==="SETTLED").length,2);
     assert.equal(runtime.paymentGate.getGameStartGateStatus(roomId,PLAYERS).eligible,false);
+    assert.equal(runtime.getCapabilities().roomLifetimeMs,480000);
+    h.advancePastRoomTimeout();
     runtime.shutdown();
     runtime=h.runtime();
     assert.equal(principalFor(runtime,roomId).length,2);
+    assert.equal(gateSnapshot(runtime,desc).eligible,false,
+        "the same unchanged gate algorithm rejects the incomplete or expired room");
     const debts=runtime.refundLifecycle.prepareClosedRoom({
         roomId,roomNumber:16,closureReason:"setup_expired",status:"DESTROYED"
     });
