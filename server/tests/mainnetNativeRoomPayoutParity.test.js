@@ -26,12 +26,13 @@ const request={roomId:ROOM_ID,payoutId:PAYOUT_ID,roomWalletAddress:ROOM,
     winnerWallet:WINNER,ownerWallet:OWNER};
 
 function harness(t,{credit=true,creditGlobalId=-239,independentProvider="tonapi-mainnet",
-    payoutNetwork="mainnet",noAdapter=false,wrongPool=false,root=null}={}){
+    payoutNetwork="mainnet",noAdapter=false,wrongPool=false,wrongOutbox=false,root=null}={}){
     const dataDir=root??mkdtempSync(join(tmpdir(),"wheelwin-native-outgoing-parity-"));
     if(root===null)t.after(()=>rmSync(dataDir,{recursive:true,force:true}));
     const sent=[],settled=[];
     const adapter={
-        supportsDurableTransferRetry:()=>false,
+        _sequenceStateDir:join(dataDir,"outbound-sequences"),
+        supportsDurableTransferRetry:()=>true,
         async sendTransfer(args){sent.push(args);return {ok:true,txHash:"mock-no-chain-hash"};},
         async estimateOutboundTransferFee(){return {ok:true,totalNano:1000000n};}
     };
@@ -72,7 +73,8 @@ function harness(t,{credit=true,creditGlobalId=-239,independentProvider="tonapi-
             getReservationForRoom:()=>({
                 roomNumber:1,reservedByRoomId:ROOM_ID,address:ROOM,network:payoutNetwork
             })},
-        ...(noAdapter?{walletResolver:()=>{},tonService:{}}:{adapter}),
+        ...(noAdapter?{walletResolver:()=>{},tonService:{}}:{adapter:wrongOutbox
+            ?{...adapter,_sequenceStateDir:join(dataDir,"another-outbox")}:adapter}),
         outgoingObserver:observer,independentVerifier:verifier,
         ledger:{settlePayout:args=>{settled.push(args);return {replay:false};}}
     });
@@ -191,4 +193,9 @@ test("TonAPI verifier rejects crossing Testnet/Mainnet endpoints",()=>{
     assert.throws(()=>new TonapiTestnetPayoutVerifier({
         network:"testnet",baseUrl:"https://tonapi.io"
     }),/invalid TonAPI Testnet read-only configuration/);
+});
+
+test("Mainnet payout refuses wrong or absent shared durable seqno journal",t=>{
+    assert.throws(()=>harness(t,{wrongOutbox:true}),
+        /PAYOUT_MAINNET_SHARED_DURABLE_SEQNO_REQUIRED/);
 });
