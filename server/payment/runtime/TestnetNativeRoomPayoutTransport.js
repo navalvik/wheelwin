@@ -377,6 +377,100 @@ export class TestnetNativeRoomPayoutTransport {
         return Object.freeze({settled:true,replay:result.replay===true});
     }
     /**
+     * Read-only *diagnostic*, not a terminal payout or permission to recycle.
+     * A quote + one RPC balance observation cannot independently prove the
+     * OWNER transfer is impossible. Missing durable records or an attempted
+     * owner message always produce HOLD, never an "unpaid" settlement.
+     */
+    async assessOwnerCommissionGasShortfall(query) {
+        const hold=reason=>Object.freeze({
+            status:"OWNER_GAS_SHORTFALL_ASSESSMENT_HOLD",reason,
+            payoutId:query?.payoutId??null,terminal:false,walletReleasable:false
+        });
+        if(typeof query?.payoutId!=="string"||!SAFE_PAYOUT_ID.test(query.payoutId)
+            ||query?.plan?.payoutId!==query.payoutId
+            ||query.plan.roomId!==query.roomId
+            ||query.plan.network!==this._network)
+            return hold("PAYOUT_ASSESSMENT_PLAN_INVALID");
+        let wallet;
+        try {wallet=this._reservation(query.roomId,query.roomWalletAddress);}
+        catch {return hold("PAYOUT_ASSESSMENT_WALLET_MISMATCH");}
+        const obligations=this._ledger?.listPayoutObligations?.(query.roomId);
+        if(!Array.isArray(obligations)||obligations.length!==2
+            ||obligations.some(x=>x.payoutId!==query.payoutId))
+            return hold("PAYOUT_ASSESSMENT_LEDGER_INCOMPLETE");
+        const winner=obligations.find(x=>x.role==="WINNER");
+        const owner=obligations.find(x=>x.role==="OWNER");
+        if(winner?.settled!==true||owner?.settled!==false
+            ||!Number.isSafeInteger(owner.netAtomic)||owner.netAtomic<=0
+            ||query.plan.transfers.find(x=>x.recipientRole==="OWNER")?.netAtomic
+                !==owner.netAtomic)
+            return hold("PAYOUT_ASSESSMENT_WINNER_UNFINALIZED_OR_OWNER_CLOSED");
+
+        const intent=join(this._dir,query.payoutId+".OWNER.json");
+        const outbox=typeof this._adapter?._sequenceStateDir==="string"
+            ?join(this._adapter._sequenceStateDir,"transfers",
+                createHash("sha256").update(query.payoutId+":OWNER").digest("hex")+".json")
+            :null;
+        if(this._adapter?.supportsDurableTransferRetry?.()!==true||!outbox)
+            return hold("PAYOUT_ASSESSMENT_DURABLE_OUTBOX_REQUIRED");
+        // A previously claimed or signed owner BOC may still land on-chain.
+        if(existsSync(intent)||existsSync(outbox))
+            return hold("PAYOUT_ASSESSMENT_OWNER_ATTEMPT_AMBIGUOUS");
+        const journal=join(this._dir,query.payoutId+".jsonl");
+        if(!existsSync(journal))return hold("PAYOUT_ASSESSMENT_JOURNAL_MISSING");
+        try {
+            const first=JSON.parse(readFileSync(journal,"utf8").split("\n")[0]);
+            const winTransfer=query.plan.transfers.find(x=>x.recipientRole==="WINNER");
+            const ownerTransfer=query.plan.transfers.find(x=>x.recipientRole==="OWNER");
+            if(first.payoutId!==query.payoutId||first.roomId!==query.roomId
+                ||first.roomNumber!==wallet.roomNumber
+                ||first.winnerAddress!==canonical(winTransfer.address)
+                ||first.ownerAddress!==canonical(ownerTransfer.address)
+                ||first.ownerAmountAtomic!==owner.netAtomic)
+                return hold("PAYOUT_ASSESSMENT_JOURNAL_MISMATCH");
+        }catch {return hold("PAYOUT_ASSESSMENT_JOURNAL_UNREADABLE");}
+        if(typeof this._adapter.canFundTransfer!=="function"
+            ||typeof this._adapter.estimateOutboundTransferFee!=="function")
+            return hold("PAYOUT_ASSESSMENT_RPC_UNAVAILABLE");
+        let funding,quote;
+        try {
+            // No reserve-only false positives: assess the actual owner's
+            // transfer value plus a quote for the exact message.
+            funding=await this._adapter.canFundTransfer({
+                roomNumber:wallet.roomNumber,amountNano:BigInt(owner.netAtomic),
+                sourceReserveNano:0n
+            });
+            quote=await this._adapter.estimateOutboundTransferFee({
+                roomNumber:wallet.roomNumber,
+                destination:query.ownerWallet,
+                amountNano:BigInt(owner.netAtomic),bounce:false
+            });
+        } catch {return hold("PAYOUT_ASSESSMENT_RPC_UNAVAILABLE");}
+        if(funding?.roomNumber!==wallet.roomNumber
+            ||canonical(funding.address)!==canonical(wallet.address)
+            ||typeof funding.balanceNano!=="bigint"||funding.balanceNano<0n
+            ||quote?.ok!==true||quote.roomNumber!==wallet.roomNumber
+            ||typeof quote.totalNano!=="bigint"||quote.totalNano<0n
+            ||quote.amountNano!==BigInt(owner.netAtomic)
+            ||canonical(quote.destination)!==canonical(query.ownerWallet))
+            return hold("PAYOUT_ASSESSMENT_RPC_INVALID");
+        const needed=BigInt(owner.netAtomic)+quote.totalNano;
+        const shortfall=needed>funding.balanceNano?needed-funding.balanceNano:0n;
+        return Object.freeze({
+            status:shortfall>0n
+                ?"OWNER_GAS_SHORTFALL_CANDIDATE_READ_ONLY"
+                :"OWNER_GAS_SHORTFALL_NOT_OBSERVED",
+            payoutId:query.payoutId,network:this._network,
+            ownerDueAtomic:owner.netAtomic,
+            balanceAtomic:funding.balanceNano.toString(),
+            estimatedFeeAtomic:quote.totalNano.toString(),
+            estimatedShortfallAtomic:shortfall.toString(),
+            // This is not a second independent balance/finality source.
+            terminal:false,walletReleasable:false
+        });
+    }
+    /**
      * Mainnet restart recovery uses the ORIGINAL Testnet resumeUnattempted()
      * only when the winner's pre-broadcast intent AND exact signed WalletV4
      * outbox have both survived. A missing ledger/journal/outbox file is not
