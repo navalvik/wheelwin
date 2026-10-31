@@ -436,49 +436,54 @@ export class TestnetNativeRoomPayoutTransport {
                 ||first.ownerAmountAtomic!==owner.netAtomic)
                 return hold("PAYOUT_ASSESSMENT_JOURNAL_MISMATCH");
         }catch {return hold("PAYOUT_ASSESSMENT_JOURNAL_UNREADABLE");}
-        if(typeof this._adapter.canFundTransfer!=="function"
-            ||typeof this._adapter.estimateOutboundTransferFee!=="function")
+        if(typeof this._adapter.canFundTransfer!=="function")
             return hold("PAYOUT_ASSESSMENT_RPC_UNAVAILABLE");
-        let funding,quote;
+        let funding;
         try {
-            // No reserve-only false positives: assess the actual owner's
-            // transfer value plus a quote for the exact message.
             funding=await this._adapter.canFundTransfer({
                 roomNumber:wallet.roomNumber,amountNano:BigInt(owner.netAtomic),
                 sourceReserveNano:0n
             });
-            // Only this narrowly authorized owner-shortfall case may proceed
-            // to a fee estimate or independent balance observation. Every
-            // other case is outside this terminal-decision workflow.
-            if(typeof funding?.balanceNano==="bigint"
-                &&funding.balanceNano>BigInt(owner.netAtomic))
-                return hold("PAYOUT_ASSESSMENT_OUTSIDE_APPROVED_SCOPE");
-            quote=await this._adapter.estimateOutboundTransferFee({
-                roomNumber:wallet.roomNumber,
-                destination:query.ownerWallet,
-                amountNano:BigInt(owner.netAtomic),bounce:false
-            });
-        } catch {return hold("PAYOUT_ASSESSMENT_RPC_UNAVAILABLE");}
-        try {
             if(funding?.roomNumber!==wallet.roomNumber
                 ||canonical(funding.address)!==canonical(wallet.address)
-                ||typeof funding.balanceNano!=="bigint"||funding.balanceNano<0n
-                ||quote?.ok!==true||quote.roomNumber!==wallet.roomNumber
-                ||typeof quote.totalNano!=="bigint"||quote.totalNano<0n
-                ||quote.amountNano!==BigInt(owner.netAtomic)
-                ||canonical(quote.destination)!==canonical(query.ownerWallet))
+                ||typeof funding.balanceNano!=="bigint"||funding.balanceNano<0n)
                 return hold("PAYOUT_ASSESSMENT_RPC_INVALID");
-        } catch {return hold("PAYOUT_ASSESSMENT_RPC_INVALID");}
-        const needed=BigInt(owner.netAtomic)+quote.totalNano;
-        const shortfall=needed>funding.balanceNano?needed-funding.balanceNano:0n;
+        } catch {return hold("PAYOUT_ASSESSMENT_RPC_UNAVAILABLE");}
+
+        const due=BigInt(owner.netAtomic);
+        // The approved terminal path stops here unless OWNER principal is
+        // itself underfunded, or is exactly equal to the wallet balance.
+        if(funding.balanceNano>due)
+            return hold("PAYOUT_ASSESSMENT_OUTSIDE_APPROVED_SCOPE");
+
+        // Below the owner principal, a fee quote is unnecessary: no exact
+        // OWNER transfer could be sent even if the fee were zero. For an
+        // equality balance, require an independently obtained POSITIVE fee
+        // estimate, since only the source-side fee causes the shortfall.
+        let estimatedFeeNano=null;
+        if(funding.balanceNano===due) {
+            if(typeof this._adapter.estimateOutboundTransferFee!=="function")
+                return hold("PAYOUT_ASSESSMENT_FEE_ESTIMATE_UNAVAILABLE");
+            try {
+                const quote=await this._adapter.estimateOutboundTransferFee({
+                    roomNumber:wallet.roomNumber,destination:query.ownerWallet,
+                    amountNano:due,bounce:false
+                });
+                if(quote?.ok!==true||quote.roomNumber!==wallet.roomNumber
+                    ||typeof quote.totalNano!=="bigint"||quote.totalNano<=0n
+                    ||quote.amountNano!==due
+                    ||canonical(quote.destination)!==canonical(query.ownerWallet))
+                    return hold("PAYOUT_ASSESSMENT_FEE_ESTIMATE_INVALID");
+                estimatedFeeNano=quote.totalNano;
+            } catch {return hold("PAYOUT_ASSESSMENT_FEE_ESTIMATE_UNAVAILABLE");}
+        }
+        const shortfall=due-funding.balanceNano+(estimatedFeeNano??0n);
         return Object.freeze({
-            status:shortfall>0n
-                ?"OWNER_GAS_SHORTFALL_CANDIDATE_READ_ONLY"
-                :"OWNER_GAS_SHORTFALL_NOT_OBSERVED",
+            status:"OWNER_GAS_SHORTFALL_CANDIDATE_READ_ONLY",
             payoutId:query.payoutId,network:this._network,
             ownerDueAtomic:owner.netAtomic,
             balanceAtomic:funding.balanceNano.toString(),
-            estimatedFeeAtomic:quote.totalNano.toString(),
+            estimatedFeeAtomic:estimatedFeeNano?.toString()??null,
             estimatedShortfallAtomic:shortfall.toString(),
             // This is not a second independent balance/finality source.
             terminal:false,walletReleasable:false
