@@ -6,6 +6,9 @@ on:
   pull_request:
     paths:
       - 'server/payment/**'
+      - 'server/mainnet/**'
+      - 'server/tests/mainnetReadOnlyPreflight.test.js'
+      - 'server/tests/mainnetRoomIncomingObserver.test.js'
       - 'server/forensic/**'
       - 'server/history/**'
       - 'server/socket/**'
@@ -59,3 +62,19 @@ jobs:
         run: node scripts/run-tests.js
       - name: Verify production build
         run: npm run build
+
+  mainnet_read_only:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+      - name: Mainnet isolation, active-room read-only receipts and Testnet compatibility
+        run: node --test tests/mainnetReadOnlyPreflight.test.js tests/mainnetRoomIncomingObserver.test.js tests/page4IndexedFinality.test.js tests/payment/legacyRoomWalletV4.test.js
