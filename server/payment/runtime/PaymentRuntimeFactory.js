@@ -65,6 +65,7 @@ import {
 import { RoomPaymentSessionAdapter } from "./RoomPaymentSessionAdapter.js";
 import { countUnsettledRoomFinancialObligations } from "./countUnsettledRoomFinancialObligations.js";
 import { LIVE_PAYMENT_ACCEPTANCE_ENABLED } from "../PaymentLifecycleAvailability.js";
+import { assessMainnetFinancialReleaseReadiness } from "./MainnetFinancialReleaseReadiness.js";
 
 const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
 
@@ -203,11 +204,22 @@ export function buildMainnetPaymentRuntime(options = {}) {
     if (options.network !== undefined && options.network !== "mainnet") {
         throw new Error("MAINNET_RUNTIME_REQUIRES_EXPLICIT_MAINNET");
     }
+    const release=options.mainnetFinancialRelease ?? null;
+    // An explicit server-only release must supply both the original refund
+    // submitter and full native payout/recovery dependencies for verification.
+    // An arbitrary "ready" boolean is not accepted.
     if (options.refundSubmitter != null || options.refundSubmitterFactory != null
-        || options.settlementEvidenceProvider != null) {
+        || options.settlementEvidenceProvider != null
+        || (release!==null
+            && (typeof release!=="object"
+                || typeof release.createRefundSubmitter!=="function"
+                || typeof release.resolveDependencies!=="function"))) {
         throw new Error("MAINNET_RUNTIME_FINANCIAL_INJECTION_DISABLED");
     }
-    return assemblePaymentRuntime({ ...options, network: "mainnet" }, true);
+    return assemblePaymentRuntime({
+        ...options,network:"mainnet",
+        refundSubmitterFactory:release?.createRefundSubmitter ?? null
+    },true);
 }
 
 /**
@@ -243,7 +255,8 @@ function assemblePaymentRuntime(options, mainnetPreparationOnly) {
         fetchImpl = globalThis.fetch,
         settlementEvidenceProvider = null,
         refundSubmitter = null,
-        refundSubmitterFactory = null
+        refundSubmitterFactory = null,
+        mainnetFinancialRelease = null
     } = options;
 
     // R — network identity is enforced before any store or provider exists.
@@ -338,11 +351,15 @@ function assemblePaymentRuntime(options, mainnetPreparationOnly) {
             walletPool,networkDataDir,network:identity.network,
             globalId:identity.globalId
         }));
-    const outgoingRefundProvider = buildTestnetOutgoingRefundProvider({
+    const outgoingRefundProvider = buildNetworkOutgoingRefundProvider({
+        network:identity.network,
         submitter: nativeRefundSubmitter,
         globalId: identity.globalId,
         finalityEvidenceProvider: outgoingEvidenceProvider
     });
+    if(mainnetFinancialRelease && (outgoingRefundProvider?.canExecute?.()!==true
+        || outgoingRefundProvider.canPrepareRefundTransfer?.()!==true))
+        throw new Error("MAINNET_RELEASE_REFUND_EXECUTOR_UNAVAILABLE");
 
     // The public room-wallet registry must account for outstanding prize
     // and refund debts, not merely PENDING/MATCHED incoming intents. The
@@ -406,8 +423,25 @@ function assemblePaymentRuntime(options, mainnetPreparationOnly) {
         nowProvider,
         logger,
         outgoingRefundProvider,
-        networkName: identity.network.toUpperCase()
+        networkName: identity.network.toUpperCase(),
+        mainnetOutgoingEnabled:mainnetFinancialRelease!==null
     });
+
+    let runtimeForRelease=null;
+    const mainnetFinancialReadinessProvider=mainnetFinancialRelease===null
+        ? null
+        : ()=>{
+            try {
+                if(!runtimeForRelease?.initialized)
+                    return Object.freeze({ready:false,reason:"MAINNET_RUNTIME_NOT_INITIALIZED"});
+                const dependencies=mainnetFinancialRelease.resolveDependencies(runtimeForRelease);
+                return assessMainnetFinancialReleaseReadiness({
+                    ...(dependencies??{}),runtime:runtimeForRelease,outgoingRefundProvider
+                });
+            }catch{
+                return Object.freeze({ready:false,reason:"MAINNET_RELEASE_DEPENDENCIES_UNAVAILABLE"});
+            }
+        };
 
     const sessionAdapter = new RoomPaymentSessionAdapter({
         paymentService,
@@ -415,7 +449,8 @@ function assemblePaymentRuntime(options, mainnetPreparationOnly) {
         ledger,
         manifestStore,
         nowProvider,
-        mainnetPreparationEnabled: mainnetPreparationOnly
+        mainnetPreparationEnabled: mainnetPreparationOnly,
+        mainnetFinancialReadinessProvider
     });
 
     // The three-player game-start gate. Its shape matches exactly the
@@ -561,13 +596,19 @@ function assemblePaymentRuntime(options, mainnetPreparationOnly) {
                 roomLifetimeMs: ROOM_LIFETIME_MS,
                 incomingObservationEnabled: true,
                 incomingFinalityVerificationEnabled: true,
-                settlementEnabled: !mainnetPreparationOnly,
+                settlementEnabled: !mainnetPreparationOnly
+                    || mainnetFinancialReadinessProvider?.()?.ready===true,
                 gameStartGateEnforced: true,
-                outgoingRefundTransfersEnabled: !mainnetPreparationOnly && Boolean(outgoingRefundProvider?.canExecute?.()),
-                livePaymentAcceptanceEnabled: !mainnetPreparationOnly
-                    && LIVE_PAYMENT_ACCEPTANCE_ENABLED && Boolean(outgoingRefundProvider?.canExecute?.()),
+                outgoingRefundTransfersEnabled: mainnetPreparationOnly
+                    ? mainnetFinancialReadinessProvider?.()?.ready===true
+                    : Boolean(outgoingRefundProvider?.canExecute?.()),
+                livePaymentAcceptanceEnabled: mainnetPreparationOnly
+                    ? mainnetFinancialReadinessProvider?.()?.ready===true
+                    : LIVE_PAYMENT_ACCEPTANCE_ENABLED
+                        && Boolean(outgoingRefundProvider?.canExecute?.()),
                 outgoingRefundDisabledReason: mainnetPreparationOnly
-                    ? "MAINNET_OUTGOING_NOT_YET_ENABLED"
+                    ? mainnetFinancialReadinessProvider?.()?.ready===true
+                        ? null : "MAINNET_OUTGOING_NOT_YET_ENABLED"
                     : Boolean(outgoingRefundProvider && outgoingRefundProvider.canExecute?.())
                         ? null
                         : "NO_AUTHORIZED_TESTNET_OUTGOING_SIGNER"
@@ -588,7 +629,7 @@ function assemblePaymentRuntime(options, mainnetPreparationOnly) {
 
         }
     });
-
+    runtimeForRelease=runtime;
     return runtime;
 
 }
