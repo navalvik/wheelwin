@@ -68,7 +68,7 @@ export function evaluateFinalForensicArchive({
             ||owner.metadata.payoutId!==plan.payoutId
             ||owner.metadata.recipientId!==ownerTransfer.recipientId
             ||owner.metadata.paymentStatus!=="UNPAID"
-            ||owner.metadata.reason!=="INSUFFICIENT_PRINCIPAL_AFTER_WINNER_FINALITY"
+            ||owner.metadata.reason!=="INSUFFICIENT_SOURCE_FUNDS_FOR_OWNER_AND_GAS_AFTER_WINNER"
             ||owner.amountAtomic!==ownerTransfer.netAtomic
             ||evidence?.status!=="OWNER_PRINCIPAL_SHORTFALL_CORROBORATED_READ_ONLY"
             ||evidence.payoutId!==plan.payoutId
@@ -76,7 +76,7 @@ export function evaluateFinalForensicArchive({
             ||evidence.ownerDueAtomic!==ownerTransfer.netAtomic
             ||evidence.terminal!==false||evidence.walletReleasable!==false
             ||source===null||independent===null
-            ||source!==independent||source>=BigInt(ownerTransfer.netAtomic))
+            ||source!==independent||source>BigInt(ownerTransfer.netAtomic))
             return hold("OWNER_UNPAID_TERMINAL_EVIDENCE_INCOMPLETE");
         return Object.freeze({ready:true,
             reason:"FINAL_WINNER_PAID_OWNER_COMMISSION_UNPAID_GAS_SHORTFALL"});
