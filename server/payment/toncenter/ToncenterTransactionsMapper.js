@@ -282,8 +282,16 @@ export function mapToncenterTransactionsResponse(payload, {
     destinationWalletId = null,
     floorMs,
     ceilingMs,
-    limit
+    limit,
+    network = TONCENTER_NETWORK
 }) {
+
+    // The mapper is an account/transaction parser, not a network verifier.
+    // Testnet remains the default; Mainnet may use the shared parser ONLY
+    // after its separate authenticated masterchain global-ID check.
+    if (network !== "testnet" && network !== "mainnet") {
+        throw new ToncenterResponseError("Toncenter mapper network scope is invalid");
+    }
 
     assertEnvelope(payload);
 
@@ -443,7 +451,7 @@ export function mapToncenterTransactionsResponse(payload, {
         const comment = extractPaymentReferenceComment(message);
 
         records.push(Object.freeze({
-            network: TONCENTER_NETWORK,
+            network,
             accountId: walletAddressTrimmed,
             transactionId: transaction.hash,
             transactionTime: transactionTimeMs,
