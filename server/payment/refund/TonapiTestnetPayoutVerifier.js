@@ -89,7 +89,8 @@ export class TonapiTestnetPayoutVerifier {
             if(response.status!==200)return null;
             const data=await response.json();
             if(!data||typeof data!=="object"||Array.isArray(data)
-                ||(data.address && !tonAddressIdentitiesEqual(data.address,address))
+                ||typeof data.address!=="string"
+                ||!tonAddressIdentitiesEqual(data.address,address)
                 ||!["active","uninit","uninitialized","frozen","nonexist"].includes(data.status))
                 return null;
             const balance=nano(data.balance);
