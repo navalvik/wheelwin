@@ -64,6 +64,29 @@ test("payout game requires 3 settled stakes and both winner/owner settlements", 
     assert.equal(evaluateFinalForensicArchive({snapshot,sessionRecord:finalSession}).ready,false);
 });
 
+test("winner-only finality and provisional owner gas assessment never publish final ZIP",()=>{
+    const snapshot={...original(),closedRoom:null,outcome:{kind:"PAYOUT"},
+        intents:[{state:"SETTLED"},{state:"SETTLED"},{state:"SETTLED"}],
+        ledger:[
+            {kind:"PAYOUT_PLAN"},
+            {kind:"PAYOUT_SETTLEMENT",metadata:{role:"WINNER",transactionId:"finalized-winner"}}
+        ],
+        payouts:[{recipientRole:"OWNER",state:"PENDING",
+            assessment:{status:"OWNER_GAS_SHORTFALL_CANDIDATE_READ_ONLY",
+                terminal:false,walletReleasable:false}}],
+        outstandingObligations:1};
+    const sessionRecord={finishedAt:clock,lifecycleResult:"GAME_COMPLETED"};
+    const decision=evaluateFinalForensicArchive({snapshot,sessionRecord});
+    assert.equal(decision.ready,false);
+    assert.equal(decision.reason,"FINANCIAL_OBLIGATIONS_OPEN_OR_UNKNOWN");
+    // Even a forged 0-obligation counter cannot bypass the explicit 2/2
+    // successful payout finality rule.
+    snapshot.outstandingObligations=0;
+    const bypass=evaluateFinalForensicArchive({snapshot,sessionRecord});
+    assert.equal(bypass.ready,false);
+    assert.equal(bypass.reason,"WINNER_OR_OWNER_PAYOUT_UNCONFIRMED");
+});
+
 test("one game creates no preliminary ZIP and sends exactly one final ZIP", async () => {
     const root=mkdtempSync(join(tmpdir(),"wheelwin-one-final-"));
     try {
