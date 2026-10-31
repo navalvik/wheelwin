@@ -15,6 +15,7 @@ on:
       - 'server/tests/mainnetNativeRoomPayoutParity.test.js'
       - 'server/tests/mainnetCrossRoomSeqnoRegression.test.js'
       - 'server/tests/mainnetSharedRefundPayoutOutbox.test.js'
+      - 'server/tests/mainnetReadOnlyFinancialRecoveryParity.test.js'
       - 'server/forensic/**'
       - 'server/history/**'
       - 'server/socket/**'
@@ -65,7 +66,7 @@ jobs:
           cache-dependency-path: server/package-lock.json
       - run: npm ci
       - name: Shared Testnet and Mainnet Toncenter payment confirmation regressions
-        run: node --test tests/mainnetToncenterTestnetParity.test.js tests/mainnetTestnetRefundParity.test.js tests/mainnetTestnetIncomingReceiptParity.test.js tests/mainnetTestnetWalletPoolParity.test.js tests/mainnetSharedPaymentRuntimePreparation.test.js tests/mainnetTestnetOutgoingParity.test.js tests/mainnetNativeRoomPayoutParity.test.js tests/mainnetCrossRoomSeqnoRegression.test.js tests/mainnetSharedRefundPayoutOutbox.test.js tests/payment/nativeRoomRefundIntegration.test.js tests/payment/legacyRoomWalletV4.test.js tests/payment/durablePayoutBroadcast.test.js tests/payment/testnetNativeRoomPayoutTransport.test.js tests/payment/testnetWinnerPayoutCoordinator.test.js tests/payment/incomingReceiptAccounting.test.js tests/refundLifecycle.test.js tests/page4IndexedFinality.test.js
+        run: node --test tests/mainnetToncenterTestnetParity.test.js tests/mainnetTestnetRefundParity.test.js tests/mainnetTestnetIncomingReceiptParity.test.js tests/mainnetTestnetWalletPoolParity.test.js tests/mainnetSharedPaymentRuntimePreparation.test.js tests/mainnetTestnetOutgoingParity.test.js tests/mainnetNativeRoomPayoutParity.test.js tests/mainnetCrossRoomSeqnoRegression.test.js tests/mainnetSharedRefundPayoutOutbox.test.js tests/mainnetReadOnlyFinancialRecoveryParity.test.js tests/payment/testnetPendingRefundReconciler.test.js tests/payment/testnetPendingPayoutReconciler.test.js tests/payment/nativeRoomRefundIntegration.test.js tests/payment/legacyRoomWalletV4.test.js tests/payment/durablePayoutBroadcast.test.js tests/payment/testnetNativeRoomPayoutTransport.test.js tests/payment/testnetWinnerPayoutCoordinator.test.js tests/payment/incomingReceiptAccounting.test.js tests/refundLifecycle.test.js tests/page4IndexedFinality.test.js
 
   client:
     runs-on: ubuntu-latest
