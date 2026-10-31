@@ -132,6 +132,80 @@ test("one game creates no preliminary ZIP and sends exactly one final ZIP", asyn
     } finally {rmSync(root,{recursive:true,force:true});}
 });
 
+test("one final R2 ZIP records unpaid owner honestly and is never republished",async()=>{
+    const root=mkdtempSync(join(tmpdir(),"wheelwin-owner-final-r2-"));
+    try{
+        const stagingDir=join(root,"staging"),sessionHistoryDir=join(root,"history"),
+            diagnosticLogsDir=join(root,"logs");
+        mkdirSync(sessionHistoryDir);mkdirSync(diagnosticLogsDir);
+        const roomId="room-owner-unpaid",gameId="game-owner-unpaid";
+        const payoutId="payout_"+"f".repeat(32);
+        const sessionRecord={
+            roomId,gameId,finishedAt:clock,lifecycleResult:"GAME_COMPLETED"
+        };
+        writeFileSync(join(sessionHistoryDir,
+            "2026-10-31_00-00-00_ROOM_room-owner-unpaid_GAME_game-owner-unpaid_COMPLETED.json"),
+            JSON.stringify(sessionRecord));
+        const plan={
+            payoutId,roomId,network:"testnet",transfers:[
+                {recipientRole:"WINNER",recipientId:"Olga",netAtomic:2_850_000_000},
+                {recipientRole:"OWNER",recipientId:"WheelWin",netAtomic:148_500_000}
+            ]
+        };
+        const payoutLedger=[
+            {kind:"PAYOUT_PLAN",metadata:{payoutId,plan}},
+            {kind:"PAYOUT_SETTLEMENT",amountAtomic:2_850_000_000,
+                metadata:{payoutId,recipientId:"Olga",role:"WINNER",
+                    transactionId:"winner-genuine-chain-hash"}}
+        ];
+        const evidence={
+            status:"OWNER_PRINCIPAL_SHORTFALL_CORROBORATED_READ_ONLY",
+            payoutId,network:"testnet",ownerDueAtomic:148_500_000,
+            toncenterBalanceAtomic:"140000000",tonapiBalanceAtomic:"140000000",
+            tonapiObservedAtMs:clock-10,terminal:false,walletReleasable:false
+        };
+        let snapshot={
+            schemaVersion:1,network:"testnet",globalId:-3,
+            roomId,gameId,closedRoom:null,outcome:{kind:"PAYOUT"},
+            intents:[{state:"SETTLED"},{state:"SETTLED"},{state:"SETTLED"}],
+            ledger:payoutLedger,refunds:[],receipts:[],payouts:[],
+            unresolvedReceipts:[],paymentObservations:[],paymentDecisions:[],
+            outstandingObligations:1
+        };
+        const uploader=new MockForensicArchiveUploader();
+        const config={enabled:true,required:true,bucket:"mock",
+            prefix:"forensic-archives",stagingDir,sessionHistoryDir,
+            diagnosticLogsDir,maxUploadAttempts:2};
+        const make=()=>new ForensicArchiveService({
+            config,uploader,financialSnapshotProvider:()=>snapshot,
+            sessionHistoryArchive:{listRecords:()=>({records:[sessionRecord]})},
+            finalityChecker:(finance,{sessionRecord:record})=>
+                evaluateFinalForensicArchive({snapshot:finance,sessionRecord:record,nowMs:clock})
+        });
+        const first=make();
+        const request={roomId,gameId,reason:"game_completed"};
+        assert.equal((await first.ensureArchivedAndUploaded(request)).skipped,true);
+        assert.equal(uploader.uploads.length,0);
+        snapshot={
+            ...snapshot,outstandingObligations:0,
+            ledger:[...payoutLedger,{
+                kind:"OWNER_COMMISSION_UNPAID_GAS_SHORTAGE_TERMINAL",
+                amountAtomic:148_500_000,
+                metadata:{payoutId,recipientId:"WheelWin",role:"OWNER",
+                    paymentStatus:"UNPAID",
+                    reason:"INSUFFICIENT_PRINCIPAL_AFTER_WINNER_FINALITY",
+                    evidence}
+            }]
+        };
+        assert.equal((await first.ensureArchivedAndUploaded(request)).uploaded,true);
+        assert.equal(uploader.uploads.length,1);
+        assert.equal(uploader.objects.size,1);
+        await first.ensureArchivedAndUploaded(request);
+        await make().ensureArchivedAndUploaded(request);
+        assert.equal(uploader.uploads.length,1,"terminal unpaid commission may not create additional ZIPs");
+    } finally {rmSync(root,{recursive:true,force:true});}
+});
+
 test("final-only R2 uploads fail closed on a previously committed different revision", async () => {
     const root=mkdtempSync(join(tmpdir(),"wheelwin-final-conflict-"));
     try{
