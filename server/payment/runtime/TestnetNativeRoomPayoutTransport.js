@@ -223,8 +223,24 @@ export class TestnetNativeRoomPayoutTransport {
      */
     async reconcileAndSettle(query) {
         const observed=await this.reconcile(query);
-        if(observed.status!=="BOTH_MASTERCHAIN_INDEXED_CREDITS_OBSERVED_UNFINALIZED")
+        if(observed.status!=="BOTH_MASTERCHAIN_INDEXED_CREDITS_OBSERVED_UNFINALIZED") {
+            // The WINNER obligation must not be held hostage by the OWNER
+            // fee leg. This read-only path needs the same TWO finalized,
+            // recipient-matched sources used for the usual 2/2 settlement.
+            // An ambiguous or missing journal, unknown network, or absent
+            // independent verifier still fails closed.
+            if(["PAYOUT_OUTGOING_CONFIRMATION_PENDING",
+                "RECIPIENT_CREDIT_CONFIRMATION_PENDING",
+                "BOTH_OUTGOING_MATCHES_FOUND_UNFINALIZED"].includes(observed.status)) {
+                const winner=await this._settleFinalizedWinnerWhileOwnerPending(query);
+                if(winner?.settled) return Object.freeze({
+                    status:"WINNER_SETTLED_OWNER_UNCONFIRMED",
+                    payoutId:query.payoutId,autoSettlement:true,
+                    ownerSettled:false,winnerReplay:winner.replay===true
+                });
+            }
             return Object.freeze({...observed,autoSettlement:false});
+        }
         if(typeof this._independentVerifier?.verifyTransfer!=="function"
             ||typeof this._ledger?.settlePayout!=="function")
             return Object.freeze({status:"INDEPENDENT_FINALITY_VERIFIER_UNAVAILABLE",
@@ -281,6 +297,84 @@ export class TestnetNativeRoomPayoutTransport {
         return Object.freeze({status:"BOTH_PAYOUTS_SETTLED_FROM_DUAL_FINALITY",
             payoutId:query.payoutId,autoSettlement:true,
             replay:results.every(r=>r.replay===true)});
+    }
+    /**
+     * Settle ONLY the winner when both history providers prove an indexed
+     * recipient credit. The owner is a separate, still-open obligation.
+     * Read-only: never signs, broadcasts, or infers that the owner was paid.
+     */
+    async _settleFinalizedWinnerWhileOwnerPending(query) {
+        if(typeof this._outgoingObserver?.findOutgoingTransfer!=="function"
+            ||typeof this._outgoingObserver?.verifyIndexedRecipientCredit!=="function"
+            ||typeof this._independentVerifier?.verifyTransfer!=="function"
+            ||typeof this._ledger?.settlePayout!=="function")
+            return Object.freeze({settled:false});
+        const winner=query.plan?.transfers?.find(x=>x.recipientRole==="WINNER");
+        if(!winner?.address || !Number.isSafeInteger(winner.netAtomic)
+            ||winner.netAtomic<=0 ||canonical(winner.address)!==canonical(query.winnerWallet))
+            return Object.freeze({settled:false});
+        const journalPath=join(this._dir,query.payoutId+".jsonl");
+        let journal;
+        try {journal=JSON.parse(readFileSync(journalPath,"utf8").split("\n")[0]);}
+        catch {return Object.freeze({settled:false});}
+        const wallet=this._reservation(query.roomId,query.roomWalletAddress);
+        if(journal?.payoutId!==query.payoutId ||journal.roomId!==query.roomId
+            ||journal.roomNumber!==wallet.roomNumber
+            ||journal.winnerAddress!==canonical(winner.address)
+            ||journal.winnerAmountAtomic!==winner.netAtomic
+            ||!Number.isSafeInteger(journal.timestamp)||journal.timestamp<=0)
+            return Object.freeze({settled:false});
+        const outgoing=await this._outgoingObserver.findOutgoingTransfer({
+            sourceWalletAddress:wallet.address,destinationIdentity:winner.address,
+            amountAtomic:winner.netAtomic,minCreatedAtMs:journal.timestamp
+        });
+        if(!outgoing?.transactionId||outgoing.ambiguous)return Object.freeze({settled:false});
+        const credit=await this._outgoingObserver.verifyIndexedRecipientCredit({
+            sourceWalletAddress:wallet.address,destinationIdentity:winner.address,
+            transactionId:outgoing.transactionId,amountAtomic:winner.netAtomic,
+            minCreatedAtMs:journal.timestamp
+        });
+        if(credit?.status!=="MASTERCHAIN_INDEXED_RECIPIENT_CREDIT_OBSERVED"
+            ||credit.globalId!==this._globalId
+            ||credit.sourceTransactionId!==outgoing.transactionId
+            ||typeof credit.recipientTransactionId!=="string"
+            ||credit.recipientTransactionId.length===0
+            ||typeof credit.messageHash!=="string"||!credit.messageHash
+            ||credit.amountAtomic!==winner.netAtomic
+            ||canonical(credit.destinationAddress)!==canonical(winner.address)
+            ||credit.sourceFinality!=="finalized"||credit.recipientFinality!=="finalized"
+            ||!Number.isSafeInteger(credit.sourceMcBlockSeqno)
+            ||!Number.isSafeInteger(credit.recipientMcBlockSeqno)
+            ||!Number.isSafeInteger(credit.latestIndexedMcBlockSeqno)
+            ||credit.latestIndexedMcBlockSeqno<=credit.sourceMcBlockSeqno
+            ||credit.latestIndexedMcBlockSeqno<=credit.recipientMcBlockSeqno)
+            return Object.freeze({settled:false});
+        const proof=await this._independentVerifier.verifyTransfer({
+            sourceTransactionId:outgoing.transactionId,
+            recipientTransactionId:credit.recipientTransactionId,
+            messageHash:credit.messageHash,
+            sourceWalletAddress:wallet.address,
+            destinationAddress:winner.address,amountAtomic:winner.netAtomic
+        });
+        if(proof?.status!=="INDEPENDENT_INDEXED_CREDIT_OBSERVED"
+            ||proof.provider!==(this._network==="mainnet"?"tonapi-mainnet":"tonapi-testnet")
+            ||proof.sourceTransactionId!==outgoing.transactionId
+            ||proof.recipientTransactionId!==credit.recipientTransactionId
+            ||proof.messageHash!==credit.messageHash
+            ||proof.amountAtomic!==winner.netAtomic
+            ||canonical(proof.destinationAddress)!==canonical(winner.address)
+            ||canonical(proof.sourceWalletAddress)!==canonical(wallet.address)
+            ||!Number.isSafeInteger(proof.actualFeeAtomic)
+            ||proof.actualFeeAtomic<0)
+            return Object.freeze({settled:false});
+        const result=this._ledger.settlePayout({
+            payoutId:query.payoutId,recipientId:winner.recipientId,
+            executionResult:{
+                transactionId:proof.sourceTransactionId,
+                actualFeeAtomic:proof.actualFeeAtomic,settledAtMs:Date.now()
+            }
+        });
+        return Object.freeze({settled:true,replay:result.replay===true});
     }
     /**
      * Mainnet restart recovery uses the ORIGINAL Testnet resumeUnattempted()
