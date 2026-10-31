@@ -260,6 +260,36 @@ test("Mainnet owner principal witness rejects stale, wrong-network, changed-bala
     assert.equal(missing.reason,"OWNER_INDEPENDENT_BALANCE_SOURCE_MISSING");
 });
 
+test("underfunded owner principal requires two balances, not a fee-estimate RPC",async t=>{
+    const h=harness(t,{credit:true,winnerLedgerSettled:true,
+        ownerBalanceNano:140_000_000n,independentBalanceNano:140_000_000n});
+    const payout=plan();
+    h.transport._adapter.estimateOutboundTransferFee=async ()=>{
+        throw new Error("RPC_FEE_ESTIMATOR_DISABLED");
+    };
+    const result=await h.transport.submit({...request,plan:payout});
+    assert.equal(result.status,"OWNER_COMMISSION_UNPAID_GAS_SHORTAGE_TERMINAL");
+    assert.equal(result.ownerPaid,false);
+    assert.equal(h.sent.length,1);
+    assert.equal(h.unpaidTerminals.length,1);
+    assert.equal(h.unpaidTerminals[0].evidence.estimatedFeeAtomic,null);
+});
+
+test("exact owner balance cannot terminalize without a positive trustworthy fee quote",async t=>{
+    const h=harness(t,{credit:true,winnerLedgerSettled:true,
+        ownerBalanceNano:148_500_000n,independentBalanceNano:148_500_000n});
+    const payout=plan();
+    h.transport._adapter.estimateOutboundTransferFee=async ()=>({
+        ok:true,roomNumber:1,destination:OWNER,
+        amountNano:148_500_000n,totalNano:0n
+    });
+    const result=await h.transport.submit({...request,plan:payout});
+    assert.equal(result.status,"OWNER_PRINCIPAL_UNDERFUNDED_HOLD");
+    assert.equal(h.sent.length,1);
+    assert.equal(h.unpaidTerminals.length,0);
+    assert.equal(h.settled.filter(x=>x.recipientId==="WheelWin").length,0);
+});
+
 test("owner terminal holds when source balance changes between independent observations",async t=>{
     const h=harness(t,{credit:false,winnerLedgerSettled:true,ownerBalanceNano:140_000_000n});
     const payout=plan();
