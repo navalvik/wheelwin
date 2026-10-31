@@ -205,6 +205,12 @@ test("existing owner broadcast claim blocks any owner-gas-shortfall diagnostic t
     const h=harness(t,{winnerLedgerSettled:true,credit:true,ownerBalanceNano:0n});
     const payout=plan();
     await h.transport.submit({...request,plan:payout});
+    // Simulate a pre-existing, ambiguous OWNER claim from an older session:
+    // a newly underfunded room now correctly holds BEFORE attempting owner.
+    writeFileSync(join(h.dataDir,"mainnet-native-payout-attempts",
+        PAYOUT_ID+".OWNER.json"),JSON.stringify({
+            payoutId:PAYOUT_ID,role:"OWNER",state:"SUBMISSION_UNKNOWN"
+        }));
     const result=await h.transport.assessOwnerCommissionGasShortfall({...request,plan:payout});
     assert.equal(result.status,"OWNER_GAS_SHORTFALL_ASSESSMENT_HOLD");
     assert.equal(result.reason,"PAYOUT_ASSESSMENT_OWNER_ATTEMPT_AMBIGUOUS");
