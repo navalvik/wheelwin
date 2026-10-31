@@ -303,15 +303,15 @@ function assemblePaymentRuntime(options, mainnetPreparationOnly) {
         : settlementEvidenceProvider
             ?? new ToncenterFinalityEvidenceProvider({ client, nowProvider });
 
-    const incomingProvider = mainnetPreparationOnly
-        ? new ToncenterIncomingProvider({
-            client,
-            mapper: (payload, window) =>
-                mapToncenterTransactionsResponse(payload, {
-                    ...window, network: identity.network
-                })
-        })
-        : new ToncenterIncomingProvider({ client });
+    // Testnet and Mainnet use EXACTLY the same native TON incoming path.
+    // The endpoint and chain identity are the only network parameters.
+    const incomingProvider = new ToncenterIncomingProvider({
+        client,
+        mapper: (payload, window) =>
+            mapToncenterTransactionsResponse(payload, {
+                ...window, network: identity.network
+            })
+    });
     const observationService = new RoomPaymentObservationService({
         provider: incomingProvider,
         settlementEvidenceProvider: incomingEvidenceProvider,
