@@ -122,7 +122,9 @@ test("Mainnet payout planner uses original V4 submitter, winner confirmation req
     assert.equal(plan.transfers.find(x=>x.recipientRole==="WINNER").netAtomic,2850000000);
     assert.equal(plan.transfers.find(x=>x.recipientRole==="OWNER").netAtomic,147000000);
     const replay=await coordinator.onGameResult({gameId:GAME});
-    assert.ok(replay.status);
+    assert.equal(replay.status,"PAYOUT_DURABLE_RECOVERY_HOLD");
+    assert.equal(replay.reason,"PAYOUT_RECOVERY_WINNER_PROOF_MISSING",
+        "a claimed payout without a signed adapter outbox must not be retransmitted");
     assert.equal(h.submitted.length,1,"repeated result cannot broadcast another winner or owner payout");
     assert.equal(h.plans.size,1,"durable payout plan must not be duplicated");
 });
