@@ -47,6 +47,7 @@ import {
 import { ToncenterRateLimiter } from "./ToncenterRateLimiter.js";
 
 import { ToncenterIncomingProvider } from "./ToncenterIncomingProvider.js";
+import { requireToncenterChainConfig } from "./ToncenterConstants.js";
 
 import { PaymentConfigurationError, PaymentValidationError } from "../PaymentErrors.js";
 
@@ -195,7 +196,7 @@ export function hasTrustedRoomPaymentSettlementEvidence(result, transfer, nowMs)
     return assessTonPaymentSettlementEvidence(evidence, {
         transactionId: transfer.providerTransactionIdentity?.transactionId,
         accountId: transfer.providerTransactionIdentity?.accountId,
-        nowMs
+        nowMs, network: transfer.network
     }).authorized;
 }
 
@@ -232,7 +233,8 @@ export class RoomPaymentObservationService {
         rateLimiter = null,
         requestsPerSecond,
         limit = TONCENTER_DEFAULT_TRANSACTION_LIMIT,
-        nowProvider = Date.now
+        nowProvider = Date.now,
+        network = TONCENTER_NETWORK
     } = {}) {
 
         // Structural proof: this service exposes no write or confirmation
@@ -242,6 +244,7 @@ export class RoomPaymentObservationService {
             INCOMING_TRANSFER_ADAPTER_FORBIDDEN_OPERATIONS
         );
 
+        requireToncenterChainConfig(network);
         const effectiveProvider = provider ?? incomingProvider;
 
         if (!(effectiveProvider instanceof ToncenterIncomingProvider)) {
@@ -269,6 +272,7 @@ export class RoomPaymentObservationService {
         }
 
         this._provider = effectiveProvider;
+        this._network = network;
 
         // No production Toncenter implementation is configured in this
         // milestone. Null therefore means observation is allowed but
@@ -559,7 +563,7 @@ export class RoomPaymentObservationService {
         for (const record of observation.records) {
 
             const transfer = normalizeIncomingTransferRecord(record, {
-                network: TONCENTER_NETWORK,
+                network: this._network,
                 providerId: TONCENTER_PROVIDER_ID,
                 now
             });
@@ -589,7 +593,8 @@ export class RoomPaymentObservationService {
                         // Evidence is obtained AFTER the transfer snapshot.
                         // Assess at verification time, never the earlier
                         // observation start (which made fresh proof look future-dated).
-                        nowMs: this._nowProvider()
+                        nowMs: this._nowProvider(),
+                        network: this._network
                     });
                     if (decision.authorized) {
                         evidenceByTransactionId.set(transfer.transactionId, snapshot);
