@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -24,7 +24,7 @@ const MAINNET_PAYER_AMOUNTS = [1_000_000_001, 1_000_000_002, 1_000_000_004];
 const NOW = 1_800_000_000_000;
 
 function testnetHarness({ settledCount = 3, principalDelta = 0, winnerId = "Lena",
-    winnerWallet = TESTNET_WALLETS[1] } = {}) {
+    winnerWallet = TESTNET_WALLETS[1], dataDir = null } = {}) {
     const intents = PLAYERS.map((playerId, index) => ({
         roomId: ROOM, playerId, amountAtomic: MAINNET_PAYER_AMOUNTS[index],
         asset: "TON", network: "testnet", state: index < settledCount ? "SETTLED" : "PENDING",
@@ -34,6 +34,7 @@ function testnetHarness({ settledCount = 3, principalDelta = 0, winnerId = "Lena
     const principal = intents.slice(0, settledCount).reduce((sum, item) => sum + item.amountAtomic, 0);
     const plans = new Map();
     const paymentRuntime = {
+        networkDataDir: dataDir,
         paymentService: { listPaymentIntentsForRoom: () => intents },
         ledger: {
             getConfirmedPrincipalAtomic: () => principal + principalDelta,
@@ -208,6 +209,54 @@ test("duplicate result and coordinator restart reuse one persisted pending plan"
     assert.equal(restoredFinancial.listPayouts().length, 1);
     assert.equal(restoredFinancial.listPayouts()[0].winner.state, "PENDING");
     assert.deepEqual(mn.observations, []);
+});
+
+test("paired Testnet/Mainnet restart recovery reads the original pending plan without sending", async t => {
+    const testnetDir = mkdtempSync(join(tmpdir(), "wheelwin-testnet-winner-recovery-"));
+    t.after(() => rmSync(testnetDir, { recursive: true, force: true }));
+    const tn = testnetHarness({ dataDir: testnetDir });
+    const mn = mainnetHarness(t);
+    await tn.coordinator.onGameResult({ gameId: GAME });
+    const mainnetCreated = mn.coordinator.onGameResult({ gameId: GAME });
+    const mainnetPayoutPath = join(mn.config.dataDir, "financial-lifecycle", "state.json");
+    const beforeRecovery = readFileSync(mainnetPayoutPath, "utf8");
+
+    const restartedTestnetCoordinator = new TestnetWinnerPayoutCoordinator({
+        paymentRuntime: tn.paymentRuntime
+    });
+    const testnetRecovery = await restartedTestnetCoordinator.recoverPendingResults();
+    const restartedFinancial = new MainnetFinancialLedger({ config: mn.config }).initialize();
+    const restartedRuntime = { ...mn.paymentRuntime, financialLedger: restartedFinancial,
+        payoutLifecycle: new MainnetPayoutLifecycle({ financialLedger: restartedFinancial,
+            adapter: { async sendTransfer() { throw new Error("broadcast forbidden"); },
+                async estimateOutboundTransferFee() { throw new Error("fee lookup forbidden"); } },
+            outgoingObserver: { async findOutgoingTransfer() {}, async verifyIndexedRecipientCredit() {} },
+            independentVerifier: { async verifyTransfer() {} }, nowProvider: () => NOW }) };
+    const restartedMainnetCoordinator = new MainnetWinnerPayoutCoordinator({
+        paymentRuntime: restartedRuntime, walletPool: mn.walletPool,
+        roomManager: { getRoom: () => ({ players: PLAYERS }) },
+        playerManager: { getIdentity: playerId => ({ wallet: MAINNET_WALLETS[PLAYERS.indexOf(playerId)] }) },
+        contextResolver: { resolveRoomByGameId: () => ROOM },
+        winnerEngine: { getResult: () => ({ winnerPlayerId: "Lena" }) },
+        ownerWalletProvider: () => MAINNET_OWNER
+    });
+    const mainnetRecovery = restartedMainnetCoordinator.recoverPendingResults();
+    const repeatedRecovery = restartedMainnetCoordinator.recoverPendingResults();
+
+    assert.equal(testnetRecovery.length, 1);
+    assert.equal(testnetRecovery[0].status, "ALREADY_PLANNED_NEEDS_RECONCILIATION");
+    assert.equal(mainnetCreated.payoutId, mainnetRecovery[0].payoutId);
+    assert.equal(mainnetRecovery.length, 1);
+    assert.equal(repeatedRecovery.length, 1);
+    assert.equal(mainnetRecovery[0].principalAtomic, payoutPlanFromTestnet(tn).principalAtomic);
+    assert.equal(mainnetRecovery[0].winner.address, MAINNET_WALLETS[1]);
+    assert.equal(mainnetRecovery[0].owner.address, MAINNET_OWNER);
+    assert.equal(mainnetRecovery[0].winner.state, "PENDING");
+    assert.equal(mainnetRecovery[0].owner.state, "PENDING");
+    assert.equal(restartedFinancial.listPayouts().length, 1);
+    assert.equal(readFileSync(mainnetPayoutPath, "utf8"), beforeRecovery,
+        "Mainnet recovery reads the persisted plan without changing the financial ledger");
+    assert.deepEqual(mn.observations, [], "recovery performs no RPC, signature, or broadcast calls");
 });
 
 test("a persisted refund outcome prevents a competing payout plan", t => {

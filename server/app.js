@@ -1302,6 +1302,18 @@ class WheelWinApplication {
                     contextResolver: this._gameplayContextResolver,
                     winnerEngine: this._engines.winnerEngine
                 });
+                const pendingMainnetPayouts =
+                    this._mainnetWinnerPayoutCoordinator.recoverPendingResults();
+                for (const payout of pendingMainnetPayouts) {
+                    this._logger.warn?.(
+                        "MAINNET_PAYOUT_RECOVERY_PENDING"
+                            + ` | payoutId=${payout.payoutId}`
+                            + ` | roomId=${payout.roomId}`
+                            + ` | state=${payout.state}`
+                            + ` | winnerState=${payout.winner.state}`
+                            + ` | ownerState=${payout.owner.state}`
+                    );
+                }
                 this._mainnetGameResultReadyHandler = envelope => {
                     const gameId = envelope?.payload?.gameId;
                     void Promise.resolve()

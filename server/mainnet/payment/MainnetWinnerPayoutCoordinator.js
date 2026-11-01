@@ -142,4 +142,22 @@ export class MainnetWinnerPayoutCoordinator {
             payoutId, roomId, payout
         });
     }
+
+    /** Read persisted unfinished plans only; never plan, sign, submit, or settle during recovery. */
+    recoverPendingResults() {
+        const payouts = this._payment.financialLedger.listPayouts();
+        return Object.freeze(payouts.filter(payout => payout.state !== "COMPLETE").map(payout =>
+            Object.freeze({
+                status: "PAYOUT_RECOVERY_PENDING",
+                payoutId: payout.payoutId,
+                roomId: payout.roomId,
+                state: payout.state,
+                principalAtomic: payout.principalAtomic,
+                sourceWalletAddress: payout.sourceWalletAddress,
+                allocation: Object.freeze({ ...payout.allocation }),
+                winner: Object.freeze({ ...payout.winner }),
+                owner: Object.freeze({ ...payout.owner })
+            })
+        ));
+    }
 }
