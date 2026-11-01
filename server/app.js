@@ -1245,11 +1245,13 @@ class WheelWinApplication {
                 this._mainnetRuntimeReady = true;
                 this._paymentRuntimeReady = true;
 
-                // Mainnet Page4 is not connected to this application yet.
-                // Keep the shared game-start authority closed and do not bind
-                // any Testnet runtime, refund lifecycle, workers or payout
-                // coordinator in this mode.
-                this._gameStartAuthorization.configurePaymentGate(null);
+                // Use the existing Mainnet ledger-backed gate. Page4/payment
+                // intent creation remains unconnected, and live financial
+                // operations stay disabled; only authoritative 3/3 ledger
+                // confirmations can satisfy this shared game-start barrier.
+                this._gameStartAuthorization.configurePaymentGate(
+                    mainnetBootstrap.paymentRuntime.gameStartPaymentGate
+                );
 
                 this._logger.startupLine(
                     `MainnetPaymentRuntime (globalId=${mainnetBootstrap.config.globalId}`

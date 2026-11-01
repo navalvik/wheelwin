@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createHash } from "node:crypto";
+import { GameStartAuthorization } from "../../gameplay/GameStartAuthorization.js";
 import { loadMainnetRuntimeConfig } from "../config/MainnetRuntimeConfig.js";
 import { MainnetPaymentRuntime } from "../payment/MainnetPaymentRuntime.js";
 
@@ -78,4 +79,50 @@ test("Mainnet game-start gate reads persisted ledger state and never uses Testne
     assert.throws(() => new (restarted.gameStartPaymentGate.constructor)({ incomingLedger: {
         network: "testnet", globalId: -3, getRoomPaymentStatus() {}, listRoomIntents() {}
     } }), /MAINNET_PAYMENT_GATE_LEDGER_REQUIRED/);
+});
+
+test("GameStartAuthorization allows only the exact 3/3 Mainnet-ledger roster", (t) => {
+    const h = runtime(t);
+    register(h.payment);
+    const players = [...PLAYERS];
+    const room = { maxPlayers: 3, players, status: "ACTIVE" };
+    const authorization = new GameStartAuthorization({
+        logger: {},
+        eventBus: {},
+        roomManager: { getRoom: () => room },
+        gameManager: { getPendingGameplayGameId: () => "game-gate" },
+        recoveryEngine: { getRecoverySnapshot: () => null },
+        paymentGate: h.payment.gameStartPaymentGate
+    });
+
+    for (const count of [0, 1, 2]) {
+        assert.equal(authorization._checkStartConditions("room-gate").ok, false,
+            `${count}/3 must not authorize gameplay`);
+        assert.equal(authorization._checkStartConditions("room-gate").waitForPayment, true);
+        for (const intent of h.payment.incomingLedger.listRoomIntents("room-gate").slice(count, count + 1)) {
+            const observation = { network: "mainnet", globalId: -239, roomId: "room-gate",
+                transactionId: `auth-tx-${intent.playerId}`,
+                payloadFingerprint: createHash("sha256").update(`auth-${intent.playerId}`).digest("hex"),
+                sourceAddress: intent.expectedSender, destinationAddress: intent.destinationWalletAddress,
+                amountAtomic: intent.amountAtomic, asset: "TON", transactionTime: 50_000, observedAt: 50_001 };
+            h.payment.incomingLedger.recordTransfer({ observation,
+                receipt: { network: "mainnet", globalId: -239, roomId: "room-gate",
+                    transactionId: observation.transactionId, status: "CONFIRMED", reason: null,
+                    paymentReference: intent.paymentReference, amountAtomic: intent.amountAtomic,
+                    sourceAddress: intent.expectedSender, destinationAddress: intent.destinationWalletAddress,
+                    transactionTime: 50_000, updatedAt: 50_001, asset: "TON" },
+                settleReference: intent.paymentReference });
+        }
+    }
+    assert.equal(authorization._checkStartConditions("room-gate").ok, true,
+        "exact Mainnet ledger 3/3 must authorize the existing server start gate");
+
+    room.players = ["p1", "p2", "intruder"];
+    assert.equal(authorization._checkStartConditions("room-gate").ok, false,
+        "a different room roster must not reuse the confirmed payments");
+
+    room.players = [...PLAYERS];
+    authorization.configurePaymentGate(null);
+    assert.equal(authorization._checkStartConditions("room-gate").ok, false,
+        "missing gate after an initialization error must fail closed");
 });
