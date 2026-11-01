@@ -31,5 +31,10 @@ jobs:
           node --check forensic/ForensicArchiveService.js
           node --check forensic/R2ForensicArchiveUploader.js
           node --test tests/restoredR2Archive.test.js tests/restoredR2ArchiveRoomClose.test.js tests/paymentReconciliationDefects.test.js
+      - name: Bounded Page5 diagnostics, authenticated socket, and redaction
+        run: |
+          node tests/clientGameplaySyncStore.test.js
+          node tests/page5ClientDiagSocket.test.js
+          node ../client/src/game/diagnostics/page5DiagnosticsBuffer.test.js
       - name: Payment gate, refunds, and historical recovery must remain safe
         run: node --test tests/payment/*.test.js tests/paymentHistoricalCrossRoom.test.js tests/paymentObservationWithoutAcknowledgement.test.js tests/paymentThreePlayerGate.test.js
