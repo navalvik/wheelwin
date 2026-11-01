@@ -7,7 +7,7 @@ import { mainnetAddressIdentity } from "./MainnetAddress.js";
 import { calculateMainnetPayout } from "./MainnetPayoutPolicy.js";
 
 const EMPTY = Object.freeze({ schemaVersion: 1, network: "mainnet", globalId: MAINNET_GLOBAL_ID,
-    outcomes: [], refunds: [], payouts: [] });
+    outcomes: [], refunds: [], payouts: [], page5StartedRooms: [] });
 const REFUND_STATES = new Set(["PENDING", "SUBMISSION_UNKNOWN", "SUBMITTED", "COMPLETE"]);
 const PAYOUT_STATES = new Set(["PENDING", "SUBMISSION_UNKNOWN", "SUBMITTED", "CONFIRMED", "UNPAID_INSUFFICIENT_GAS"]);
 const clone = (value) => JSON.parse(JSON.stringify(value));
@@ -180,6 +180,21 @@ export class MainnetFinancialLedger {
     }
     listPayouts() { this._assertReady(); return Object.freeze(this._state.payouts.map(x => Object.freeze({ ...x }))); }
 
+    /** Persist the irreversible Page5 boundary so later room cleanup cannot refund a played game. */
+    recordPage5Started(roomId) {
+        this._assertReady();
+        if (typeof roomId !== "string" || !roomId.trim()) throw new Error("MAINNET_PAGE5_ROOM_ID_INVALID");
+        const started = this._state.page5StartedRooms ?? [];
+        if (started.includes(roomId)) return Object.freeze({ roomId, replay: true });
+        this._commit({ ...this._state, page5StartedRooms: [...started, roomId] });
+        return Object.freeze({ roomId, replay: false });
+    }
+
+    hasPage5Started(roomId) {
+        this._assertReady();
+        return (this._state.page5StartedRooms ?? []).includes(roomId);
+    }
+
     updatePayoutLeg(payoutId, role, patch) {
         this._assertReady();
         if (!new Set(["winner", "owner"]).has(role)) throw new Error("MAINNET_PAYOUT_ROLE_INVALID");
@@ -249,8 +264,14 @@ export class MainnetFinancialLedger {
 
     _validate(state) {
         if (!state || state.schemaVersion !== 1 || state.network !== "mainnet" || state.globalId !== MAINNET_GLOBAL_ID
-            || !Array.isArray(state.outcomes) || !Array.isArray(state.refunds) || !Array.isArray(state.payouts)) {
+            || !Array.isArray(state.outcomes) || !Array.isArray(state.refunds) || !Array.isArray(state.payouts)
+            || (state.page5StartedRooms !== undefined && !Array.isArray(state.page5StartedRooms))) {
             throw new Error("MAINNET_FINANCIAL_LEDGER_IDENTITY_INVALID");
+        }
+        const started = state.page5StartedRooms ?? [];
+        if (started.some(roomId => typeof roomId !== "string" || !roomId.trim())
+            || new Set(started).size !== started.length) {
+            throw new Error("MAINNET_PAGE5_STATE_INVALID");
         }
         const refundIds = new Set();
         for (const item of state.refunds) { this._validateRefund(item); if (refundIds.has(item.obligationId)) throw new Error("MAINNET_REFUND_DUPLICATE"); refundIds.add(item.obligationId); }

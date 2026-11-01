@@ -261,6 +261,7 @@ class WheelWinApplication {
         this._paymentRuntime = null;
         this._mainnetBootstrap = null;
         this._mainnetPaymentRuntime = null;
+        this._mainnetPage5StartedHandler = null;
         this._mainnetRuntimeReady = false;
         this._nativeRoomWalletAdapter = null;
         this._adminSweepAdapter = null;
@@ -1251,6 +1252,26 @@ class WheelWinApplication {
                     dataDir: mainnetBootstrap.config.dataDir,
                     roomManager: this._managers.roomManager
                 });
+                mainnetBootstrap.paymentRuntime.refundLifecycle.configurePage5StateResolver(
+                    roomId => mainnetBootstrap.paymentRuntime.financialLedger.hasPage5Started(roomId)
+                        || this._gameStartAuthorization.getLifecycle(roomId)?.phase === "OPEN_PAGE5"
+                );
+                mainnetBootstrap.paymentRuntime.refundLifecycle.configureReservedWalletRoomNumberResolver(
+                    roomId => mainnetBootstrap.walletPool.getReservationForRoom(roomId)?.roomNumber ?? null
+                );
+                this._managers.roomManager.attachRefundLifecycle(
+                    mainnetBootstrap.paymentRuntime.refundLifecycle
+                );
+                this._mainnetPage5StartedHandler = envelope => {
+                    const roomId = envelope?.payload?.roomId;
+                    if (typeof roomId === "string" && roomId) {
+                        mainnetBootstrap.paymentRuntime.financialLedger.recordPage5Started(roomId);
+                    }
+                };
+                this._eventBus.subscribe(
+                    EVENT_TYPES.GAME_START_BOOTSTRAP_READY,
+                    this._mainnetPage5StartedHandler
+                );
 
                 // Use the existing Mainnet ledger-backed gate and prepare
                 // Page4 intents through the Mainnet-only application binding.
@@ -3792,6 +3813,14 @@ class WheelWinApplication {
         }
 
         this._logger.disconnectEventBus();
+
+        if (this._mainnetPage5StartedHandler) {
+            this._eventBus.unsubscribe(
+                EVENT_TYPES.GAME_START_BOOTSTRAP_READY,
+                this._mainnetPage5StartedHandler
+            );
+            this._mainnetPage5StartedHandler = null;
+        }
 
         this._eventBus.shutdown();
 

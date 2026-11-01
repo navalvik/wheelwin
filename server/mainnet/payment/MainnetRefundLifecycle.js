@@ -26,11 +26,45 @@ export class MainnetRefundLifecycle {
         this._adapter = adapter;
         this._observer = outgoingObserver;
         this._now = nowProvider;
+        this._hasReachedPage5 = null;
+        this._resolveReservedWalletRoomNumber = null;
+    }
+
+    /** Connect the server-owned gameplay lifecycle without depending on client state. */
+    configurePage5StateResolver(resolver) {
+        if (typeof resolver !== "function") throw new TypeError("Page5 state resolver must be a function");
+        this._hasReachedPage5 = resolver;
+    }
+
+    configureReservedWalletRoomNumberResolver(resolver) {
+        if (typeof resolver !== "function") throw new TypeError("Reserved wallet resolver must be a function");
+        this._resolveReservedWalletRoomNumber = resolver;
     }
 
     prepareClosedRoom({ roomId, roomNumber, closureReason, prePage5 = true } = {}) {
-        return this._ledger.prepareRefunds({ roomId, roomNumber, closureReason,
-            incomingLedger: this._incoming, prePage5 });
+        if (this._ledger.hasPage5Started?.(roomId) === true) return Object.freeze([]);
+        if (this._hasReachedPage5) {
+            const reachedPage5 = this._hasReachedPage5(roomId);
+            if (typeof reachedPage5 !== "boolean") throw new Error("MAINNET_PAGE5_STATE_UNAVAILABLE");
+            if (reachedPage5) return Object.freeze([]);
+        }
+        if (prePage5 !== true) return Object.freeze([]);
+        let refundRoomNumber = roomNumber;
+        if (this._resolveReservedWalletRoomNumber) {
+            const reservedRoomNumber = this._resolveReservedWalletRoomNumber(roomId);
+            const hasConfirmedReceipts = this._incoming.listReceipts(roomId)
+                .some(receipt => receipt.status === "CONFIRMED");
+            if (reservedRoomNumber !== null && reservedRoomNumber !== undefined) {
+                if (!Number.isSafeInteger(reservedRoomNumber) || reservedRoomNumber < 1) {
+                    throw new Error("MAINNET_REFUND_RESERVED_WALLET_IDENTITY_INVALID");
+                }
+                refundRoomNumber = reservedRoomNumber;
+            } else if (hasConfirmedReceipts) {
+                throw new Error("MAINNET_REFUND_RESERVED_WALLET_UNAVAILABLE");
+            }
+        }
+        return this._ledger.prepareRefunds({ roomId, roomNumber: refundRoomNumber, closureReason,
+            incomingLedger: this._incoming, prePage5: true });
     }
 
     async submitRefund(obligationId) {

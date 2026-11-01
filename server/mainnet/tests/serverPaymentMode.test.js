@@ -72,6 +72,15 @@ test("server app selects Mainnet bootstrap before the Testnet runtime branch", (
         /new MainnetPage4PaymentApplicationBinding\(/);
     assert.match(app.slice(mainnetBranch, testnetBranch),
         /configurePaymentGate\(\s*mainnetBootstrap\.paymentRuntime\.gameStartPaymentGate\s*\)/);
+    assert.match(app.slice(mainnetBranch, testnetBranch),
+        /refundLifecycle\.configurePage5StateResolver\([\s\S]*?getLifecycle\(roomId\).*?phase === "OPEN_PAGE5"/);
+    assert.match(app.slice(mainnetBranch, testnetBranch),
+        /configureReservedWalletRoomNumberResolver\([\s\S]*?walletPool\.getReservationForRoom\(roomId\).*?roomNumber/);
+    assert.match(app.slice(mainnetBranch, testnetBranch), /recordPage5Started\(roomId\)/);
+    assert.match(app.slice(mainnetBranch, testnetBranch), /EVENT_TYPES\.GAME_START_BOOTSTRAP_READY/);
+    assert.match(app.slice(mainnetBranch, testnetBranch), /hasPage5Started\(roomId\)/);
+    assert.match(app.slice(mainnetBranch, testnetBranch),
+        /roomManager\.attachRefundLifecycle\(\s*mainnetBootstrap\.paymentRuntime\.refundLifecycle\s*\)/);
     assert.match(app.slice(mainnetBranch, testnetBranch), /_paymentRuntimeReady = true/);
     assert.match(app.slice(mainnetBranch, testnetBranch), /paidGameStart=disabled/);
     const initializationFailure = app.indexOf("} catch (error) {", testnetRuntime);
