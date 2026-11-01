@@ -14,6 +14,7 @@ import { createHash } from "node:crypto";
 import archiver from "archiver";
 
 import { safeFilenameSegment } from "./forensicArchiveNaming.js";
+import { getClientGameplaySyncSnapshot } from "./ClientGameplaySyncStore.js";
 import { tonAddressIdentitiesEqual } from "../payment/incoming/TonAddressIdentity.js";
 
 /**
@@ -112,6 +113,14 @@ export class ForensicArchiveCollector {
             entries.push({inlineContent: JSON.stringify(finalReport, null, 2) + '\n', zipPath:'financial/final-report.json'});
             if (finance.archiveLineage) entries.push({inlineContent: JSON.stringify(finance.archiveLineage, null, 2) + '\n', zipPath:'forensics/archive-lineage.json'});
         }
+        // Observation-only telemetry included in the EXISTING single ZIP.
+        // The archive service remains solely responsible for upload/retry.
+        entries.push({
+            inlineContent: JSON.stringify(
+                getClientGameplaySyncSnapshot(roomId, gameId), null, 2
+            ) + "\\n",
+            zipPath: "forensics/client-gameplay-sync.json"
+        });
         const seenSources = new Set();
 
         const pushEntry = (sourcePath, zipPath) => {
