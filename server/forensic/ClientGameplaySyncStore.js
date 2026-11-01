@@ -6,6 +6,13 @@ const MAX_ROOMS = 128;
 const MAX_EVENTS_PER_PLAYER = 240;
 const MAX_BATCH_EVENTS = 32;
 const MAX_EVENT_BYTES = 550;
+const PRIORITY_EVENTS = new Set([
+    "ready_attempt", "ready_sent", "ready_ack", "ready_rejected",
+    "ready_phase_started", "ready_phase_completed",
+    "phase_changed", "state_rejected", "recovery",
+    "page5_mount", "page5_unmount", "page6_received",
+    "page6_rendered", "connection_changed", "client_error"
+]);
 const MAX_BATCH_BYTES = 14000;
 const RETENTION_MS = 3 * 60 * 60 * 1000;
 const ALLOWED_FIELDS = new Set([
@@ -93,8 +100,17 @@ export function recordClientGameplaySyncBatch({
         }
     }
     player.events.push(...events);
-    if (player.events.length > MAX_EVENTS_PER_PLAYER) {
-        player.events.splice(0, player.events.length - MAX_EVENTS_PER_PLAYER);
+    while (player.events.length > MAX_EVENTS_PER_PLAYER) {
+        const sampleIndex = player.events.findIndex(event =>
+            !PRIORITY_EVENTS.has(event.kind)
+        );
+        if (sampleIndex >= 0) {
+            player.events.splice(sampleIndex, 1);
+            player.droppedSamples++;
+        } else {
+            player.events.shift();
+            player.droppedImportant++;
+        }
     }
     player.droppedSamples += Number.isInteger(rawBatch.droppedSamples)
         ? Math.min(100000, Math.max(0, rawBatch.droppedSamples)) : 0;
