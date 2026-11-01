@@ -112,7 +112,12 @@ test("restored R2 archive ZIP contains room artifacts and uploads once", async (
         const status = JSON.parse(readFileSync(join(f.config.stagingDir, "Abc", "status.json"), "utf8"));
         assert.equal(status.state, "uploaded");
         assert.equal(status.zipPath, null, "no local ZIP path is persisted");
-        assert.equal(status.manifest.files.length, 3);
+        assert.equal(status.manifest.files.length, 4);
+        assert.ok(status.manifest.files.some(f => f.zipPath === "forensics/client-gameplay-sync.json"));
+        const gameplayDiag = JSON.parse(extractZipEntry(zip, "forensics/client-gameplay-sync.json"));
+        assert.equal(gameplayDiag.schemaVersion, 1);
+        assert.equal(gameplayDiag.roomId, "Abc");
+        assert.equal(gameplayDiag.observed, false);
         assert.ok(status.manifest.files.some(f => f.zipPath === 'session/game-mode.json'));
         assert.ok(status.manifest.files.some(f => f.zipPath.includes("session-history")));
         assert.ok(status.manifest.files.some(f => f.zipPath.includes("diagnostic-logs")));
