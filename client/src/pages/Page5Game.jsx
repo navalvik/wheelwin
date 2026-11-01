@@ -158,6 +158,38 @@ export default function Page5Game({ onNavigate: _onNavigate }) {
     // Instrument the active identity, not subsequent gameplay state changes.
     }, [identity.roomId, authoritative.roomId, diagnosticGameId, identity.playerId]);
 
+    // Visibility and runtime errors help distinguish an old WebView pause
+    // from server/transport lag. Never record raw exception messages.
+    useEffect(() => {
+        if (typeof window === "undefined" || typeof document === "undefined") {
+            return undefined;
+        }
+
+        const visibility = () => {
+            recordPage5Diagnostic({
+                kind: "visibility_changed",
+                reason: document.visibilityState
+            });
+            flushPage5Diagnostics();
+        };
+        const onError = () => {
+            recordPage5Diagnostic({ kind: "client_error", reason: "window_error" });
+            flushPage5Diagnostics();
+        };
+        const onUnhandled = () => {
+            recordPage5Diagnostic({ kind: "client_error", reason: "unhandled_rejection" });
+            flushPage5Diagnostics();
+        };
+        document.addEventListener("visibilitychange", visibility);
+        window.addEventListener("error", onError);
+        window.addEventListener("unhandledrejection", onUnhandled);
+        return () => {
+            document.removeEventListener("visibilitychange", visibility);
+            window.removeEventListener("error", onError);
+            window.removeEventListener("unhandledrejection", onUnhandled);
+        };
+    }, []);
+
     const latestDiagnosticRef = useRef(null);
     useEffect(() => {
         latestDiagnosticRef.current = { gameState, clock, localConfirmed };
