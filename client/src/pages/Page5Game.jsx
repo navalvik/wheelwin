@@ -17,6 +17,13 @@ import { useLanguage } from "../context/LanguageContext";
 import { usePlayerIdentity } from "../context/PlayerIdentityContext";
 import { useWheelConfig } from "../context/WheelConfigContext";
 import { usePreGameReady } from "../context/PreGameReadyContext";
+import { useGameClock } from "../context/GameClockContext";
+import { usePhysics } from "../context/PhysicsContext";
+import {
+    configurePage5Diagnostics,
+    recordPage5Diagnostic,
+    flushPage5Diagnostics
+} from "../game/diagnostics/page5Telemetry.js";
 import { useRecoveryExperience } from "../context/RecoveryExperienceContext";
 import { resolveLocalPlayerId } from "../game/session";
 import {
@@ -83,6 +90,10 @@ export default function Page5Game({ onNavigate: _onNavigate }) {
 
     const { localConfirmed } = usePreGameReady();
 
+    const { clock } = useGameClock();
+
+    const { getFrame } = usePhysics();
+
     const { result, hasResult } = useGameResult();
 
     const { t } = useLanguage();
@@ -125,6 +136,67 @@ export default function Page5Game({ onNavigate: _onNavigate }) {
         || (isPreGameReadyPhase && localConfirmed);
 
     const { wheelConfiguration } = useWheelConfig();
+
+    const diagnosticGameId = identity.gameId ?? authoritative.gameId ?? null;
+
+    useEffect(() => {
+
+        if (!configurePage5Diagnostics({
+            roomId: identity.roomId ?? authoritative.roomId,
+            gameId: diagnosticGameId,
+            playerId: identity.playerId
+        })) return undefined;
+
+        recordPage5Diagnostic({ kind: "page5_mount", displayedPhase: gameState });
+        flushPage5Diagnostics();
+
+        return () => {
+            recordPage5Diagnostic({ kind: "page5_unmount" });
+            flushPage5Diagnostics();
+        };
+
+    // Instrument the active identity, not subsequent gameplay state changes.
+    }, [identity.roomId, authoritative.roomId, diagnosticGameId, identity.playerId]);
+
+    const latestDiagnosticRef = useRef(null);
+    latestDiagnosticRef.current = { gameState, clock, localConfirmed };
+
+    useEffect(() => {
+
+        const timer = setInterval(() => {
+            const current = latestDiagnosticRef.current;
+            if (!current) return;
+            const frame = getFrame();
+            recordPage5Diagnostic({
+                kind: "sample",
+                displayedPhase: current.gameState,
+                phase: current.clock?.phase ?? null,
+                clockValue: current.clock?.remainingSeconds ?? null,
+                wheelAngle: frame?.wheelAngle ?? null,
+                pointerAngle: frame?.triangleAngle ?? null,
+                renderMs: typeof performance !== "undefined"
+                    ? Math.round(performance.now()) : null
+            });
+            flushPage5Diagnostics();
+        }, 1000);
+
+        return () => clearInterval(timer);
+
+    }, [getFrame]);
+
+    useEffect(() => {
+
+        recordPage5Diagnostic({
+            kind: "phase_changed",
+            displayedPhase: gameState,
+            phase: clock.phase,
+            renderMs: typeof performance !== "undefined"
+                ? Math.round(performance.now()) : null
+        });
+        flushPage5Diagnostics();
+
+    }, [gameState, clock.phase]);
+
 
     const { requestSessionRecovery } = useRecoveryExperience();
 
@@ -206,6 +278,53 @@ export default function Page5Game({ onNavigate: _onNavigate }) {
     } = useCentralButton();
 
     useEffect(() => {
+        recordPage5Diagnostic({
+            kind: "button_state",
+            displayedPhase: gameState,
+            buttonState: buttonSnapshot.state,
+            buttonEnabled: buttonSnapshot.enabled === true && !buttonInputDisabled,
+            buttonLocked: buttonSnapshot.locked === true,
+            readyConfirmed: localConfirmed,
+            reason: buttonInputDisabled ? "page_gate" : "interactive"
+        });
+    }, [
+        gameState, buttonSnapshot.state, buttonSnapshot.enabled,
+        buttonSnapshot.locked, buttonInputDisabled, localConfirmed
+    ]);
+
+    useEffect(() => {
+        if (localConfirmed) {
+            recordPage5Diagnostic({
+                kind: "ready_ack",
+                displayedPhase: gameState,
+                buttonState: buttonSnapshot.state,
+                readyConfirmed: true
+            });
+            flushPage5Diagnostics();
+        }
+    }, [localConfirmed]);
+
+    const onReadyTap = () => {
+        recordPage5Diagnostic({
+            kind: "ready_attempt",
+            displayedPhase: gameState,
+            buttonState: buttonSnapshot.state,
+            buttonEnabled: buttonSnapshot.enabled,
+            buttonLocked: buttonSnapshot.locked,
+            readyConfirmed: localConfirmed
+        });
+        const emitted = confirmPreGameReady();
+        recordPage5Diagnostic({
+            kind: emitted ? "ready_sent" : "ready_rejected",
+            displayedPhase: gameState,
+            buttonState: buttonSnapshot.state,
+            reason: emitted ? "local_event_emitted" : "engine_gate_rejected"
+        });
+        flushPage5Diagnostics();
+        return emitted;
+    };
+
+    useEffect(() => {
 
         if (!isPreGameReadyPhase) {
 
@@ -258,7 +377,7 @@ export default function Page5Game({ onNavigate: _onNavigate }) {
                                     buttonSnapshot={buttonSnapshot}
                                     onButtonPress={
                                         isPreGameReadyPhase
-                                            ? confirmPreGameReady
+                                            ? onReadyTap
                                             : (buttonInputDisabled ? undefined : press)
                                     }
                                     onButtonRelease={
