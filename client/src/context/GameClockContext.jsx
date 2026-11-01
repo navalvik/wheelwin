@@ -83,7 +83,8 @@ export function GameClockProvider({ children }) {
                     ? Math.ceil(snapshot.remainingGameTime / 1000)
                     : null,
                 running: true,
-                serverTimestamp: snapshot.timestamp ?? Date.now()
+                serverTimestamp: snapshot.timestamp ?? Date.now(),
+                syncSequence: snapshot.syncSequence ?? null
             }, current, receivedAt));
 
         }

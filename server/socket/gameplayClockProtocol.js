@@ -12,7 +12,17 @@ export function buildGameClockUpdatePayload(clockPayload) {
         remainingMs: clockPayload?.remainingMs ?? null,
         remainingSeconds: clockPayload?.remainingSeconds ?? null,
         running: clockPayload?.running ?? false,
-        serverTimestamp: Date.now()
+        gameState: clockPayload?.gameState ?? null,
+        wheelAngle: clockPayload?.physics?.wheelAngle ?? null,
+        triangleAngle: clockPayload?.physics?.triangleAngle ?? null,
+        angularVelocity: clockPayload?.physics?.angularVelocity ?? null,
+        triangleAngularVelocity:
+            clockPayload?.physics?.triangleAngularVelocity ?? null,
+        simulationTimeMs: clockPayload?.physics?.simulationTimeMs ?? null,
+        syncSequence: Number.isSafeInteger(clockPayload?.syncSequence)
+            ? clockPayload.syncSequence
+            : null,
+        serverTimestamp: clockPayload?.serverTimestamp ?? Date.now()
     };
 
 }

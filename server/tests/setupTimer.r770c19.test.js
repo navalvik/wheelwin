@@ -67,7 +67,9 @@ const FIVE_MIN_MS = 5 * 60 * 1000;
         "R7.70C19A PRE_GAME_READY catalog default must be 180 seconds"
     );
     assert.equal(phases.readyDurationMs, 3000, "READY unchanged");
-    assert.equal(phases.selfTestDurationMs, 1500, "SELF_TEST unchanged");
+    assert.equal(phases.selfTestDurationMs, 2000, "SELF_TEST is two seconds");
+    assert.equal(TIMERS[TIMER_PHASES.SELF_TEST].durationMs, 2000,
+        "catalog SELF_TEST default is two seconds");
     assert.equal(phases.speedDurationMs, 8000, "SPEED unchanged");
     assert.equal(phases.brakeDurationMs, 6000, "BRAKE unchanged");
     assert.equal(phases.resultDurationMs, 4000, "RESULT clock phase unchanged");

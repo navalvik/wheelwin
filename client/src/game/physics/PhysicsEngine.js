@@ -59,6 +59,8 @@ export class PhysicsEngine {
 
         this._lastServerSimulationTimeMs = null;
 
+        this._lastServerSnapshotSequence = null;
+
         this._isBraking = false;
 
         this._remainingBrakeTime = null;
@@ -275,6 +277,35 @@ export class PhysicsEngine {
         }
 
         return true;
+
+    }
+
+    applyServerSnapshot(payload = {}) {
+
+        const sequence = payload.syncSequence;
+
+        if (!Number.isSafeInteger(sequence) || sequence < 0) {
+
+            return false;
+
+        }
+
+        if (payload.gameId && this._serverGameId === payload.gameId
+            && Number.isSafeInteger(this._lastServerSnapshotSequence)
+            && sequence <= this._lastServerSnapshotSequence) {
+
+            return false;
+
+        }
+
+        const applied = this.applyServerUpdate({
+            ...payload,
+            simulationTime: payload.simulationTimeMs
+        });
+
+        this._lastServerSnapshotSequence = sequence;
+
+        return applied;
 
     }
 

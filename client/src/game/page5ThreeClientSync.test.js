@@ -136,6 +136,23 @@ assert.equal(physics.applyServerUpdate({
 }), false);
 assert.equal(physics.wheelAngle, 90, "late physics cannot rewind the wheel");
 
+assert.equal(physics.applyServerSnapshot({
+    gameId,
+    syncSequence: 10,
+    simulationTimeMs: 1000,
+    wheelAngle: 100,
+    triangleAngle: 210
+}), true);
+assert.equal(physics.applyServerSnapshot({
+    gameId,
+    syncSequence: 9,
+    simulationTimeMs: 900,
+    wheelAngle: 95,
+    triangleAngle: 215
+}), false, "lower snapshot sequence is rejected");
+assert.equal(physics.wheelAngle, 100);
+assert.equal(physics.triangleAngle, 210);
+
 const recoveryPayload = normalizeSessionSnapshot({
     gameId,
     roomId: "room-three-client",

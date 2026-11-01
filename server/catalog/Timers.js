@@ -25,7 +25,7 @@ export const TIMERS = Object.freeze({
     }),
     [TIMER_PHASES.SELF_TEST]: Object.freeze({
         phase: TIMER_PHASES.SELF_TEST,
-        durationMs: 1500
+        durationMs: 2000
     }),
     [TIMER_PHASES.SPEED]: Object.freeze({
         phase: TIMER_PHASES.SPEED,

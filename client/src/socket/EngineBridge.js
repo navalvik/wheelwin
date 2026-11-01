@@ -47,6 +47,15 @@ export class EngineBridge {
 
                 modules.gameClock?.onClockUpdate?.(payload);
 
+                if (Number.isSafeInteger(payload?.syncSequence)
+                    && Number.isFinite(payload?.wheelAngle)
+                    && Number.isFinite(payload?.triangleAngle)
+                    && Number.isFinite(payload?.simulationTimeMs)) {
+
+                    modules.physics?.applySnapshot?.(payload);
+
+                }
+
                 session()?.onClockUpdate?.(payload);
 
             },

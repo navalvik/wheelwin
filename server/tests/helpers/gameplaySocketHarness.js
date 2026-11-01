@@ -81,6 +81,8 @@ export async function createGameplaySocketHarness() {
         logger,
         eventBus,
         gameClockEngine: bootstrapEngines.gameClockEngine,
+        gameStateEngine: bootstrapEngines.gameStateEngine,
+        physicsEngine: bootstrapEngines.physicsEngine,
         intervalMs: 50,
         devMode: true
     });

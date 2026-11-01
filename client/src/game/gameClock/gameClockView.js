@@ -14,7 +14,8 @@ export const INITIAL_GAME_CLOCK = Object.freeze({
     running: false,
     active: false,
     serverTimestamp: null,
-    receivedAtMonotonic: null
+    receivedAtMonotonic: null,
+    syncSequence: null
 });
 
 const PHASE_LABELS = Object.freeze({
@@ -48,6 +49,14 @@ export function reduceGameClockUpdate(
     }
 
     if (payload.gameId && current?.gameId === payload.gameId) {
+
+        if (Number.isSafeInteger(payload.syncSequence)
+            && Number.isSafeInteger(current.syncSequence)
+            && payload.syncSequence <= current.syncSequence) {
+
+            return current;
+
+        }
 
         const incomingOrder = CLOCK_PHASE_ORDER[payload.phase];
         const currentOrder = CLOCK_PHASE_ORDER[current.phase];
@@ -94,7 +103,10 @@ export function reduceGameClockUpdate(
         serverTimestamp: payload.serverTimestamp ?? null,
         receivedAtMonotonic: Number.isFinite(receivedAtMonotonic)
             ? receivedAtMonotonic
-            : null
+            : null,
+        syncSequence: Number.isSafeInteger(payload.syncSequence)
+            ? payload.syncSequence
+            : current?.syncSequence ?? null
     };
 
 }

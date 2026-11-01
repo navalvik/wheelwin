@@ -901,6 +901,8 @@ class WheelWinApplication {
             logger: this._logger,
             eventBus: this._eventBus,
             gameClockEngine: this._engines.gameClockEngine,
+            gameStateEngine: this._engines.gameStateEngine,
+            physicsEngine: this._engines.physicsEngine,
             devMode: this._productionConfig.isDevelopment
         });
 

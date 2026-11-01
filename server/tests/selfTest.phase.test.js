@@ -78,9 +78,14 @@ const controller = new SelfTestPhaseController({
 
 controller.initialize();
 
+assert(
+    controller._resolveDurationMs({ gameId: "game-self-test" }) === 2000,
+    "missing SELF_TEST schedule falls back to two seconds"
+);
+
 const gameId = "game-self-test";
 
-const durationMs = 1500;
+const durationMs = 2000;
 
 physicsEngine.createSimulation(gameId);
 

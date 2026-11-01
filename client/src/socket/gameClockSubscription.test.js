@@ -150,12 +150,18 @@ function createFakeSocket() {
 
     const received = [];
 
+    const physicsSnapshots = [];
+
     bridge.register("gameClock", {
         onClockUpdate: (payload) => {
 
             received.push(reduceGameClockUpdate(payload));
 
         }
+    });
+
+    bridge.register("physics", {
+        applySnapshot: (payload) => physicsSnapshots.push(payload)
     });
 
     const frames = [
@@ -188,6 +194,29 @@ function createFakeSocket() {
     assert(
         received[received.length - 1].active === false,
         "final RESULT frame is not active — gameplay timer disappears naturally"
+    );
+
+    const physicsSnapshot = {
+        gameId: "game_1",
+        phase: "SPEED",
+        gameState: "SPEED",
+        syncSequence: 8,
+        wheelAngle: 135,
+        triangleAngle: 315,
+        simulationTimeMs: 7000,
+        serverTimestamp: 9000
+    };
+    socket._serverEmit(SOCKET_MESSAGE_CHANNEL, {
+        type: INCOMING_SOCKET_EVENTS.GAME_CLOCK_UPDATE,
+        payload: physicsSnapshot
+    });
+
+    assert(
+        physicsSnapshots.length === 1
+        && physicsSnapshots[0].syncSequence === physicsSnapshot.syncSequence
+        && physicsSnapshots[0].wheelAngle === physicsSnapshot.wheelAngle
+        && physicsSnapshots[0].triangleAngle === physicsSnapshot.triangleAngle,
+        "combined one-second gameplay snapshot reaches the physics renderer"
     );
 
     console.log("  clock routing: GAME_CLOCK_UPDATE delivered to late-registered module passed");
