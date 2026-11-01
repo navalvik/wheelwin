@@ -47,6 +47,9 @@ export class EngineBridge {
 
                 modules.gameClock?.onClockUpdate?.(payload);
 
+                // A server clock tick also repairs a missed one-shot phase event.
+                modules.gameState?.onClockUpdate?.(payload);
+
                 session()?.onClockUpdate?.(payload);
 
             },
