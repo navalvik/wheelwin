@@ -5799,11 +5799,17 @@ export class RoomLobbyBridge {
             context.roomId, context.playerId, socketId
         );
 
-        // No global wallet scan. One seated player's Page4 submission signal
-        // triggers observation of this active room's wallet.
-        if (!LIVE_PAYMENT_ACCEPTANCE_ENABLED) return;
-        const runtime = this._paymentApplicationBinding?.runtime;
+        // No global wallet scan. One seated player's Page4 request triggers
+        // observation of this room's shared wallet. Mainnet uses its existing
+        // read-only incoming service while live acceptance remains disabled.
+        const binding = this._paymentApplicationBinding;
+        const runtime = binding?.runtime;
+        const mainnetMode = runtime?.network === "mainnet";
+        if (!LIVE_PAYMENT_ACCEPTANCE_ENABLED && !mainnetMode) return;
         const adapter = runtime?.sessionAdapter;
+        const observeRoomPayments = mainnetMode
+            ? runtime?.incomingPayments?.observeRoom?.bind(runtime.incomingPayments)
+            : adapter?.observeRoomPayments?.bind(adapter);
         const roomId = context.roomId;
         const recordAudit = (method, payload) => {
             try { runtime?.paymentForensicJournal?.[method]?.(roomId, payload); }
@@ -5817,7 +5823,7 @@ export class RoomLobbyBridge {
         const room = this._roomManager.getRoom(roomId);
         if (!room || room.players?.length !== 3
             || !this._verifyBarrierCompletedByRoom.has(roomId)
-            || typeof adapter?.observeRoomPayments !== "function") return;
+            || typeof observeRoomPayments !== "function") return;
 
         // Any active Page4 may request a bounded observation. A QR display or
         // wallet acknowledgement is diagnostic only and never proves payment.
@@ -5946,7 +5952,9 @@ export class RoomLobbyBridge {
                     return false;
                 }
                 const observationStartedAt = Date.now();
-                const reservation = runtime?.paymentService?.getWalletForRoom?.(roomId);
+                const reservation = mainnetMode
+                    ? binding?.walletPool?.getReservationForRoom?.(roomId)
+                    : runtime?.paymentService?.getWalletForRoom?.(roomId);
                 recordAudit("recordObservation", {
                     startedAt: observationStartedAt, completedAt: null,
                     source: "PAGE4_OBSERVATION_REQUEST",
@@ -5964,7 +5972,9 @@ export class RoomLobbyBridge {
                 this._logger?.info?.(
                     `Room payment observation started | roomId=${roomId} | triggerPlayer=${context.playerId} | walletScope=ACTIVE_ROOM`
                 );
-                return Promise.resolve(adapter.observeRoomPayments({ roomId }))
+                return Promise.resolve(mainnetMode
+                    ? observeRoomPayments(roomId)
+                    : observeRoomPayments({ roomId }))
                     .then(() => true);
             })
             .then(observed => {
@@ -5977,10 +5987,13 @@ export class RoomLobbyBridge {
                         this._deliverPaymentStatusToSocket(roomId, playerId, boundSocket);
                     }
                 }
-                const gate = runtime.paymentGate?.getGameStartGateStatus(
+                const paymentGate = mainnetMode
+                    ? runtime.gameStartPaymentGate
+                    : runtime.paymentGate;
+                const gate = paymentGate?.getGameStartGateStatus(
                     roomId, active.players
                 );
-                if (gate?.eligible === true) {
+                if (!mainnetMode && gate?.eligible === true) {
                     this._eventBus.emit({
                         source: EVENT_SOURCES.ROOM_LOBBY_BRIDGE,
                         type: EVENT_TYPES.VERIFY_BARRIER_COMPLETED,
