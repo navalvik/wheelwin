@@ -17,10 +17,6 @@ import {
 } from "../game/result/gameResultFlow";
 
 import {
-    downloadGameReportNative
-} from "../game/result/gameReportDownload";
-
-import {
     remainingResultSessionSeconds
 } from "../game/result/resultSessionCountdown";
 
@@ -35,11 +31,7 @@ import { configurePage5Diagnostics, recordPage5Diagnostic, flushPage5Diagnostics
 import { getLocalPage5Report } from "../game/diagnostics/page5LocalReport.js";
 import { createPage5AutoReportSender } from "../game/diagnostics/page5AutoReportSender.js";
 import socket from "../socket/socket.js";
-import {
-    downloadPage5DeviceReport,
-    sharePage5DeviceReport,
-    copyPage5DeviceReport
-} from "../game/diagnostics/page5ReportExport.js";
+import { copyPage5DeviceReport } from "../game/diagnostics/page5ReportExport.js";
 
 import { resolveLocalPlayerId } from "../game/session";
 import {
@@ -394,41 +386,14 @@ export default function Page6Result({ onFinish }) {
         });
     }, [diagnosticRoomId, diagnosticGameId, localPlayerId, reportRevision]);
 
-    function handleDownloadTxt() {
-        if (!gameReport) return;
-        downloadGameReportNative(gameReport, "txt");
-    }
-
-    function handleDeviceReportDownload() {
-        try {
-            const started = downloadPage5DeviceReport(localDeviceReport);
-            setLocalReportFeedback(started
-                ? "Download requested. If Telegram blocks it, use SHARE or COPY."
-                : "Download unavailable. Use SHARE or COPY.");
-        } catch {
-            setLocalReportFeedback("Download blocked. Use SHARE or COPY.");
-        }
-    }
-
-    async function handleDeviceReportShare() {
-        try {
-            const shared = await sharePage5DeviceReport(localDeviceReport);
-            setLocalReportFeedback(shared
-                ? "Shared using the device menu."
-                : "File sharing unavailable. Use DOWNLOAD or COPY.");
-        } catch {
-            setLocalReportFeedback("Sharing cancelled or blocked. Use COPY.");
-        }
-    }
-
     async function handleDeviceReportCopy() {
         try {
             const copied = await copyPage5DeviceReport(localDeviceReport);
             setLocalReportFeedback(copied
                 ? "Page5 JSON copied to clipboard."
-                : "Clipboard unavailable. Use SHARE or DOWNLOAD.");
+                : "Clipboard unavailable on this device.");
         } catch {
-            setLocalReportFeedback("Clipboard blocked. Use SHARE or DOWNLOAD.");
+            setLocalReportFeedback("Clipboard blocked by Telegram.");
         }
     }
 
@@ -624,43 +589,15 @@ export default function Page6Result({ onFinish }) {
                                         type="button"
                                         className="page6__downloadBtn"
                                         disabled={!localDeviceReport}
-                                        onClick={handleDeviceReportDownload}
-                                    >
-                                        DOWNLOAD JSON
-                                    </button>
-
-                                    <button
-                                        type="button"
-                                        className="page6__downloadBtn"
-                                        disabled={!localDeviceReport}
-                                        onClick={handleDeviceReportShare}
-                                    >
-                                        SHARE FILE
-                                    </button>
-
-                                    <button
-                                        type="button"
-                                        className="page6__downloadBtn"
-                                        disabled={!localDeviceReport}
                                         onClick={handleDeviceReportCopy}
                                     >
                                         COPY JSON
                                     </button>
 
-                                    {gameReport && (
-                                        <button
-                                            type="button"
-                                            className="page6__downloadBtn"
-                                            onClick={handleDownloadTxt}
-                                        >
-                                            {t("result.downloadTxt")} · SERVER
-                                        </button>
-                                    )}
-
                                 </div>
 
                                 <div className="page6__gameReportPending" aria-live="polite">
-                                    {localReportFeedback || "Save this phone's report before FINISH; send all three JSON files with the R2 ZIP."}
+                                    {localReportFeedback || "The report is sent automatically. COPY JSON is an optional fallback."}
                                 </div>
 
                             </div>
