@@ -118,7 +118,7 @@ export class ForensicArchiveCollector {
         entries.push({
             inlineContent: JSON.stringify(
                 getClientGameplaySyncSnapshot(roomId, gameId), null, 2
-            ) + "\\n",
+            ) + "\n",
             zipPath: "forensics/client-gameplay-sync.json"
         });
         const seenSources = new Set();
