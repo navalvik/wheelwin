@@ -144,7 +144,7 @@ export default function Page5Game({ onNavigate: _onNavigate }) {
         if (!configurePage5Diagnostics({
             roomId: identity.roomId ?? authoritative.roomId,
             gameId: diagnosticGameId,
-            playerId: identity.playerId
+            playerId: localPlayerId
         })) return undefined;
 
         recordPage5Diagnostic({ kind: "page5_mount" });
@@ -156,7 +156,7 @@ export default function Page5Game({ onNavigate: _onNavigate }) {
         };
 
     // Instrument the active identity, not subsequent gameplay state changes.
-    }, [identity.roomId, authoritative.roomId, diagnosticGameId, identity.playerId]);
+    }, [identity.roomId, authoritative.roomId, diagnosticGameId, localPlayerId]);
 
     // Visibility and runtime errors help distinguish an old WebView pause
     // from server/transport lag. Never record raw exception messages.
@@ -172,8 +172,17 @@ export default function Page5Game({ onNavigate: _onNavigate }) {
             });
             flushPage5Diagnostics();
         };
-        const onError = () => {
-            recordPage5Diagnostic({ kind: "client_error", reason: "window_error" });
+        const onError = (event) => {
+            const allowedErrors = new Set([
+                "TypeError", "ReferenceError", "RangeError",
+                "SyntaxError", "Error"
+            ]);
+            const name = event?.error?.name;
+            recordPage5Diagnostic({
+                kind: "client_error",
+                reason: "window_error",
+                errorName: allowedErrors.has(name) ? name : "Unknown"
+            });
             flushPage5Diagnostics();
         };
         const onUnhandled = () => {

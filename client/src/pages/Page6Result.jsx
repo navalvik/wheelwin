@@ -210,7 +210,7 @@ export default function Page6Result({ onFinish }) {
         if (configurePage5Diagnostics({
             roomId: diagnosticRoomId,
             gameId: diagnosticGameId,
-            playerId: identity.playerId
+            playerId: localPlayerId
         })) {
             recordPage5Diagnostic({
                 kind: "page6_rendered",
@@ -223,7 +223,7 @@ export default function Page6Result({ onFinish }) {
         }
 
     }, [
-        diagnosticRoomId, diagnosticGameId, identity.playerId, resultPresent
+        diagnosticRoomId, diagnosticGameId, localPlayerId, resultPresent
     ]);
 
     useEffect(() => {

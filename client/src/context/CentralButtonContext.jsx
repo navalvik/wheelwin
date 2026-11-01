@@ -20,6 +20,7 @@ import { useRegisterEngineModule } from "./EngineBridgeContext";
 import { useGameState } from "./GameStateContext";
 import { usePhysics } from "./PhysicsContext";
 import { usePlayerIdentity } from "./PlayerIdentityContext";
+import { resolveReadyPlayerId } from "../game/ready/readyIdentity.js";
 
 const CentralButtonContext = createContext(null);
 
@@ -29,7 +30,9 @@ export function CentralButtonProvider({ children, onReadyComplete }) {
 
     const { handleButtonEvent } = usePhysics();
 
-    const { playerId: localPlayerId } = usePlayerIdentity();
+    const identityContext = usePlayerIdentity();
+
+    const localPlayerId = resolveReadyPlayerId(identityContext);
 
     const localPlayerIdRef = useRef(localPlayerId);
 

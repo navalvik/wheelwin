@@ -17,6 +17,7 @@ import { DEV_MODE } from "../config/devMode";
 
 import { useRegisterEngineModule } from "./EngineBridgeContext";
 import { recordPage5Diagnostic } from "../game/diagnostics/page5Telemetry.js";
+import { canAdvanceFromServerClock, serverPhaseRank } from "../game/ready/reconcilePhase.js";
 
 const GameStateContext = createContext(null);
 
@@ -72,6 +73,30 @@ export function GameStateProvider({ children }) {
 
         },
 
+        onClockUpdate: (payload) => {
+
+            const tracked = serverStateRef.current;
+            if (!canAdvanceFromServerClock(payload, tracked)) {
+                return;
+            }
+
+            // The periodic authoritative clock repairs a lost one-shot
+            // GAME_STATE event. Never rewind the phase or change game ID.
+            serverStateRef.current = {
+                ...tracked,
+                gameId: payload.gameId,
+                phaseRank: serverPhaseRank(payload.phase)
+            };
+            machineRef.current.applyServerState(payload.phase);
+            setGameState(machineRef.current.getState());
+            recordPage5Diagnostic({
+                kind: "phase_changed",
+                phase: payload.phase,
+                reason: "clock_reconciliation"
+            });
+
+        },
+
         onGameState: (payload) => {
 
             const state = typeof payload === "string"
@@ -83,15 +108,7 @@ export function GameStateProvider({ children }) {
                 recordPage5Diagnostic({ kind: "state_received", phase: state,
                     serverTimestamp: payload?.serverTimestamp ?? payload?.timestamp ?? null });
 
-                const phaseOrder = [
-                    GAME_STATES.READY,
-                    GAME_STATES.SELF_TEST,
-                    GAME_STATES.SPEED,
-                    GAME_STATES.BRAKE,
-                    GAME_STATES.RESULT
-                ];
-
-                const incomingRank = phaseOrder.indexOf(state);
+                const incomingRank = serverPhaseRank(state);
 
                 const tracked = serverStateRef.current;
 
@@ -166,17 +183,9 @@ export function GameStateProvider({ children }) {
 
             }
 
-            const phaseOrder = [
-                GAME_STATES.READY,
-                GAME_STATES.SELF_TEST,
-                GAME_STATES.SPEED,
-                GAME_STATES.BRAKE,
-                GAME_STATES.RESULT
-            ];
-
             serverStateRef.current = {
                 gameId: snapshot.gameId ?? null,
-                phaseRank: phaseOrder.indexOf(snapshot.gameState),
+                phaseRank: serverPhaseRank(snapshot.gameState),
                 serverTimestamp: Number.isFinite(snapshot.timestamp)
                     ? snapshot.timestamp
                     : null
