@@ -170,6 +170,11 @@ export function PhysicsProvider({ children }) {
 
             engineRef.current.restoreSessionSnapshot(snapshot);
 
+            // The wheel and triangle canvases subscribe to frame events,
+            // not discrete React snapshots. Immediately publish the current
+            // server pose after recovery so a late client does not keep
+            // drawing the pre-recovery READY/SPEED angle.
+            frameStore.publishFrame(engineRef.current);
             publishDiscrete();
 
         }
