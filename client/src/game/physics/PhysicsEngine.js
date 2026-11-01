@@ -59,6 +59,12 @@ export class PhysicsEngine {
 
         this._remainingBrakeTime = null;
 
+        this._lastServerGameId = null;
+
+        this._lastServerSimulationTime = null;
+
+        this._lastServerTimestamp = null;
+
     }
 
     prepare() {
@@ -187,6 +193,59 @@ export class PhysicsEngine {
 
     applyServerUpdate(payload = {}) {
 
+        const incomingGameId = payload.gameId ?? null;
+
+        const sameGame = !incomingGameId
+            || !this._lastServerGameId
+            || incomingGameId === this._lastServerGameId;
+
+        const simulationTime = Number(payload.simulationTime);
+
+        const serverTimestamp = Number(payload.serverTimestamp);
+
+        if (sameGame && Number.isFinite(simulationTime)
+            && Number.isFinite(this._lastServerSimulationTime)
+            && simulationTime < this._lastServerSimulationTime) {
+
+            return false;
+
+        }
+
+        if (sameGame && !Number.isFinite(simulationTime)
+            && Number.isFinite(serverTimestamp)
+            && Number.isFinite(this._lastServerTimestamp)
+            && serverTimestamp < this._lastServerTimestamp) {
+
+            return false;
+
+        }
+
+        if (incomingGameId && incomingGameId !== this._lastServerGameId) {
+
+            this._lastServerSimulationTime = null;
+
+            this._lastServerTimestamp = null;
+
+        }
+
+        if (incomingGameId) {
+
+            this._lastServerGameId = incomingGameId;
+
+        }
+
+        if (Number.isFinite(simulationTime)) {
+
+            this._lastServerSimulationTime = simulationTime;
+
+        }
+
+        if (Number.isFinite(serverTimestamp)) {
+
+            this._lastServerTimestamp = serverTimestamp;
+
+        }
+
         if (payload.wheelAngle !== undefined) {
 
             this.wheelAngle = normalizeAngleDegrees(payload.wheelAngle);
@@ -248,6 +307,8 @@ export class PhysicsEngine {
             this._isBraking = Boolean(payload.isBraking);
 
         }
+
+        return true;
 
     }
 

@@ -4,7 +4,7 @@ export const DEFAULT_GAMEPLAY_PHASE_DURATIONS_MS = Object.freeze({
     // R7.70C19A — restored from C7 TEMP 360000 → 180000.
     [GAME_STATES.PRE_GAME_READY]: 180000,
     [GAME_STATES.READY]: 3000,
-    [GAME_STATES.SELF_TEST]: 1500,
+    [GAME_STATES.SELF_TEST]: 2000,
     [GAME_STATES.SPEED]: 8000,
     [GAME_STATES.BRAKE]: 6000,
     [GAME_STATES.RESULT]: 4000
@@ -35,10 +35,9 @@ export function loadGameplayPhaseConfig(env = process.env) {
             env.GAMEPLAY_READY_DURATION_MS,
             DEFAULT_GAMEPLAY_PHASE_DURATIONS_MS[GAME_STATES.READY]
         ),
-        selfTestDurationMs: parsePositiveDuration(
-            env.GAMEPLAY_SELF_TEST_DURATION_MS,
-            DEFAULT_GAMEPLAY_PHASE_DURATIONS_MS[GAME_STATES.SELF_TEST]
-        ),
+        // SELF_TEST is a fixed gameplay invariant. Ignore stale deployment
+        // overrides so every runtime uses the authoritative 2-second phase.
+        selfTestDurationMs: DEFAULT_GAMEPLAY_PHASE_DURATIONS_MS[GAME_STATES.SELF_TEST],
         speedDurationMs: parsePositiveDuration(
             env.GAMEPLAY_SPEED_DURATION_MS,
             DEFAULT_GAMEPLAY_PHASE_DURATIONS_MS[GAME_STATES.SPEED]

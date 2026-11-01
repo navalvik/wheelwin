@@ -23,6 +23,12 @@ export function GameStateProvider({ children }) {
 
     const machineRef = useRef(null);
 
+    const serverStateRef = useRef({
+        gameId: null,
+        phaseRank: null,
+        serverTimestamp: null
+    });
+
     if (!machineRef.current) {
 
         machineRef.current = new GameStateMachine();
@@ -51,6 +57,20 @@ export function GameStateProvider({ children }) {
 
     useRegisterEngineModule("gameState", () => ({
 
+        onGameStart: (payload) => {
+
+            if (payload?.gameId) {
+
+                serverStateRef.current = {
+                    gameId: payload.gameId,
+                    phaseRank: null,
+                    serverTimestamp: null
+                };
+
+            }
+
+        },
+
         onGameState: (payload) => {
 
             const state = typeof payload === "string"
@@ -58,6 +78,54 @@ export function GameStateProvider({ children }) {
                 : payload?.state;
 
             if (state) {
+
+                const phaseOrder = [
+                    GAME_STATES.READY,
+                    GAME_STATES.SELF_TEST,
+                    GAME_STATES.SPEED,
+                    GAME_STATES.BRAKE,
+                    GAME_STATES.RESULT
+                ];
+
+                const incomingRank = phaseOrder.indexOf(state);
+
+                const tracked = serverStateRef.current;
+
+                const incomingTimestamp = Number(
+                    payload?.serverTimestamp ?? payload?.timestamp
+                );
+
+                if (payload?.gameId && tracked.gameId
+                    && payload.gameId !== tracked.gameId) {
+
+                    return;
+
+                }
+
+                if (incomingRank >= 0 && tracked.phaseRank !== null
+                    && incomingRank < tracked.phaseRank) {
+
+                    return;
+
+                }
+
+                if (Number.isFinite(incomingTimestamp)
+                    && Number.isFinite(tracked.serverTimestamp)
+                    && incomingTimestamp < tracked.serverTimestamp) {
+
+                    return;
+
+                }
+
+                serverStateRef.current = {
+                    gameId: payload?.gameId ?? tracked.gameId,
+                    phaseRank: incomingRank >= 0
+                        ? Math.max(tracked.phaseRank ?? -1, incomingRank)
+                        : tracked.phaseRank,
+                    serverTimestamp: Number.isFinite(incomingTimestamp)
+                        ? incomingTimestamp
+                        : tracked.serverTimestamp
+                };
 
                 machineRef.current.applyServerState(state);
 
@@ -83,6 +151,22 @@ export function GameStateProvider({ children }) {
                 return;
 
             }
+
+            const phaseOrder = [
+                GAME_STATES.READY,
+                GAME_STATES.SELF_TEST,
+                GAME_STATES.SPEED,
+                GAME_STATES.BRAKE,
+                GAME_STATES.RESULT
+            ];
+
+            serverStateRef.current = {
+                gameId: snapshot.gameId ?? null,
+                phaseRank: phaseOrder.indexOf(snapshot.gameState),
+                serverTimestamp: Number.isFinite(snapshot.timestamp)
+                    ? snapshot.timestamp
+                    : null
+            };
 
             machineRef.current.applyServerState(snapshot.gameState);
 

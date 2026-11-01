@@ -120,6 +120,8 @@ export class EngineBridge {
 
             [INCOMING_SOCKET_EVENTS.GAME_START]: (payload) => {
 
+                modules.gameState?.onGameStart?.(payload);
+
                 modules.audio?.onGameStart?.(payload);
 
                 session()?.onGameStart?.(payload);
@@ -158,6 +160,8 @@ export class EngineBridge {
 
             },
             [INCOMING_SOCKET_EVENTS.GAME_START_AUTHORIZED]: (payload) => {
+
+                modules.gameState?.onGameStart?.(payload);
 
                 modules.pageNavigation?.onGameStartAuthorized?.(payload);
 

@@ -143,7 +143,7 @@ assert.equal(
     JSON.stringify({
         [GAME_STATES.PRE_GAME_READY]: 180000,
         [GAME_STATES.READY]: 3000,
-        [GAME_STATES.SELF_TEST]: 1500,
+        [GAME_STATES.SELF_TEST]: 2000,
         [GAME_STATES.SPEED]: 8000,
         [GAME_STATES.BRAKE]: 6000,
         [GAME_STATES.RESULT]: 4000

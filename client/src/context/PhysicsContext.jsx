@@ -143,7 +143,13 @@ export function PhysicsProvider({ children }) {
 
         applyUpdate: (payload) => {
 
-            engineRef.current.applyServerUpdate(payload);
+            const applied = engineRef.current.applyServerUpdate(payload);
+
+            if (!applied) {
+
+                return;
+
+            }
 
             frameStore.publishFrame(engineRef.current);
 

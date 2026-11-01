@@ -220,7 +220,7 @@ export class SelfTestPhaseController {
 
         }
 
-        return 1500;
+        return 2000;
 
     }
 

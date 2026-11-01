@@ -28,7 +28,7 @@ export function GameClockProvider({ children }) {
 
         onClockUpdate: (payload) => {
 
-            setClock(reduceGameClockUpdate(payload));
+            setClock((current) => reduceGameClockUpdate(payload, current));
 
         },
 
@@ -40,7 +40,7 @@ export function GameClockProvider({ children }) {
 
             }
 
-            setClock(reduceGameClockUpdate({
+            setClock((current) => reduceGameClockUpdate({
                 gameId: snapshot.gameId ?? null,
                 phase: typeof snapshot.gameState === "string"
                     ? snapshot.gameState
@@ -55,7 +55,7 @@ export function GameClockProvider({ children }) {
                     : null,
                 running: true,
                 serverTimestamp: snapshot.timestamp ?? Date.now()
-            }));
+            }, current));
 
         }
 
