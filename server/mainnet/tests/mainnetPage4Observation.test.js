@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { ActiveRoomObservationBudget } from "../../payment/runtime/ActiveRoomObservationBudget.js";
 
+process.env.ROOM_WALLET_PAYMENTS_ENABLED = "true";
+process.env.TON_NETWORK = "testnet";
+
 const [{ RoomLobbyBridge }, { EVENT_TYPES }] = await Promise.all([
     import("../../socket/RoomLobbyBridge.js"),
     import("../../events/EventTypes.js")
@@ -15,6 +18,7 @@ test("authenticated Mainnet Page4 request observes its room once and never opens
     const observations = [];
     const runtime = {
         network: "mainnet",
+        liveOperationsEnabled: false,
         incomingPayments: {
             async observeRoom(id) {
                 observations.push(id);
@@ -70,6 +74,43 @@ test("authenticated Mainnet Page4 request observes its room once and never opens
     await rateLimited;
     assert.deepEqual(observations, [roomId],
         "the active-room frequency limit prevents a second Toncenter observation");
+});
+
+test("live Testnet 3/3 uses the same VERIFY_BARRIER_COMPLETED path", async () => {
+    const roomId = "testnet-page4-observation";
+    const players = ["player-a", "player-b", "player-c"];
+    const events = [];
+    const runtime = {
+        network: "testnet",
+        sessionAdapter: { async observeRoomPayments() {} },
+        paymentService: { getWalletForRoom: () => ({ walletId: 7, address: "testnet-wallet" }) },
+        paymentGate: { getGameStartGateStatus: () => ({ eligible: true }) }
+    };
+    const bridge = Object.create(RoomLobbyBridge.prototype);
+    Object.assign(bridge, {
+        _getSocketContext: socketId => ({ socketId, playerId: "player-a", roomId }),
+        _deliverPaymentStatusToSocket() {},
+        _roomManager: { getRoom: id => id === roomId ? { players } : null },
+        _verifyBarrierCompletedByRoom: new Set([roomId]),
+        _paymentApplicationBinding: { runtime },
+        _playerToSocket: new Map(players.map(id => [id, `socket-${id}`])),
+        _eventBus: { emit: event => events.push(event) },
+        _logger: { info() {}, warn() {}, error() {} },
+        _roomPaymentObservationRequestedPlayers: new Map(),
+        _roomPaymentObservationRequestedAt: new Map([[roomId, Date.now() - 4_000]]),
+        _roomPaymentSubmissionAcknowledgedPlayers: new Map(),
+        _paymentNoSignalLogged: new Set(),
+        _roomObservationBudget: new ActiveRoomObservationBudget(),
+        _roomPaymentChecks: new Map()
+    });
+
+    bridge._handlePaymentStatusRequest("socket-player-a", { observationRequested: true });
+    await bridge._roomPaymentChecks.get(roomId);
+
+    const ready = events.find(event => event.type === EVENT_TYPES.VERIFY_BARRIER_COMPLETED);
+    assert.ok(ready, "live Testnet's eligible ledger gate emits the shared start authorization event");
+    assert.deepEqual(ready.payload, { roomId, paymentAcceptanceEnabled: true,
+        paymentSessionPrepared: true, paymentStatus: "ALL_THREE_SETTLED" });
 });
 
 test("Mainnet Page4 observer rejects a socket that does not own a room seat", () => {

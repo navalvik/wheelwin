@@ -5993,7 +5993,10 @@ export class RoomLobbyBridge {
                 const gate = paymentGate?.getGameStartGateStatus(
                     roomId, active.players
                 );
-                if (!mainnetMode && gate?.eligible === true) {
+                const paymentOperationsAvailable = mainnetMode
+                    ? runtime.liveOperationsEnabled === true
+                    : LIVE_PAYMENT_ACCEPTANCE_ENABLED;
+                if (gate?.eligible === true && paymentOperationsAvailable) {
                     this._eventBus.emit({
                         source: EVENT_SOURCES.ROOM_LOBBY_BRIDGE,
                         type: EVENT_TYPES.VERIFY_BARRIER_COMPLETED,
