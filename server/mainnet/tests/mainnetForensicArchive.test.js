@@ -34,8 +34,12 @@ function mainnetSnapshotFixture() {
             sourceAddress: receipt.sourceAddress, destinationAddress: "wallet",
             amountAtomic: receipt.amountAtomic, transactionTime: 15 })) : []
     };
-    const payout = { roomId: ROOM, payoutId: "payout_synthetic", winner: { recipientId: "p1", state: "CONFIRMED" },
-        owner: { recipientId: "owner", state: "CONFIRMED" } };
+    const payout = { roomId: ROOM, payoutId: "payout_synthetic", principalAtomic: 2_000_000_000,
+        allocation: { winnerAtomic: 1_900_000_000, ownerAtomic: 98_000_000, reserveAtomic: 2_000_000 },
+        winner: { recipientId: "p1", address: "winner-address", amountAtomic: 1_900_000_000,
+            state: "CONFIRMED", transactionId: "out-winner" },
+        owner: { recipientId: "owner", address: "owner-address", amountAtomic: 98_000_000,
+            state: "CONFIRMED", transactionId: "out-owner" } };
     const financialLedger = {
         network: "mainnet", globalId: -239,
         getOutcome: () => ({ roomId: ROOM, kind: "PAYOUT", createdAtMs: 30 }),
@@ -76,6 +80,10 @@ test("Mainnet snapshot matches the shared financial archive and payout finality 
         "INCOMING_PRINCIPAL", "INCOMING_PRINCIPAL", "INCOMING_PRINCIPAL",
         "PAYOUT_PLAN", "PAYOUT_SETTLEMENT", "PAYOUT_SETTLEMENT"
     ]);
+    const plan = snapshot.ledger.find(entry => entry.kind === "PAYOUT_PLAN");
+    assert.equal(plan.amountAtomic, 2_000_000_000);
+    assert.equal(plan.metadata.plan.transfers[0].grossAtomic, 1_900_000_000);
+    assert.equal(plan.metadata.plan.transfers[1].address, "owner-address");
     assert.equal(evaluateFinalForensicArchive({ snapshot, sessionRecord: {
         finishedAt: 40, lifecycleResult: "GAME_COMPLETED"
     } }).ready, true);

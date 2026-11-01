@@ -73,15 +73,25 @@ export function createMainnetForensicFinancialSnapshot({ roomId, incomingLedger,
     }
     for (const payout of payouts) {
         const transfers = [
-            { recipientId: payout.winner.recipientId, recipientRole: "WINNER" },
-            { recipientId: payout.owner.recipientId, recipientRole: "OWNER" }
+            { recipientRole: "WINNER", recipientId: payout.winner.recipientId,
+                address: payout.winner.address, grossAtomic: payout.winner.amountAtomic,
+                reservedFeeAtomic: 0, netAtomic: payout.winner.amountAtomic, feeQuote: null },
+            { recipientRole: "OWNER", recipientId: payout.owner.recipientId,
+                address: payout.owner.address, grossAtomic: payout.owner.amountAtomic,
+                reservedFeeAtomic: 0, netAtomic: payout.owner.amountAtomic, feeQuote: null }
         ];
-        ledger.push({ kind: "PAYOUT_PLAN", roomId, metadata: { payoutId: payout.payoutId,
-            plan: { payoutId: payout.payoutId, transfers } } });
+        ledger.push({ kind: "PAYOUT_PLAN", roomId, amountAtomic: payout.principalAtomic,
+            asset: "TON", network: "mainnet", metadata: { payoutId: payout.payoutId,
+                plan: { payoutId: payout.payoutId, roomId, asset: "TON", network: "mainnet",
+                    principalAtomic: payout.principalAtomic, allocation: payout.allocation,
+                    gasReserveAtomic: payout.allocation.reserveAtomic,
+                    safetyMarginAtomic: payout.allocation.reserveAtomic, transfers } } });
         for (const [role, leg] of [["WINNER", payout.winner], ["OWNER", payout.owner]]) {
             if (leg.state === "CONFIRMED") {
-                ledger.push({ kind: "PAYOUT_SETTLEMENT", roomId, metadata: {
-                    payoutId: payout.payoutId, recipientId: leg.recipientId, role
+                ledger.push({ kind: "PAYOUT_SETTLEMENT", roomId, amountAtomic: leg.amountAtomic,
+                    asset: "TON", network: "mainnet", metadata: {
+                    payoutId: payout.payoutId, recipientId: leg.recipientId, role,
+                    transactionId: leg.transactionId
                 } });
             }
         }
