@@ -16,6 +16,7 @@ import { isServerAuthoritative } from "../game/gameAuthority";
 import { DEV_MODE } from "../config/devMode";
 
 import { useRegisterEngineModule } from "./EngineBridgeContext";
+import { recordPage5Diagnostic } from "../game/diagnostics/page5Telemetry.js";
 
 const GameStateContext = createContext(null);
 
@@ -79,6 +80,9 @@ export function GameStateProvider({ children }) {
 
             if (state) {
 
+                recordPage5Diagnostic({ kind: "state_received", phase: state,
+                    serverTimestamp: payload?.serverTimestamp ?? payload?.timestamp ?? null });
+
                 const phaseOrder = [
                     GAME_STATES.READY,
                     GAME_STATES.SELF_TEST,
@@ -98,6 +102,8 @@ export function GameStateProvider({ children }) {
                 if (payload?.gameId && tracked.gameId
                     && payload.gameId !== tracked.gameId) {
 
+                    recordPage5Diagnostic({ kind: "state_rejected",
+                        phase: state, reason: "game_id_mismatch" });
                     return;
 
                 }
@@ -105,6 +111,8 @@ export function GameStateProvider({ children }) {
                 if (incomingRank >= 0 && tracked.phaseRank !== null
                     && incomingRank < tracked.phaseRank) {
 
+                    recordPage5Diagnostic({ kind: "state_rejected",
+                        phase: state, reason: "earlier_phase" });
                     return;
 
                 }
@@ -113,6 +121,8 @@ export function GameStateProvider({ children }) {
                     && Number.isFinite(tracked.serverTimestamp)
                     && incomingTimestamp < tracked.serverTimestamp) {
 
+                    recordPage5Diagnostic({ kind: "state_rejected",
+                        phase: state, reason: "stale_timestamp" });
                     return;
 
                 }
@@ -129,6 +139,10 @@ export function GameStateProvider({ children }) {
 
                 machineRef.current.applyServerState(state);
 
+                recordPage5Diagnostic({
+                    kind: "state_applied", phase: machineRef.current.getState(),
+                    serverTimestamp: Number.isFinite(incomingTimestamp) ? incomingTimestamp : null
+                });
                 setGameState(machineRef.current.getState());
 
                 if (DEV_MODE) {
