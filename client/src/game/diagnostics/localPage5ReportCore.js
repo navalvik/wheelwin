@@ -260,8 +260,42 @@ export function createLocalPage5Report({ now = Date.now, mono = () => null } = {
         };
     }
 
+    function hydrate(saved) {
+        if (!saved || saved.schema !== LOCAL_PAGE5_REPORT_SCHEMA
+            || typeof saved.roomId !== "string"
+            || typeof saved.gameId !== "string"
+            || typeof saved.playerId !== "string"
+            || !Array.isArray(saved.events) || !Array.isArray(saved.buckets)) {
+            return false;
+        }
+        // Reload only whitelisted, bounded observations. Never restore a
+        // custom object graph, HTML, Telegram initData or wallet fields.
+        if (!configure(saved, saved.device ?? null)) return false;
+        events = saved.events.slice(-LOCAL_REPORT_MAX_EVENTS)
+            .filter(row => row && typeof row.kind === "string")
+            .map(row => cleanEvent(row, numeric(row.wallMs), numeric(row.monoMs)));
+        buckets = saved.buckets.slice(-LOCAL_REPORT_MAX_BUCKETS)
+            .filter(row => row && Number.isFinite(row.second))
+            .map(row => ({
+                second: row.second,
+                physicsPackets: numeric(row.physicsPackets) ?? 0,
+                wheelPaints: numeric(row.wheelPaints) ?? 0,
+                pointerPaints: numeric(row.pointerPaints) ?? 0,
+                dispatchMaxMs: numeric(row.dispatchMaxMs) ?? 0,
+                wheelPaintMaxMs: numeric(row.wheelPaintMaxMs) ?? 0,
+                pointerPaintMaxMs: numeric(row.pointerPaintMaxMs) ?? 0
+            }));
+        const old = saved.metrics ?? {};
+        stats = defaultStats();
+        for (const key of Object.keys(stats)) {
+            if (numeric(old[key]) !== null) stats[key] = old[key];
+        }
+        droppedEvents = Math.max(0, Math.floor(numeric(saved.droppedEvents) ?? 0));
+        return true;
+    }
+
     return {
         configure, recordEvent, recordSocket, recordDispatch,
-        recordCanvas, recordStall, snapshot
+        recordCanvas, recordStall, snapshot, hydrate
     };
 }
