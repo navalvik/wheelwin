@@ -75,7 +75,8 @@ export function configureLocalPage5Report(identity) {
 
 export function recordLocalPage5Event(event) {
     const ok = report.recordEvent(event);
-    if (ok) persist();
+    if (ok) persist(event?.kind === "page6_rendered"
+        || event?.kind === "page5_unmount");
     return ok;
 }
 
@@ -104,7 +105,7 @@ export function getLocalPage5Report(identity = null) {
         || (identity.gameId && snapshot.gameId !== identity.gameId)
         || (identity.playerId && snapshot.playerId !== identity.playerId)
     )) return null;
-    persist(true);
+    // Must remain pure when called by React during a Page6 render.
     return snapshot;
 }
 
