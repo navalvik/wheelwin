@@ -5,6 +5,7 @@ export const MAX_PAGE5_DIAGNOSTIC_EVENTS = 240;
 const IMPORTANT_KINDS = new Set([
     "phase_changed", "ready_attempt", "ready_sent", "ready_ack", "ready_rejected",
     "state_rejected", "clock_rejected",
+    "ready_phase_started", "ready_phase_completed",
     "connection_changed", "recovery", "page5_mount", "page5_unmount",
     "page6_received", "page6_rendered", "client_error"
 ]);
@@ -28,14 +29,14 @@ export function createPage5DiagnosticsBuffer(limit = MAX_PAGE5_DIAGNOSTIC_EVENTS
     const events = [];
     let droppedSamples = 0;
     let droppedImportant = 0;
-    let lastSampleAt = -Infinity;
+    const lastSampleAt = new Map();
 
     return {
         record(input, nowMs = Date.now()) {
             if (!input || typeof input !== "object" || typeof input.kind !== "string") return false;
             const important = IMPORTANT_KINDS.has(input.kind);
-            if (!important && nowMs - lastSampleAt < 1000) return false;
-            if (!important) lastSampleAt = nowMs;
+            if (!important && nowMs - (lastSampleAt.get(input.kind) ?? -Infinity) < 1000) return false;
+            if (!important) lastSampleAt.set(input.kind, nowMs);
             const event = { recordedAt: Number.isFinite(nowMs) ? nowMs : null };
             for (const key of ALLOWED_FIELDS) {
                 if (Object.prototype.hasOwnProperty.call(input, key)) event[key] = cleanValue(input[key]);
