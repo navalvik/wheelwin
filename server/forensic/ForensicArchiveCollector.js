@@ -141,12 +141,12 @@ export class ForensicArchiveCollector {
                         nickname:report.nickname,
                         buildSha:report.device?.buildSha ?? null
                     }))
-                }, null, 2) + "\\n",
+                }, null, 2) + "\n",
                 zipPath:"forensics/page5-device-report-manifest.json"
             });
             for (const report of deviceSnapshot.reports) {
                 entries.push({
-                    inlineContent:JSON.stringify(report,null,2) + "\\n",
+                    inlineContent:JSON.stringify(report,null,2) + "\n",
                     zipPath:"forensics/page5-device-reports/"
                         + safeFilenameSegment(report.playerId) + ".json"
                 });
