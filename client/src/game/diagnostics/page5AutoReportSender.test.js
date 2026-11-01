@@ -65,6 +65,8 @@ assert.equal(attempts,0);
 disconnected.connected=true;
 disconnected.emit=(event,payload,ack)=>{attempts++;ack(null,{ok:true,received:1});};
 retry.tick();
-assert.equal(attempts,1);
+// One report upload plus the immediate authenticated archive-status query.
+assert.equal(attempts,2);
+assert.equal(retry.getStatus().acknowledged,true);
 retry.dispose();
 console.log("page5AutoReportSender: all assertions passed");
