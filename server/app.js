@@ -1259,9 +1259,6 @@ class WheelWinApplication {
                 mainnetBootstrap.paymentRuntime.refundLifecycle.configureReservedWalletRoomNumberResolver(
                     roomId => mainnetBootstrap.walletPool.getReservationForRoom(roomId)?.roomNumber ?? null
                 );
-                this._managers.roomManager.attachRefundLifecycle(
-                    mainnetBootstrap.paymentRuntime.refundLifecycle
-                );
                 this._mainnetPage5StartedHandler = envelope => {
                     const roomId = envelope?.payload?.roomId;
                     if (typeof roomId === "string" && roomId) {
@@ -1271,6 +1268,18 @@ class WheelWinApplication {
                 this._eventBus.subscribe(
                     EVENT_TYPES.GAME_START_BOOTSTRAP_READY,
                     this._mainnetPage5StartedHandler
+                );
+                const mainnetRefundRecovery = mainnetBootstrap.paymentRuntime.refundLifecycle.recover();
+                for (const item of mainnetRefundRecovery) {
+                    this._logger.warn?.(
+                        "MAINNET_REFUND_RECOVERY_PENDING"
+                            + ` | obligationId=${item.obligationId}`
+                            + ` | state=${item.state}`
+                            + ` | outcome=${item.outcome}`
+                    );
+                }
+                this._managers.roomManager.attachRefundLifecycle(
+                    mainnetBootstrap.paymentRuntime.refundLifecycle
                 );
 
                 // Use the existing Mainnet ledger-backed gate and prepare

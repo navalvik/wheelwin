@@ -40,20 +40,29 @@ function makeHarness(t) {
 }
 
 function incomingStub(count) {
-    const receipts = Array.from({ length: count }, (_, i) => ({
-        status: "CONFIRMED", roomId: ROOM, transactionId: `incoming-${i + 1}`,
-        paymentReference: `pay-${i + 1}`, playerId: `player-${i + 1}`,
-        amountAtomic: "100000000", sourceAddress: PAYER, destinationAddress: SOURCE
-    }));
-    const intents = receipts.map((receipt) => ({
-        paymentReference: receipt.paymentReference, roomId: ROOM, playerId: receipt.playerId,
-        state: "SETTLED", confirmedTransactionId: receipt.transactionId,
-        amountAtomic: receipt.amountAtomic, expectedSender: PAYER,
+    const intents = Array.from({ length: 3 }, (_, i) => ({
+        paymentReference: `pay-${i + 1}`, roomId: ROOM, playerId: `player-${i + 1}`,
+        network: "mainnet", globalId: -239, asset: "TON",
+        state: i < count ? "SETTLED" : "PENDING",
+        confirmedTransactionId: i < count ? `incoming-${i + 1}` : null,
+        amountAtomic: "100000000", expectedSender: PAYER,
         destinationWalletAddress: SOURCE
     }));
+    const receipts = intents.slice(0, count).map((intent, i) => ({
+        network: "mainnet", globalId: -239, status: "CONFIRMED", reason: null, roomId: ROOM,
+        transactionId: intent.confirmedTransactionId, asset: "TON",
+        paymentReference: intent.paymentReference, playerId: intent.playerId,
+        amountAtomic: intent.amountAtomic, sourceAddress: PAYER, destinationAddress: SOURCE,
+        transactionTime: 1_800_000_000_000
+    }));
+    const observations = receipts.map(receipt => ({ network: "mainnet", globalId: -239,
+        roomId: ROOM, transactionId: receipt.transactionId, payloadFingerprint: "a".repeat(64),
+        sourceAddress: PAYER, destinationAddress: SOURCE, amountAtomic: receipt.amountAtomic,
+        asset: "TON", transactionTime: 1_800_000_000_000, observedAt: 1_800_000_000_001 }));
     return { network: "mainnet", globalId: -239,
         listReceipts: (roomId) => roomId === ROOM ? receipts : [],
-        listRoomIntents: (roomId) => roomId === ROOM ? intents : [] };
+        listRoomIntents: (roomId) => roomId === ROOM ? intents : [],
+        listObservations: (roomId) => roomId === ROOM ? observations : [] };
 }
 
 test("Mainnet refund preparation creates one, two, or three obligations and is idempotent", (t) => {

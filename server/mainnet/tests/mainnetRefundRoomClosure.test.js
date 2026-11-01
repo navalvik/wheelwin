@@ -19,6 +19,7 @@ function createIncomingLedger(roomId, count, wallet) {
         paymentReference: `page4-ref-${roomId}-${index}`,
         roomId,
         playerId: `player-${index}`,
+        network: "mainnet", globalId: -239, asset: "TON",
         destinationWalletId: wallet.walletId,
         destinationWalletAddress: wallet.address,
         expectedSender: PAYER(index),
@@ -27,18 +28,25 @@ function createIncomingLedger(roomId, count, wallet) {
         confirmedTransactionId: index < count ? `incoming-${roomId}-${index}` : null
     }));
     const receipts = intents.slice(0, count).map((intent, index) => ({
-        network: "mainnet", globalId: -239, status: "CONFIRMED", roomId,
+        network: "mainnet", globalId: -239, status: "CONFIRMED", reason: null, roomId,
         transactionId: intent.confirmedTransactionId,
+        asset: "TON",
         paymentReference: intent.paymentReference,
         playerId: intent.playerId,
         amountAtomic: intent.amountAtomic,
         sourceAddress: intent.expectedSender,
-        destinationAddress: wallet.address
+        destinationAddress: wallet.address,
+        transactionTime: NOW
     }));
+    const observations = receipts.map(receipt => ({ network: "mainnet", globalId: -239,
+        roomId, transactionId: receipt.transactionId, payloadFingerprint: "a".repeat(64),
+        sourceAddress: receipt.sourceAddress, destinationAddress: receipt.destinationAddress,
+        amountAtomic: receipt.amountAtomic, asset: "TON", transactionTime: NOW, observedAt: NOW + 1 }));
     return {
         network: "mainnet", globalId: -239,
         listReceipts: id => id === roomId ? receipts : [],
-        listRoomIntents: id => id === roomId ? intents : []
+        listRoomIntents: id => id === roomId ? intents : [],
+        listObservations: id => id === roomId ? observations : []
     };
 }
 
@@ -68,7 +76,7 @@ function financialHarness(t) {
     return { dataDir, config, financialLedger, walletPool };
 }
 
-function lifecycleFor(h, incomingLedger, page5Reached, reservedWalletRoomNumberResolver = () => 31) {
+function lifecycleFor(h, incomingLedger, page5Reached, reservedWalletRoomNumberResolver = () => null) {
     const lifecycle = new MainnetRefundLifecycle({
         financialLedger: h.financialLedger,
         incomingLedger,
@@ -83,7 +91,7 @@ function lifecycleFor(h, incomingLedger, page5Reached, reservedWalletRoomNumberR
 }
 
 test("RoomManager closure creates exactly the confirmed Mainnet refunds and restart restores them", t => {
-    for (const confirmedCount of [0, 1, 2]) {
+    for (const confirmedCount of [0, 1, 2, 3]) {
         const h = financialHarness(t);
         const { manager, eventBus } = createRoomManager();
         const room = manager.createRoom();
@@ -106,13 +114,14 @@ test("RoomManager closure creates exactly the confirmed Mainnet refunds and rest
             "room closure leaves the wallet reservation intact");
 
         const replay = lifecycle.prepareClosedRoom({ roomId: room.roomId, roomNumber: room.roomNumber,
-            closureReason: "retry", prePage5: true });
+            closureReason: "unspecified", status: "DESTROYED", prePage5: true });
         assert.equal(replay.length, confirmedCount);
         assert.ok(replay.every(item => item.replay));
 
         const restoredLedger = new MainnetFinancialLedger({ config: h.config }).initialize();
         assert.equal(restoredLedger.listRefunds(room.roomId).length, confirmedCount);
-        assert.equal(lifecycleFor({ ...h, financialLedger: restoredLedger }, incoming, false)
+        assert.equal(lifecycleFor({ ...h, financialLedger: restoredLedger }, incoming, false,
+            roomId => h.walletPool.getReservationForRoom(roomId)?.roomNumber ?? null)
             .recover().length, confirmedCount);
         manager.shutdown();
         eventBus.shutdown();

@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { createHash } from "node:crypto";
 import { durableWriteJson } from "../../payment/DurableJson.js";
+import { createRefundObligationId, refundIdempotencyKey } from "../../payment/refund/RefundObligation.js";
 import { MAINNET_GLOBAL_ID } from "../config/MainnetRuntimeConfig.js";
 import { mainnetAddressIdentity } from "./MainnetAddress.js";
 import { calculateMainnetPayout } from "./MainnetPayoutPolicy.js";
@@ -11,11 +11,6 @@ const EMPTY = Object.freeze({ schemaVersion: 1, network: "mainnet", globalId: MA
 const REFUND_STATES = new Set(["PENDING", "SUBMISSION_UNKNOWN", "SUBMITTED", "COMPLETE"]);
 const PAYOUT_STATES = new Set(["PENDING", "SUBMISSION_UNKNOWN", "SUBMITTED", "CONFIRMED", "UNPAID_INSUFFICIENT_GAS"]);
 const clone = (value) => JSON.parse(JSON.stringify(value));
-
-function refundId(roomId, receipt) {
-    return "rfd_" + createHash("sha256").update(`MAINNET:${roomId}:${receipt.paymentReference}:${receipt.transactionId}`)
-        .digest("hex").slice(0, 32);
-}
 
 export class MainnetFinancialLedger {
     constructor({ config, nowProvider = Date.now } = {}) {
@@ -51,40 +46,115 @@ export class MainnetFinancialLedger {
             || prePage5 !== true) throw new Error("MAINNET_CLOSED_ROOM_IDENTITY_INVALID");
         const previous = this._state.outcomes.find((entry) => entry.roomId === roomId);
         if (previous?.kind === "PAYOUT") throw new Error("MAINNET_ROOM_ALREADY_HAS_PAYOUT_OUTCOME");
-        if (previous) return Object.freeze({ ...previous });
+        if (previous) {
+            if (previous.kind !== "REFUND" || previous.roomNumber !== roomNumber
+                || previous.closureReason !== closureReason.trim()) {
+                throw new Error("MAINNET_CLOSED_ROOM_CONTEXT_CONFLICT");
+            }
+            return Object.freeze({ ...previous, replay: true });
+        }
         const record = { roomId: roomId.trim(), roomNumber, closureReason: closureReason.trim(),
             kind: "REFUND", closedAtMs: this._now() };
         this._commit({ ...this._state, outcomes: [...this._state.outcomes, record] });
-        return Object.freeze({ ...record });
+        return Object.freeze({ ...record, replay: false });
+    }
+
+    getOutcome(roomId) {
+        this._assertReady();
+        const outcome = this._state.outcomes.find(entry => entry.roomId === roomId);
+        return outcome ? Object.freeze({ ...outcome }) : null;
+    }
+
+    listClosedRooms() {
+        this._assertReady();
+        return Object.freeze(this._state.outcomes.filter(entry => entry.kind === "REFUND")
+            .map(entry => Object.freeze({ ...entry })));
+    }
+
+    hasPayoutOutcome(roomId) {
+        return this.getOutcome(roomId)?.kind === "PAYOUT";
     }
 
     prepareRefunds({ roomId, roomNumber, closureReason, incomingLedger, prePage5 = true } = {}) {
         this._assertReady();
-        this.recordClosedRoom({ roomId, roomNumber, closureReason, prePage5 });
         if (!incomingLedger || incomingLedger.network !== "mainnet" || incomingLedger.globalId !== MAINNET_GLOBAL_ID
-            || typeof incomingLedger.listReceipts !== "function" || typeof incomingLedger.listRoomIntents !== "function") {
+            || typeof incomingLedger.listReceipts !== "function"
+            || typeof incomingLedger.listRoomIntents !== "function"
+            || typeof incomingLedger.listObservations !== "function") {
             throw new Error("MAINNET_REFUND_SOURCE_LEDGER_INVALID");
         }
-        const receipts = incomingLedger.listReceipts(roomId).filter((item) => item.status === "CONFIRMED");
+        this.recordClosedRoom({ roomId, roomNumber, closureReason, prePage5 });
+        const roomReceipts = incomingLedger.listReceipts(roomId);
+        const confirmedReceipts = roomReceipts.filter((item) => item.status === "CONFIRMED");
+        if (confirmedReceipts.length > 3) {
+            throw new Error("MAINNET_REFUND_TOO_MANY_CONFIRMED_PAYMENTS");
+        }
+        const refundReceipts = roomReceipts.filter((item) => item.status === "CONFIRMED"
+            || item.status === "EXTRA_PAYMENT");
+        if (refundReceipts.length === 0) return Object.freeze([]);
         const intents = incomingLedger.listRoomIntents(roomId);
+        if (intents.length !== 3) throw new Error("MAINNET_REFUND_THREE_INTENTS_REQUIRED");
+        const observations = incomingLedger.listObservations(roomId);
         const made = [];
-        for (const receipt of receipts) {
+        for (const receipt of refundReceipts) {
             const intent = intents.find((item) => item.paymentReference === receipt.paymentReference);
-            if (!intent || intent.state !== "SETTLED" || intent.confirmedTransactionId !== receipt.transactionId
+            const observation = observations.find(item => item.transactionId === receipt.transactionId);
+            const duplicateTransactionBinding = intents.some(item => item.confirmedTransactionId === receipt.transactionId
+                && item.paymentReference !== receipt.paymentReference);
+            const principalPayment = receipt.status === "CONFIRMED"
+                && intent?.confirmedTransactionId === receipt.transactionId;
+            const additionalConfirmedPayment = receipt.status === "EXTRA_PAYMENT"
+                && receipt.reason === "PAYMENT_ALREADY_SETTLED"
+                && intent?.state === "SETTLED"
+                && intent.confirmedTransactionId !== receipt.transactionId;
+            if (!intent || !observation || duplicateTransactionBinding
+                || receipt.network !== "mainnet" || receipt.globalId !== MAINNET_GLOBAL_ID
+                || receipt.roomId !== roomId || receipt.asset !== "TON"
+                || intent.network !== "mainnet" || intent.globalId !== MAINNET_GLOBAL_ID
+                || intent.roomId !== roomId || intent.state !== "SETTLED"
+                || (!principalPayment && !additionalConfirmedPayment)
                 || intent.playerId !== receipt.playerId || intent.amountAtomic !== receipt.amountAtomic
+                || intent.asset !== receipt.asset
+                || observation.network !== "mainnet" || observation.globalId !== MAINNET_GLOBAL_ID
+                || observation.roomId !== roomId || observation.asset !== "TON"
+                || observation.transactionTime !== receipt.transactionTime
+                || observation.amountAtomic !== receipt.amountAtomic
+                || (receipt.status === "CONFIRMED" && receipt.reason !== null)
                 || !mainnetAddressIdentity(intent.expectedSender)
-                || mainnetAddressIdentity(receipt.sourceAddress) !== mainnetAddressIdentity(intent.expectedSender)) {
+                || !mainnetAddressIdentity(intent.destinationWalletAddress)
+                || mainnetAddressIdentity(receipt.sourceAddress) !== mainnetAddressIdentity(intent.expectedSender)
+                || mainnetAddressIdentity(receipt.destinationAddress) !== mainnetAddressIdentity(intent.destinationWalletAddress)
+                || mainnetAddressIdentity(observation.sourceAddress) !== mainnetAddressIdentity(receipt.sourceAddress)
+                || mainnetAddressIdentity(observation.destinationAddress) !== mainnetAddressIdentity(receipt.destinationAddress)) {
                 throw new Error("MAINNET_REFUND_PAYMENT_EVIDENCE_CONFLICT");
             }
-            const id = refundId(roomId, receipt);
+            const idempotencyKey = refundIdempotencyKey({ networkName: "MAINNET",
+                paymentIntentId: intent.paymentReference, incomingTransactionId: receipt.transactionId });
+            const id = createRefundObligationId(idempotencyKey);
             const prior = this._state.refunds.find((item) => item.obligationId === id);
-            if (prior) { made.push(Object.freeze({ ...prior, replay: true })); continue; }
+            if (prior) {
+                if (prior.idempotencyKey !== idempotencyKey || prior.roomId !== roomId
+                    || prior.roomNumber !== roomNumber || prior.playerId !== intent.playerId
+                    || prior.paymentIntentId !== intent.paymentReference
+                    || prior.incomingTransactionId !== receipt.transactionId
+                    || prior.network !== "mainnet" || prior.globalId !== MAINNET_GLOBAL_ID
+                    || prior.amountAtomic !== Number(BigInt(intent.amountAtomic))
+                    || prior.denomination !== intent.asset
+                    || prior.payerAddress !== intent.expectedSender
+                    || prior.refundDestination !== intent.expectedSender
+                    || prior.sourceWalletAddress !== intent.destinationWalletAddress
+                    || prior.closureReason !== closureReason) {
+                    throw new Error("MAINNET_REFUND_OBLIGATION_IDENTITY_CONFLICT");
+                }
+                made.push(Object.freeze({ ...prior, replay: true }));
+                continue;
+            }
             const amountAtomic = Number(BigInt(intent.amountAtomic));
             if (!Number.isSafeInteger(amountAtomic) || amountAtomic <= 0) throw new Error("MAINNET_REFUND_AMOUNT_OVERFLOW");
-            const obligation = { obligationId: id, idempotencyKey: `MAINNET:${intent.paymentReference}:${receipt.transactionId}`,
+            const obligation = { obligationId: id, idempotencyKey,
                 network: "mainnet", globalId: MAINNET_GLOBAL_ID, roomId, roomNumber, playerId: intent.playerId,
                 paymentIntentId: intent.paymentReference, incomingTransactionId: receipt.transactionId,
-                amountAtomic, denomination: "TON",
+                amountAtomic: Number(BigInt(receipt.amountAtomic)), denomination: "TON",
                 payerAddress: intent.expectedSender, refundDestination: intent.expectedSender,
                 sourceWalletAddress: intent.destinationWalletAddress,
                 closureReason, createdAtMs: this._now(), state: "PENDING", transferAmountAtomic: null,

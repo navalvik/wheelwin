@@ -41,7 +41,9 @@ export class MainnetRefundLifecycle {
         this._resolveReservedWalletRoomNumber = resolver;
     }
 
-    prepareClosedRoom({ roomId, roomNumber, closureReason, prePage5 = true } = {}) {
+    prepareClosedRoom({ roomId, roomNumber, closureReason, status, prePage5 = true } = {}) {
+        if (status !== "DESTROYED") throw new Error("MAINNET_REFUND_REQUIRES_DESTROYED_ROOM");
+        if (this._ledger.hasPayoutOutcome?.(roomId) === true) return Object.freeze([]);
         if (this._ledger.hasPage5Started?.(roomId) === true) return Object.freeze([]);
         if (this._hasReachedPage5) {
             const reachedPage5 = this._hasReachedPage5(roomId);
@@ -49,11 +51,15 @@ export class MainnetRefundLifecycle {
             if (reachedPage5) return Object.freeze([]);
         }
         if (prePage5 !== true) return Object.freeze([]);
+        const completedGameClosures = new Set([
+            "session_ended", "result_session_expired", "result_session_finished"
+        ]);
+        if (completedGameClosures.has(closureReason)) return Object.freeze([]);
         let refundRoomNumber = roomNumber;
         if (this._resolveReservedWalletRoomNumber) {
             const reservedRoomNumber = this._resolveReservedWalletRoomNumber(roomId);
             const hasConfirmedReceipts = this._incoming.listReceipts(roomId)
-                .some(receipt => receipt.status === "CONFIRMED");
+                .some(receipt => receipt.status === "CONFIRMED" || receipt.status === "EXTRA_PAYMENT");
             if (reservedRoomNumber !== null && reservedRoomNumber !== undefined) {
                 if (!Number.isSafeInteger(reservedRoomNumber) || reservedRoomNumber < 1) {
                     throw new Error("MAINNET_REFUND_RESERVED_WALLET_IDENTITY_INVALID");
@@ -134,6 +140,15 @@ export class MainnetRefundLifecycle {
     }
 
     recover() {
+        for (const closed of this._ledger.listClosedRooms()) {
+            this.prepareClosedRoom({
+                roomId: closed.roomId,
+                roomNumber: closed.roomNumber,
+                closureReason: closed.closureReason,
+                status: "DESTROYED",
+                prePage5: true
+            });
+        }
         return Object.freeze(this._ledger.listRefunds().filter(x => x.state !== "COMPLETE")
             .map(x => Object.freeze({ obligationId: x.obligationId, state: x.state, outcome: "OBSERVATION_REQUIRED" })));
     }
