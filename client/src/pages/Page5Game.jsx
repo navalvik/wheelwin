@@ -159,7 +159,9 @@ export default function Page5Game({ onNavigate: _onNavigate }) {
     }, [identity.roomId, authoritative.roomId, diagnosticGameId, identity.playerId]);
 
     const latestDiagnosticRef = useRef(null);
-    latestDiagnosticRef.current = { gameState, clock, localConfirmed };
+    useEffect(() => {
+        latestDiagnosticRef.current = { gameState, clock, localConfirmed };
+    }, [gameState, clock, localConfirmed]);
 
     useEffect(() => {
 
