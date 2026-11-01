@@ -95,13 +95,21 @@ export function createLocalPage5Report({ now = Date.now, mono = () => null } = {
 
     function append(input, wallMs = now(), monoMs = mono()) {
         if (!identity || !input || typeof input.kind !== "string") return false;
-        const important = IMPORTANT.has(input.kind);
-        if (!important && wallMs - (lastSample.get(input.kind) ?? -Infinity) < 1000) {
+        // One-second clock samples are allowed, but never suppress a
+        // GAME_STATE / OPEN_PAGE6 receipt just because a clock tick came first.
+        const important = IMPORTANT.has(input.kind)
+            || (input.kind === "socket_received"
+                && input.reason !== "GAME_CLOCK_UPDATE");
+        const sampleKey = input.kind === "socket_received"
+            ? input.kind + ":" + input.reason : input.kind;
+        if (!important && wallMs - (lastSample.get(sampleKey) ?? -Infinity) < 1000) {
             return false;
         }
-        if (!important) lastSample.set(input.kind, wallMs);
+        if (!important) lastSample.set(sampleKey, wallMs);
         if (events.length >= LOCAL_REPORT_MAX_EVENTS) {
-            const sampleIndex = events.findIndex(event => !IMPORTANT.has(event.kind));
+            const sampleIndex = events.findIndex(event => !IMPORTANT.has(event.kind)
+                && !(event.kind === "socket_received"
+                    && event.reason !== "GAME_CLOCK_UPDATE"));
             events.splice(sampleIndex < 0 ? 0 : sampleIndex, 1);
             droppedEvents += 1;
         }
