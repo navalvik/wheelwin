@@ -46,6 +46,7 @@ import { LoggingManager } from "./logging/LoggingManager.js";
 import { GameDiagnosticLogManager } from "./logging/GameDiagnosticLogManager.js";
 import { SessionHistoryArchiveManager } from "./history/SessionHistoryArchiveManager.js";
 import { ForensicArchiveService } from "./forensic/ForensicArchiveService.js";
+import { ClientPage5DeviceReportStore } from "./forensic/ClientPage5DeviceReportStore.js";
 import { evaluateFinalForensicArchive } from "./forensic/FinalForensicArchiveGate.js";
 import { purgeLocalForensicArchiveZips } from "./forensic/purgeLocalForensicArchiveZips.js";
 import { R2ForensicArchiveUploader } from "./forensic/R2ForensicArchiveUploader.js";
@@ -237,6 +238,7 @@ class WheelWinApplication {
         this._sessionHistoryArchive = null;
 
         this._forensicArchiveService = null;
+        this._clientPage5DeviceReportStore = null;
 
         this._resultSessionLifecycle = null;
 
@@ -1796,9 +1798,14 @@ class WheelWinApplication {
                 secretAccessKey: archiveConfig.secretAccessKey,
                 accountId: archiveConfig.accountId
             });
+            this._clientPage5DeviceReportStore = new ClientPage5DeviceReportStore({
+                stagingDir: archiveConfig.stagingDir,
+                logger: this._logger
+            });
             this._forensicArchiveService = new ForensicArchiveService({
                 logger: this._logger,
                 config: archiveConfig,
+                deviceReportStore: this._clientPage5DeviceReportStore,
                 financialSnapshotProvider: roomId => this._paymentRuntime?.financialSnapshot(roomId),
                 finalityChecker: (snapshot, {sessionRecord}) =>
                     evaluateFinalForensicArchive({snapshot,sessionRecord}),
@@ -1809,6 +1816,10 @@ class WheelWinApplication {
             this._roomLobbyBridge.configureForensicArchiveService(
                 this._forensicArchiveService
             );
+            this._socketGateway.configurePage5DeviceReports({
+                store: this._clientPage5DeviceReportStore,
+                archiveService: this._forensicArchiveService
+            });
             // Resume failed ZIP deliveries from the previous server lifetime.
             // This never blocks startup, room creation or gameplay timers.
             void this._forensicArchiveService.recoverPendingUploads()
@@ -1825,6 +1836,7 @@ class WheelWinApplication {
             );
         } catch (error) {
             this._forensicArchiveService = null;
+            this._clientPage5DeviceReportStore = null;
             this._logger.warn?.(
                 "R2ForensicArchive unavailable; game continues | code="
                 + (error?.code ?? "ARCHIVE_INIT_FAILED")

@@ -111,6 +111,8 @@ export class SocketGateway {
         this._devMode = devMode;
 
         this._advertisementScheduler = null;
+        this._clientPage5ReportStore = null;
+        this._forensicArchiveService = null;
 
         this._io = null;
 
@@ -643,6 +645,12 @@ export class SocketGateway {
 
         return this._io?.sockets?.sockets?.size ?? 0;
 
+    }
+
+    configurePage5DeviceReports({store,archiveService}) {
+        // Diagnostics only; not part of gameplay, financial or room authority.
+        this._clientPage5ReportStore = store ?? null;
+        this._forensicArchiveService = archiveService ?? null;
     }
 
     configurePreGameReady({ preGameReadyActivation }) {
@@ -2265,6 +2273,60 @@ export class SocketGateway {
 
         // Reuse the existing observation-only channel. Never trust client
         // room/player/game IDs: they must match the live authenticated binding.
+        // A Page6 client's independent local report is authenticated by
+        // the *existing socket binding*, never by a submitted player ID.
+        if (rawPayload?.event === "PAGE5_DEVICE_REPORT"
+            || rawPayload?.event === "PAGE5_DEVICE_REPORT_STATUS") {
+            const boundMatches = bound?.ok === true
+                && String(rawPayload?.roomId) === String(bound.roomId)
+                && String(rawPayload?.gameId) === String(bound.gameId)
+                && String(rawPayload?.playerId) === String(bound.playerId);
+            if (!boundMatches || !this._clientPage5ReportStore) {
+                acknowledge?.({ok:false,reason:"BINDING_MISMATCH"});
+                return;
+            }
+            if (rawPayload.event === "PAGE5_DEVICE_REPORT_STATUS") {
+                const status=this._forensicArchiveService?.getUploadStatus?.(
+                    bound.roomId,bound.gameId
+                ) ?? {uploaded:false,received:0,expected:3};
+                acknowledge?.({ok:true,...status});
+                return;
+            }
+            const status=this._forensicArchiveService?.getUploadStatus?.(
+                bound.roomId,bound.gameId
+            ) ?? {uploaded:false};
+            if (status.uploaded) {
+                acknowledge?.({ok:false,reason:"ARCHIVE_ALREADY_FINAL",
+                    archiveFilename:status.archiveFilename});
+                return;
+            }
+            if (this._resultSessionLifecycle?.isActive?.(bound.roomId) !== true) {
+                acknowledge?.({ok:false,reason:"RESULT_SESSION_NOT_ACTIVE"});
+                return;
+            }
+            const accepted=this._clientPage5ReportStore.record({
+                roomId:bound.roomId,gameId:bound.gameId,
+                playerId:bound.playerId,rawReport:rawPayload?.report
+            });
+            acknowledge?.(accepted);
+            if (accepted.ok && accepted.received === 3
+                && this._forensicArchiveService) {
+                // Never await archive I/O inside the socket handler. Payout
+                // and Page6 remain fully independent of R2 connectivity.
+                void Promise.resolve(this._forensicArchiveService
+                    .ensureArchivedAndUploaded({
+                        roomId:bound.roomId,gameId:bound.gameId,
+                        reason:"game_completed"
+                    })).catch(error => {
+                    this._logger?.warn?.(
+                        "R2_PAGE5_REPORT_ARCHIVE_PENDING | roomId="
+                        +bound.roomId+" | code="+(error?.code??"UPLOAD_FAILED")
+                    );
+                });
+            }
+            return;
+        }
+
         if (rawPayload?.event === "PAGE5_SYNC_BATCH") {
 
             const idsMatch = bound?.ok === true

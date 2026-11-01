@@ -33,6 +33,8 @@ import {
 import { APP_PAGES } from "../game/sessionRecovery/recoveryFlow";
 import { configurePage5Diagnostics, recordPage5Diagnostic, flushPage5Diagnostics } from "../game/diagnostics/page5Telemetry.js";
 import { getLocalPage5Report } from "../game/diagnostics/page5LocalReport.js";
+import { createPage5AutoReportSender } from "../game/diagnostics/page5AutoReportSender.js";
+import socket from "../socket/socket.js";
 import {
     downloadPage5DeviceReport,
     sharePage5DeviceReport,
@@ -212,6 +214,7 @@ export default function Page6Result({ onFinish }) {
     const resultPresent = Boolean(result);
     const [reportRevision, setReportRevision] = useState(0);
     const [localReportFeedback, setLocalReportFeedback] = useState("");
+    const [autoUploadStatus, setAutoUploadStatus] = useState("Waiting for Page6 result...");
 
     useEffect(() => {
 
@@ -356,6 +359,29 @@ export default function Page6Result({ onFinish }) {
         return null;
 
     }, [gameReport, payment]);
+
+    useEffect(() => {
+        // Upload is automatic, independent of the existing manual buttons.
+        // All retries end when Page6 unmounts; the R2 ZIP is produced
+        // server-side after reports or the bounded archive-only grace.
+        if (!resultPresent || !diagnosticRoomId || !diagnosticGameId
+            || !localPlayerId) return undefined;
+        const sender = createPage5AutoReportSender({
+            socket,
+            roomId: diagnosticRoomId,
+            gameId: diagnosticGameId,
+            playerId: localPlayerId,
+            reportProvider: () => getLocalPage5Report({
+                roomId: diagnosticRoomId,
+                gameId: diagnosticGameId,
+                playerId: localPlayerId
+            }),
+            onStatus: setAutoUploadStatus
+        });
+        // The earlier Page6 effect records page6_rendered during this commit.
+        sender.start();
+        return () => sender.dispose();
+    }, [resultPresent, diagnosticRoomId, diagnosticGameId, localPlayerId]);
 
     const localDeviceReport = useMemo(() => {
         if (!diagnosticRoomId || !diagnosticGameId || !localPlayerId) {
@@ -571,6 +597,11 @@ export default function Page6Result({ onFinish }) {
                                         {t("result.gameReport")} · PAGE5 DIAGNOSTICS
                                     </div>
 
+                                </div>
+
+                                <div className="page6__gameReportPending"
+                                    aria-live="polite">
+                                    <strong>Automatic upload:</strong> {autoUploadStatus}
                                 </div>
 
                                 <div className="page6__gameReportPending">

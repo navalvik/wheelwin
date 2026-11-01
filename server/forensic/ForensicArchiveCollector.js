@@ -28,7 +28,8 @@ export class ForensicArchiveCollector {
         diagnosticLogsDir,
         sessionHistoryArchive = null,
         financialSnapshotProvider = null,
-        gameReportEngine = null
+        gameReportEngine = null,
+        deviceReportStore = null
     }) {
 
         this._sessionHistoryDir = sessionHistoryDir;
@@ -36,6 +37,7 @@ export class ForensicArchiveCollector {
         this._sessionHistoryArchive = sessionHistoryArchive;
         this._gameReportEngine = gameReportEngine;
         this._financialSnapshotProvider = financialSnapshotProvider;
+        this._deviceReportStore = deviceReportStore;
 
     }
 
@@ -121,6 +123,35 @@ export class ForensicArchiveCollector {
             ) + "\n",
             zipPath: "forensics/client-gameplay-sync.json"
         });
+        // The three independent Page5 reports are inserted BEFORE the
+        // immutable R2 upload. No supplement ZIP and no post-upload rewrite.
+        if (this._deviceReportStore) {
+            const deviceSnapshot = this._deviceReportStore.snapshot(roomId, gameId);
+            entries.push({
+                inlineContent: JSON.stringify({
+                    schemaVersion:1,
+                    roomId,
+                    gameId,
+                    expected:deviceSnapshot.expected,
+                    received:deviceSnapshot.received,
+                    missing:deviceSnapshot.missing,
+                    complete:deviceSnapshot.complete,
+                    players:deviceSnapshot.reports.map(report => ({
+                        playerId:report.playerId,
+                        nickname:report.nickname,
+                        buildSha:report.device?.buildSha ?? null
+                    }))
+                }, null, 2) + "\n",
+                zipPath:"forensics/page5-device-report-manifest.json"
+            });
+            for (const report of deviceSnapshot.reports) {
+                entries.push({
+                    inlineContent:JSON.stringify(report,null,2) + "\n",
+                    zipPath:"forensics/page5-device-reports/"
+                        + safeFilenameSegment(report.playerId) + ".json"
+                });
+            }
+        }
         const seenSources = new Set();
 
         const pushEntry = (sourcePath, zipPath) => {
