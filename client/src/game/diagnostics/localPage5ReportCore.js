@@ -13,7 +13,8 @@ export const LOCAL_REPORT_MAX_BUCKETS = 180;
 const FIELDS = new Set([
     "kind", "phase", "displayedPhase", "reason", "buttonState",
     "buttonEnabled", "buttonLocked", "readyConfirmed", "connected",
-    "clockValue", "serverTimestamp", "sequence", "receiveMs",
+    "clockValue", "serverTimestamp", "phaseStartedAt", "phaseEndsAt",
+    "sequence", "receiveMs",
     "applyMs", "renderMs", "wheelAngle", "pointerAngle", "errorName",
     "clockLabel", "build"
 ]);
@@ -86,6 +87,9 @@ export function createLocalPage5Report({ now = Date.now, mono = () => null } = {
         // If the device clock jumps backwards do not rewrite older buckets.
         const bucket = {
             second, physicsPackets: 0, wheelPaints: 0, pointerPaints: 0,
+            firstSimulationTime: null, lastSimulationTime: null,
+            firstServerTimestamp: null, lastServerTimestamp: null,
+            physicsGapMaxMs: 0,
             dispatchMaxMs: 0, wheelPaintMaxMs: 0, pointerPaintMaxMs: 0
         };
         buckets.push(bucket);
@@ -180,14 +184,23 @@ export function createLocalPage5Report({ now = Date.now, mono = () => null } = {
             if (stats.lastPhysicsMonoMs !== null && monoMs !== null) {
                 const gap = Math.max(0, monoMs - stats.lastPhysicsMonoMs);
                 stats.physicsGapMaxMs = Math.max(stats.physicsGapMaxMs, gap);
+                bucket.physicsGapMaxMs = Math.max(bucket.physicsGapMaxMs, gap);
                 if (gap > 250) stats.physicsLateGapOver250Ms += 1;
             }
             stats.lastPhysicsMonoMs = monoMs;
             if (numeric(payload?.simulationTime) !== null) {
                 stats.lastSimulationTime = payload.simulationTime;
+                if (bucket.firstSimulationTime === null) {
+                    bucket.firstSimulationTime = payload.simulationTime;
+                }
+                bucket.lastSimulationTime = payload.simulationTime;
             }
             if (numeric(payload?.serverTimestamp) !== null) {
                 stats.lastServerTimestamp = payload.serverTimestamp;
+                if (bucket.firstServerTimestamp === null) {
+                    bucket.firstServerTimestamp = payload.serverTimestamp;
+                }
+                bucket.lastServerTimestamp = payload.serverTimestamp;
             }
             return;
         }
@@ -199,6 +212,8 @@ export function createLocalPage5Report({ now = Date.now, mono = () => null } = {
             kind: "socket_received", reason: type,
             phase: safeString(payload?.state ?? payload?.currentState ?? payload?.phase),
             serverTimestamp: numeric(payload?.serverTimestamp ?? payload?.timestamp),
+            phaseStartedAt: numeric(payload?.startedAt),
+            phaseEndsAt: numeric(payload?.endsAt),
             clockValue: numeric(payload?.remainingSeconds)
         }, wallMs, monoMs);
     }
@@ -303,6 +318,11 @@ export function createLocalPage5Report({ now = Date.now, mono = () => null } = {
                 physicsPackets: numeric(row.physicsPackets) ?? 0,
                 wheelPaints: numeric(row.wheelPaints) ?? 0,
                 pointerPaints: numeric(row.pointerPaints) ?? 0,
+                firstSimulationTime: numeric(row.firstSimulationTime),
+                lastSimulationTime: numeric(row.lastSimulationTime),
+                firstServerTimestamp: numeric(row.firstServerTimestamp),
+                lastServerTimestamp: numeric(row.lastServerTimestamp),
+                physicsGapMaxMs: numeric(row.physicsGapMaxMs) ?? 0,
                 dispatchMaxMs: numeric(row.dispatchMaxMs) ?? 0,
                 wheelPaintMaxMs: numeric(row.wheelPaintMaxMs) ?? 0,
                 pointerPaintMaxMs: numeric(row.pointerPaintMaxMs) ?? 0
