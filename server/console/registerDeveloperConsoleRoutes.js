@@ -18,7 +18,8 @@ export function registerDeveloperConsoleRoutes(
         sessionHistoryArchive = null,
         runtimeConfigurationService = null,
         audioRegistryService = null,
-        walletQuarantineService = null
+        walletQuarantineService = null,
+        financialObligationsReadService = null
     } = {}
 ) {
 
@@ -284,6 +285,27 @@ export function registerDeveloperConsoleRoutes(
                 } catch(error) {quarantineError(res,error);}
             });
         }
+    }
+
+    if (financialObligationsReadService) {
+        app.get("/console/finance/obligations", strictAdminGate, (req,res) => {
+            const network = String(req.query?.network ?? "").trim().toLowerCase();
+            if (network !== "testnet") {
+                res.status(400).json({ error: "network must be testnet" });
+                return;
+            }
+
+            try {
+                res.setHeader("Cache-Control", "no-store");
+                res.json(financialObligationsReadService.snapshot());
+            } catch (error) {
+                const code = String(error?.message ?? "FINANCIAL_OBLIGATIONS_UNAVAILABLE");
+                const unavailable = /UNAVAILABLE/.test(code);
+                res.status(unavailable ? 503 : 500).json({
+                    error: unavailable ? code : "FINANCIAL_OBLIGATIONS_UNAVAILABLE"
+                });
+            }
+        });
     }
 
     /**
