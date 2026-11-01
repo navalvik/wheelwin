@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 
 import { TriangleEngine as TriangleEngineCore } from "./TriangleRenderer";
 import { createLatestFrameRenderer } from "../../../game/physics/latestFrameRenderer.js";
+import { noteLocalPage5Canvas } from "../../../game/diagnostics/page5LocalReport.js";
 
 import { calculateWheelRadiusFromContainer } from "./triangleUtils";
 
@@ -53,7 +54,12 @@ export default function TriangleEngine({ subscribeFrame, getFrame }) {
 
             engine.setAngle(getFrameRef.current().triangleAngle);
 
+            const startedAt = typeof performance !== "undefined"
+                ? performance.now() : null;
             engine.render();
+            if (startedAt !== null) {
+                noteLocalPage5Canvas("pointer", performance.now() - startedAt);
+            }
 
         });
 
