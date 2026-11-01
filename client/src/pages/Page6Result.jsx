@@ -201,17 +201,21 @@ export default function Page6Result({ onFinish }) {
         }
     );
 
+    const diagnosticRoomId = authoritative.roomId ?? identity.roomId;
+    const diagnosticGameId = result?.gameId ?? identity.gameId ?? authoritative.gameId;
+    const resultPresent = Boolean(result);
+
     useEffect(() => {
 
         if (configurePage5Diagnostics({
-            roomId: authoritative.roomId ?? identity.roomId,
-            gameId: result?.gameId ?? identity.gameId ?? authoritative.gameId,
+            roomId: diagnosticRoomId,
+            gameId: diagnosticGameId,
             playerId: identity.playerId
         })) {
             recordPage5Diagnostic({
                 kind: "page6_rendered",
                 displayedPhase: "RESULT",
-                reason: result ? "result_present" : "result_not_yet_present",
+                reason: resultPresent ? "result_present" : "result_not_yet_present",
                 renderMs: typeof performance !== "undefined"
                     ? Math.round(performance.now()) : null
             });
@@ -219,9 +223,7 @@ export default function Page6Result({ onFinish }) {
         }
 
     }, [
-        authoritative.roomId, authoritative.gameId,
-        identity.roomId, identity.gameId, identity.playerId,
-        result?.gameId, Boolean(result)
+        diagnosticRoomId, diagnosticGameId, identity.playerId, resultPresent
     ]);
 
     useEffect(() => {
