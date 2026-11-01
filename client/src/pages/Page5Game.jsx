@@ -282,14 +282,17 @@ export default function Page5Game({ onNavigate: _onNavigate }) {
             kind: "button_state",
             displayedPhase: gameState,
             buttonState: buttonSnapshot.state,
-            buttonEnabled: buttonSnapshot.enabled === true && !buttonInputDisabled,
+            buttonEnabled: buttonSnapshot.presentation?.enabled === true
+                && (isPreGameReadyPhase || !buttonInputDisabled),
             buttonLocked: buttonSnapshot.locked === true,
             readyConfirmed: localConfirmed,
-            reason: buttonInputDisabled ? "page_gate" : "interactive"
+            reason: buttonInputDisabled && !isPreGameReadyPhase
+                ? "page_gate" : "presentation_gate"
         });
     }, [
         gameState, buttonSnapshot.state, buttonSnapshot.enabled,
-        buttonSnapshot.locked, buttonInputDisabled, localConfirmed
+        buttonSnapshot.locked, buttonSnapshot.presentation?.enabled,
+        buttonInputDisabled, isPreGameReadyPhase, localConfirmed
     ]);
 
     useEffect(() => {
@@ -309,7 +312,7 @@ export default function Page5Game({ onNavigate: _onNavigate }) {
             kind: "ready_attempt",
             displayedPhase: gameState,
             buttonState: buttonSnapshot.state,
-            buttonEnabled: buttonSnapshot.enabled,
+            buttonEnabled: buttonSnapshot.presentation?.enabled === true,
             buttonLocked: buttonSnapshot.locked,
             readyConfirmed: localConfirmed
         });
