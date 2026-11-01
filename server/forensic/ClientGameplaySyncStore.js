@@ -19,7 +19,7 @@ const ALLOWED_FIELDS = new Set([
     "kind", "phase", "displayedPhase", "clockLabel", "clockValue",
     "serverTimestamp", "sequence", "receiveMs", "applyMs", "renderMs",
     "buttonState", "buttonEnabled", "buttonLocked", "readyConfirmed",
-    "connected", "reason", "wheelAngle", "pointerAngle", "build",
+    "connected", "reason", "errorName", "wheelAngle", "pointerAngle", "build",
     "recordedAt"
 ]);
 const rooms = new Map();
