@@ -293,15 +293,23 @@ export class SessionRecoveryEngine {
 
         const handlerName = RESTORE_HANDLERS[moduleName];
 
-        const handler = handlerName ? registry[handlerName] : null;
+        // EngineBridge registers each API under its module key, e.g.
+        // { physics: { restorePhysics }, gameState: { restoreGameState } }.
+        // The previous flat lookup (registry[handlerName]) silently skipped
+        // every restore while still marking recovery COMPLETE.
+        const moduleApi = registry[moduleName];
+
+        const handler = handlerName ? moduleApi?.[handlerName] : null;
 
         if (typeof handler !== "function") {
+
+            this._log(`Recovery handler unavailable: ${moduleName}`);
 
             return false;
 
         }
 
-        handler(snapshot);
+        handler.call(moduleApi, snapshot);
 
         this._log(`Restored module: ${moduleName}`);
 
