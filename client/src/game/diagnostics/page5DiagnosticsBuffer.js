@@ -6,7 +6,7 @@ const IMPORTANT_KINDS = new Set([
     "phase_changed", "ready_attempt", "ready_sent", "ready_ack", "ready_rejected",
     "state_rejected", "clock_rejected",
     "ready_phase_started", "ready_phase_completed",
-    "connection_changed", "recovery", "page5_mount", "page5_unmount",
+    "connection_changed", "visibility_changed", "recovery", "page5_mount", "page5_unmount",
     "page6_received", "page6_rendered", "client_error"
 ]);
 
