@@ -11,10 +11,16 @@ const wheel=source("components/game/WheelEngine/WheelEngine.jsx");
 const pointer=source("components/game/TriangleEngine/TriangleEngine.jsx");
 const vit=source("../vite.config.js");
 assert.match(page6,/PAGE5 DIAGNOSTICS/);
-assert.match(page6,/DOWNLOAD JSON/);
-assert.match(page6,/SHARE FILE/);
 assert.match(page6,/COPY JSON/);
-assert.match(page6,/handleDownloadTxt/,"preserve original server report");
+assert.match(page6,/handleDeviceReportCopy/);
+assert.doesNotMatch(page6,/DOWNLOAD JSON|SHARE FILE|downloadTxt|SERVER<\/button>/,
+    "Telegram-blocked file actions must not appear in GAME REPORT");
+assert.doesNotMatch(page6,/handleDeviceReportDownload|handleDeviceReportShare|handleDownloadTxt/,
+    "removed actions must not remain reachable");
+assert.match(page6,/Automatic upload:/,
+    "automatic server report delivery remains the primary workflow");
+assert.match(page6,/createPage5AutoReportSender/,
+    "COPY is only a fallback; automatic report upload must remain enabled");
 assert.match(page6,/localDeviceReport/);
 assert.match(page6,/recordPage5Diagnostic\(\{[\s\S]*?kind: "page6_rendered"/);
 assert.match(page5,/noteLocalMainThreadStall/);
