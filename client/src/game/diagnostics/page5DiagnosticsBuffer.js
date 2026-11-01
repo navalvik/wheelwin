@@ -3,7 +3,8 @@
 export const MAX_PAGE5_DIAGNOSTIC_EVENTS = 240;
 
 const IMPORTANT_KINDS = new Set([
-    "phase_changed", "ready_attempt", "ready_ack", "ready_rejected",
+    "phase_changed", "ready_attempt", "ready_sent", "ready_ack", "ready_rejected",
+    "state_rejected", "clock_rejected",
     "connection_changed", "recovery", "page5_mount", "page5_unmount",
     "page6_received", "page6_rendered", "client_error"
 ]);
