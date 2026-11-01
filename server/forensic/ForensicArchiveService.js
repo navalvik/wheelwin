@@ -17,6 +17,7 @@ import {
     resolveArchiveFilenameResult
 } from "./forensicArchiveNaming.js";
 import { resolveForensicArchiveConfig } from "./forensicArchiveConfig.js";
+import { PAGE5_DEVICE_REPORT_WAIT_MS } from "./ClientPage5DeviceReportStore.js";
 
 const LOG = Object.freeze({
     CREATE_STARTED: "FORENSIC_ARCHIVE_CREATE_STARTED",
@@ -41,7 +42,8 @@ export class ForensicArchiveService {
         financialSnapshotProvider = null,
         finalityChecker = null,
         gameReportEngine = null,
-        sessionHistoryArchive = null
+        sessionHistoryArchive = null,
+        deviceReportStore = null
     }) {
 
         this._financialSnapshotProvider = financialSnapshotProvider;
@@ -49,10 +51,12 @@ export class ForensicArchiveService {
         this._logger = logger;
         this._config = config ?? resolveForensicArchiveConfig();
         this._sessionHistoryArchive = sessionHistoryArchive;
+        this._deviceReportStore = deviceReportStore;
         this._collector = collector ?? new ForensicArchiveCollector({
             sessionHistoryDir: this._config.sessionHistoryDir,
             diagnosticLogsDir: this._config.diagnosticLogsDir,
-            sessionHistoryArchive, financialSnapshotProvider, gameReportEngine
+            sessionHistoryArchive, financialSnapshotProvider, gameReportEngine,
+            deviceReportStore
         });
         this._uploader = uploader;
         this._inFlight = new Map();
@@ -121,6 +125,22 @@ export class ForensicArchiveService {
             }
         }
         return report;
+    }
+
+    getUploadStatus(roomId, gameId = null) {
+        const stagingRoomDir=join(this._config.stagingDir,safeSegment(roomId));
+        const status=readStatus(join(stagingRoomDir,"status.json"));
+        const reports=this._deviceReportStore?.snapshot(roomId,gameId);
+        const matches = status && (!gameId || !status.gameId
+            || status.gameId === gameId);
+        return {
+            uploaded:matches && status.state === "uploaded",
+            archiveFilename:matches && status.state === "uploaded"
+                ? status.archiveFilename ?? null : null,
+            uploadState:matches ? status.state : "waiting",
+            received:reports?.received ?? null,
+            expected:reports?.expected ?? null
+        };
     }
 
     isBlockingEnabled() {
@@ -219,6 +239,24 @@ export class ForensicArchiveService {
                 this._logInfo("R2_ARCHIVE_WAITING_FINANCIAL_FINALITY | roomId=" + roomId
                     + " | reason=" + (check?.reason ?? "NOT_READY"));
                 return {skipped:true,reason:"FINANCIAL_NOT_FINAL"};
+            }
+        }
+
+        // A successful game's device reports are accepted as the three
+        // clients enter Page6. Hold ZIP collection until all 3 are present.
+        // After a bounded 90s archive-only grace, publish financial evidence
+        // even when a handset never delivers its optional report.
+        // This never changes on-chain obligations, payouts or game timers.
+        if (this._deviceReportStore && financialSnapshot?.outcome?.kind === "PAYOUT") {
+            const received=this._deviceReportStore.snapshot(roomId,gameId);
+            if (!received.complete) {
+                const finishedAt=Number(sessionRecord?.finishedAt);
+                if (!Number.isSafeInteger(finishedAt)
+                    || Date.now() - finishedAt < PAGE5_DEVICE_REPORT_WAIT_MS) {
+                    this._logInfo("R2_ARCHIVE_WAITING_PAGE5_DEVICE_REPORTS | roomId="
+                        + roomId + " | received=" + received.received + "/3");
+                    return {skipped:true,reason:"PAGE5_DEVICE_REPORTS_PENDING"};
+                }
             }
         }
 
