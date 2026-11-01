@@ -579,6 +579,14 @@ export default function Page6Result({ onFinish }) {
                                         : "Local Page5 data not available for this player."}
                                 </div>
 
+                                {localDeviceReport?.device && (
+                                    <div className="page6__gameReportPending">
+                                        Build: {localDeviceReport.device.buildSha?.slice(0, 12) || "unknown"}
+                                        {" · "}Telegram: {localDeviceReport.device.telegramVersion || "unknown"}
+                                        {" · "}Android: {localDeviceReport.device.androidMajor ?? "n/a"}
+                                    </div>
+                                )}
+
                                 <div className="page6__gameReportActions">
 
                                     <button
