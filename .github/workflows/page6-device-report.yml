@@ -1,0 +1,38 @@
+name: Page6 local Page5 device report
+
+on:
+  push:
+    branches:
+      - feat/page6-local-page5-diagnostics-20261101
+  pull_request:
+    paths:
+      - "client/src/game/diagnostics/**"
+      - "client/src/pages/Page5Game.jsx"
+      - "client/src/pages/Page6Result.jsx"
+      - "client/src/socket/SocketSyncLayer.js"
+      - "client/src/components/game/WheelEngine/WheelEngine.jsx"
+      - "client/src/components/game/TriangleEngine/TriangleEngine.jsx"
+      - "client/vite.config.js"
+      - ".github/workflows/page6-device-report.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  client:
+    name: Full client tests and Vite production build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
