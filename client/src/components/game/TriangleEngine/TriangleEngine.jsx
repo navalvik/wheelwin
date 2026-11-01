@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 
 import { TriangleEngine as TriangleEngineCore } from "./TriangleRenderer";
+import { createLatestFrameRenderer } from "../../../game/physics/latestFrameRenderer.js";
 
 import { calculateWheelRadiusFromContainer } from "./triangleUtils";
 
@@ -44,21 +45,24 @@ export default function TriangleEngine({ subscribeFrame, getFrame }) {
 
         }
 
-        return subscribeFrame(() => {
+        const painter = createLatestFrameRenderer(() => {
 
             const engine = engineRef.current;
 
-            if (!engine) {
-
-                return;
-
-            }
+            if (!engine) return;
 
             engine.setAngle(getFrameRef.current().triangleAngle);
 
             engine.render();
 
         });
+
+        const unsubscribe = subscribeFrame(() => painter.request());
+
+        return () => {
+            unsubscribe();
+            painter.dispose();
+        };
 
     }, [subscribeFrame]);
 
