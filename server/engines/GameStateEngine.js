@@ -98,6 +98,7 @@ export class GameStateEngine {
             currentState: GAME_STATES.PRE_GAME_READY,
             previousState: null,
             enteredAt,
+            revision: 1,
             history: [
                 {
                     state: GAME_STATES.PRE_GAME_READY,
@@ -116,6 +117,7 @@ export class GameStateEngine {
             previousState: null,
             currentState: GAME_STATES.PRE_GAME_READY,
             timestamp: enteredAt,
+            revision: record.revision,
             reason
         });
 
@@ -235,6 +237,8 @@ export class GameStateEngine {
 
         record.enteredAt = enteredAt;
 
+        record.revision += 1;
+
         record.history.push({
             state: nextState,
             enteredAt,
@@ -248,6 +252,7 @@ export class GameStateEngine {
             previousState,
             currentState: nextState,
             timestamp: enteredAt,
+            revision: record.revision,
             reason
         });
 
@@ -356,6 +361,7 @@ export class GameStateEngine {
             currentState,
             previousState,
             enteredAt,
+            revision: Math.max(1, history.length),
             history: history.map((entry) => ({ ...entry }))
         };
 
@@ -440,6 +446,7 @@ export class GameStateEngine {
             currentState: record.currentState,
             previousState: record.previousState,
             enteredAt: record.enteredAt,
+            revision: record.revision ?? record.history.length,
             history: record.history.map((entry) => ({ ...entry })),
             allowedTransitions: [...getAllowedTransitions(record.currentState)]
         };
@@ -485,6 +492,7 @@ export class GameStateEngine {
             currentState: record.currentState,
             previousState: record.previousState,
             enteredAt: record.enteredAt,
+            revision: record.revision ?? record.history.length,
             history: record.history.map((entry) => ({ ...entry }))
         };
 

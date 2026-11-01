@@ -313,12 +313,14 @@ export class RecoveryEngine {
 
         const currentState = this._gameStateEngine.getState(gameId);
 
+        const gameStateDebug = this._gameStateEngine.getDebugSnapshot(gameId);
+
         const gameState = currentState === null
             ? null
             : {
                 currentState,
-                previousState: this._gameStateEngine.getDebugSnapshot(gameId)
-                    ?.previousState ?? null,
+                previousState: gameStateDebug?.previousState ?? null,
+                revision: gameStateDebug?.revision ?? null,
                 history: this._gameStateEngine.getHistory(gameId)
             };
 

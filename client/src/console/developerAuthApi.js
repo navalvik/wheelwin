@@ -451,6 +451,30 @@ export async function fetchWalletBalances(accessToken, network = null) {
 
 }
 
+/** Administrator-only, read-only Testnet ledger obligations. */
+export async function fetchFinancialObligations(accessToken) {
+    const response = await fetch(
+        `${getConsoleApiBase()}/console/finance/obligations?network=testnet`,
+        {
+            method: "GET",
+            headers: {
+                Accept: "application/json",
+                Authorization: `Bearer ${accessToken}`
+            },
+            cache: "no-store"
+        }
+    );
+
+    const body = await parseJson(response);
+    if (!response.ok) {
+        const error = new Error(body?.error || "Failed to load financial obligations");
+        error.status = response.status;
+        error.body = body;
+        throw error;
+    }
+    return body;
+}
+
 export async function fetchDeployerWalletStatus(accessToken) {
 
     const response = await fetch(

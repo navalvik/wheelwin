@@ -171,6 +171,11 @@ export function buildClientRecoveryPayload({
         roomId: roomId ?? snapshot?.configuration?.roomId ?? null,
         playerId: playerId ?? null,
         gameState: currentState,
+        gameStateRevision: Number.isSafeInteger(snapshot?.gameState?.revision)
+            ? snapshot.gameState.revision
+            : (Array.isArray(snapshot?.gameState?.history)
+                ? snapshot.gameState.history.length
+                : null),
         wheelConfiguration: sectors.length > 0
             ? {
                 sectors,
@@ -198,6 +203,8 @@ export function buildClientRecoveryPayload({
             brakeElapsedMs: snapshot?.physics?.brakeElapsedMs ?? null,
             brakeStartWheelOmega:
                 snapshot?.physics?.brakeStartWheelOmega ?? null,
+            simulationTimeMs:
+                snapshot?.physics?.snapshot?.runtime?.simulationTimeMs ?? null,
             remainingBrakeTime: Number.isFinite(snapshot?.clock?.remainingTime)
                 ? snapshot.clock.remainingTime
                 : null

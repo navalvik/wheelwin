@@ -143,6 +143,11 @@ export function PhysicsProvider({ children }) {
 
         applyUpdate: (payload) => {
 
+            const activeGameId = authoritativeSession.getSnapshot()?.gameId;
+
+            if (activeGameId && payload?.gameId
+                && payload.gameId !== activeGameId) return;
+
             engineRef.current.applyServerUpdate(payload);
 
             frameStore.publishFrame(engineRef.current);
@@ -160,7 +165,29 @@ export function PhysicsProvider({ children }) {
 
         },
 
+        applySnapshot: (payload) => {
+
+            const activeGameId = authoritativeSession.getSnapshot()?.gameId;
+
+            if (activeGameId && payload?.gameId
+                && payload.gameId !== activeGameId) return;
+
+            const applied = engineRef.current.applyServerSnapshot(payload);
+
+            if (!applied) return;
+
+            frameStore.publishFrame(engineRef.current);
+
+            publishDiscrete();
+
+        },
+
         restorePhysics: (snapshot) => {
+
+            const activeGameId = authoritativeSession.getSnapshot()?.gameId;
+
+            if (activeGameId && snapshot?.gameId
+                && snapshot.gameId !== activeGameId) return;
 
             engineRef.current.restoreSessionSnapshot(snapshot);
 

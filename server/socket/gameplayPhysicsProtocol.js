@@ -21,6 +21,7 @@ export function buildPhysicsSyncPayload(physicsPayload) {
     return {
         gameId: physicsPayload?.gameId ?? null,
         simulationTime,
+        simulationTimeMs: simulationTime,
         wheelAngle: angleRadians * RADIANS_TO_DEGREES,
         triangleAngle: triangleAngleRadians * RADIANS_TO_DEGREES,
         angularVelocity,

@@ -1,14 +1,16 @@
 import { EVENT_SOURCES } from "../events/EventSources.js";
 import { EVENT_TYPES } from "../events/EventTypes.js";
 
+const RADIANS_TO_DEGREES = 180 / Math.PI;
+
 /**
- * C4.7 — Authoritative GameClock broadcaster.
+ * C4.7 — Authoritative GameClock and one-second gameplay snapshot broadcaster.
  *
  * This module is a READ-ONLY sampler of the frozen GameClockEngine. It owns no
  * time of its own: every value it emits is read from the engine at the moment
  * of sampling. Its sole responsibility is to publish the authoritative clock
- * (phase + remaining time) to clients so the client never calculates gameplay
- * time. It is not a second clock and it never advances phases.
+ * (phase + remaining time + current server physics pose) to clients. It is not
+ * a second clock, does not advance phases, and samples the existing engines.
  */
 export class GameClockBroadcaster {
 
@@ -16,7 +18,12 @@ export class GameClockBroadcaster {
         logger,
         eventBus,
         gameClockEngine,
+        gameStateEngine = null,
+        physicsEngine = null,
         intervalMs = 1000,
+        setIntervalFn = setInterval,
+        clearIntervalFn = clearInterval,
+        nowFn = Date.now,
         devMode = false
     }) {
 
@@ -26,11 +33,23 @@ export class GameClockBroadcaster {
 
         this._gameClockEngine = gameClockEngine;
 
+        this._gameStateEngine = gameStateEngine;
+
+        this._physicsEngine = physicsEngine;
+
         this._intervalMs = intervalMs;
+
+        this._setIntervalFn = setIntervalFn;
+
+        this._clearIntervalFn = clearIntervalFn;
+
+        this._nowFn = nowFn;
 
         this._devMode = devMode;
 
         this._intervals = new Map();
+
+        this._sequences = new Map();
 
         this._handlers = [];
 
@@ -78,7 +97,11 @@ export class GameClockBroadcaster {
 
         this._subscribe(EVENT_TYPES.CLEANUP_COMPLETED, (envelope) => {
 
-            this._stopBroadcast(envelope.payload?.gameId);
+            const gameId = envelope.payload?.gameId;
+
+            this._stopBroadcast(gameId);
+
+            this._sequences.delete(gameId);
 
         });
 
@@ -95,6 +118,8 @@ export class GameClockBroadcaster {
     shutdown() {
 
         this._stopAll();
+
+        this._sequences.clear();
 
         for (const subscription of this._handlers) {
 
@@ -125,7 +150,7 @@ export class GameClockBroadcaster {
         // Push the current phase immediately so clients see READY at once.
         this._emitUpdate(gameId);
 
-        const handle = setInterval(() => {
+        const handle = this._setIntervalFn(() => {
 
             this._emitUpdate(gameId);
 
@@ -153,7 +178,7 @@ export class GameClockBroadcaster {
 
         if (handle) {
 
-            clearInterval(handle);
+            this._clearIntervalFn(handle);
 
             this._intervals.delete(gameId);
 
@@ -165,11 +190,13 @@ export class GameClockBroadcaster {
 
         for (const handle of this._intervals.values()) {
 
-            clearInterval(handle);
+            this._clearIntervalFn(handle);
 
         }
 
         this._intervals.clear();
+
+        this._sequences.clear();
 
     }
 
@@ -199,17 +226,38 @@ export class GameClockBroadcaster {
             ? null
             : Math.ceil(remainingMs / 1000);
 
+        const simulation = this._physicsEngine?.getSimulation?.(gameId) ?? null;
+
+        const runtime = simulation?.runtime;
+
+        const sequence = (this._sequences.get(gameId) ?? 0) + 1;
+
+        this._sequences.set(gameId, sequence);
+
+        const physics = runtime ? {
+            wheelAngle: runtime.angle * RADIANS_TO_DEGREES,
+            triangleAngle: runtime.triangleAngle * RADIANS_TO_DEGREES,
+            angularVelocity: runtime.angularVelocity,
+            triangleAngularVelocity: runtime.triangleAngularVelocity,
+            simulationTimeMs: runtime.simulationTimeMs
+        } : null;
+
         this._eventBus.emit({
             source: EVENT_SOURCES.GAME_CLOCK_BROADCASTER,
             type: EVENT_TYPES.CLOCK_UPDATE,
             payload: {
                 gameId,
                 phase: snapshot.currentPhase,
+                gameState: this._gameStateEngine?.getState?.(gameId)
+                    ?? snapshot.currentPhase,
                 startedAt: schedule?.startedAt ?? snapshot.phaseStartedAt ?? null,
                 endsAt: schedule?.endsAt ?? snapshot.phaseEndsAt ?? null,
                 remainingMs,
                 remainingSeconds,
-                running: snapshot.running
+                running: snapshot.running,
+                physics,
+                syncSequence: sequence,
+                serverTimestamp: this._nowFn()
             }
         });
 

@@ -55,6 +55,12 @@ export class PhysicsEngine {
 
         this.elapsedTime = 0;
 
+        this._serverGameId = null;
+
+        this._lastServerSimulationTimeMs = null;
+
+        this._lastServerSnapshotSequence = null;
+
         this._isBraking = false;
 
         this._remainingBrakeTime = null;
@@ -187,6 +193,27 @@ export class PhysicsEngine {
 
     applyServerUpdate(payload = {}) {
 
+        const simulationTimeMs = Number.isFinite(payload.simulationTimeMs)
+            ? payload.simulationTimeMs
+            : payload.simulationTime;
+
+        if (payload.gameId && this._serverGameId === payload.gameId
+            && Number.isFinite(simulationTimeMs)
+            && Number.isFinite(this._lastServerSimulationTimeMs)
+            && simulationTimeMs < this._lastServerSimulationTimeMs) {
+
+            return false;
+
+        }
+
+        if (payload.gameId) this._serverGameId = payload.gameId;
+
+        if (Number.isFinite(simulationTimeMs)) {
+
+            this._lastServerSimulationTimeMs = simulationTimeMs;
+
+        }
+
         if (payload.wheelAngle !== undefined) {
 
             this.wheelAngle = normalizeAngleDegrees(payload.wheelAngle);
@@ -249,11 +276,63 @@ export class PhysicsEngine {
 
         }
 
+        return true;
+
+    }
+
+    applyServerSnapshot(payload = {}) {
+
+        const sequence = payload.syncSequence;
+
+        if (!Number.isSafeInteger(sequence) || sequence < 0) {
+
+            return false;
+
+        }
+
+        if (payload.gameId && this._serverGameId === payload.gameId
+            && Number.isSafeInteger(this._lastServerSnapshotSequence)
+            && sequence <= this._lastServerSnapshotSequence) {
+
+            return false;
+
+        }
+
+        const applied = this.applyServerUpdate({
+            ...payload,
+            simulationTime: payload.simulationTimeMs
+        });
+
+        this._lastServerSnapshotSequence = sequence;
+
+        return applied;
+
     }
 
     restoreSessionSnapshot(snapshot = {}) {
 
         const physics = snapshot.physics || snapshot;
+
+        const simulationTimeMs = Number.isFinite(physics.simulationTimeMs)
+            ? physics.simulationTimeMs
+            : null;
+
+        if (snapshot.gameId && this._serverGameId === snapshot.gameId
+            && Number.isFinite(simulationTimeMs)
+            && Number.isFinite(this._lastServerSimulationTimeMs)
+            && simulationTimeMs < this._lastServerSimulationTimeMs) {
+
+            return false;
+
+        }
+
+        if (snapshot.gameId) this._serverGameId = snapshot.gameId;
+
+        if (Number.isFinite(simulationTimeMs)) {
+
+            this._lastServerSimulationTimeMs = simulationTimeMs;
+
+        }
 
         if (physics.wheelAngle !== undefined) {
 
@@ -300,6 +379,8 @@ export class PhysicsEngine {
             this._remainingBrakeTime = Math.max(0, physics.remainingBrakeTime);
 
         }
+
+        return true;
 
     }
 

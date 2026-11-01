@@ -13,12 +13,25 @@ import {
 } from "../game/gameClock/gameClockView";
 
 import { useRegisterEngineModule } from "./EngineBridgeContext";
+import { useAuthoritativeSessionStore } from "./AuthoritativeSessionContext";
 
 const GameClockContext = createContext(null);
 
 export function GameClockProvider({ children }) {
 
     const [clock, setClock] = useState(INITIAL_GAME_CLOCK);
+
+    const authoritativeSession = useAuthoritativeSessionStore();
+
+    const belongsToActiveGame = (payload) => {
+
+        const activeGameId = authoritativeSession.getSnapshot()?.gameId;
+
+        return !activeGameId
+            || !payload?.gameId
+            || payload.gameId === activeGameId;
+
+    };
 
     // The authoritative GameClock is pushed by the server (GAME_CLOCK_UPDATE).
     // Registering the module here — above Page5 and for the whole gameplay
@@ -28,7 +41,17 @@ export function GameClockProvider({ children }) {
 
         onClockUpdate: (payload) => {
 
-            setClock(reduceGameClockUpdate(payload));
+            if (!belongsToActiveGame(payload)) return;
+
+            const receivedAt = typeof performance !== "undefined"
+                ? performance.now()
+                : Date.now();
+
+            setClock((current) => reduceGameClockUpdate(
+                payload,
+                current,
+                receivedAt
+            ));
 
         },
 
@@ -40,7 +63,13 @@ export function GameClockProvider({ children }) {
 
             }
 
-            setClock(reduceGameClockUpdate({
+            if (!belongsToActiveGame(snapshot)) return;
+
+            const receivedAt = typeof performance !== "undefined"
+                ? performance.now()
+                : Date.now();
+
+            setClock((current) => reduceGameClockUpdate({
                 gameId: snapshot.gameId ?? null,
                 phase: typeof snapshot.gameState === "string"
                     ? snapshot.gameState
@@ -54,8 +83,9 @@ export function GameClockProvider({ children }) {
                     ? Math.ceil(snapshot.remainingGameTime / 1000)
                     : null,
                 running: true,
-                serverTimestamp: snapshot.timestamp ?? Date.now()
-            }));
+                serverTimestamp: snapshot.timestamp ?? Date.now(),
+                syncSequence: snapshot.syncSequence ?? null
+            }, current, receivedAt));
 
         }
 

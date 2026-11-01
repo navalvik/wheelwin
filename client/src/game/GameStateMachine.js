@@ -8,6 +8,15 @@ import { devLog, devWarn } from "../utils/devLog";
 
 const LOG_PREFIX = "[GameState]";
 
+const SERVER_PHASE_ORDER = Object.freeze({
+    [GAME_STATES.PRE_GAME_READY]: 0,
+    [GAME_STATES.READY]: 1,
+    [GAME_STATES.SELF_TEST]: 2,
+    [GAME_STATES.SPEED]: 3,
+    [GAME_STATES.BRAKE]: 4,
+    [GAME_STATES.RESULT]: 5
+});
+
 export class GameStateMachine {
 
     constructor(initialState = GAME_STATES.READY) {
@@ -19,6 +28,10 @@ export class GameStateMachine {
         }
 
         this._state = initialState;
+
+        this._serverGameId = null;
+
+        this._serverRevision = null;
 
         this._listeners = new Set();
 
@@ -86,7 +99,7 @@ export class GameStateMachine {
 
     }
 
-    applyServerState(targetState) {
+    applyServerState(targetState, { gameId = null, revision = null } = {}) {
 
         if (!isValidGameState(targetState)) {
 
@@ -98,15 +111,83 @@ export class GameStateMachine {
 
         }
 
+        const isNewAuthoritativeGame = Boolean(
+            gameId
+            && this._serverGameId
+            && gameId !== this._serverGameId
+            && this._state === GAME_STATES.RESULT
+            && targetState === GAME_STATES.PRE_GAME_READY
+        );
+
+        if (isNewAuthoritativeGame) {
+
+            this._serverGameId = null;
+
+            this._serverRevision = null;
+
+        }
+
         if (this._state === targetState) {
 
+            if (gameId && this._serverGameId && gameId !== this._serverGameId) {
+
+                return false;
+
+            }
+
+            if (Number.isSafeInteger(revision)
+                && Number.isSafeInteger(this._serverRevision)
+                && revision < this._serverRevision) {
+
+                return false;
+
+            }
+
+            if (gameId) this._serverGameId = gameId;
+
+            if (Number.isSafeInteger(revision)) this._serverRevision = revision;
+
             return true;
+
+        }
+
+        if (!isNewAuthoritativeGame
+            && gameId
+            && this._serverGameId
+            && gameId !== this._serverGameId) {
+
+            devWarn(`${LOG_PREFIX} dropped state for a different game`);
+
+            return false;
+
+        }
+
+        if (Number.isSafeInteger(revision)
+            && Number.isSafeInteger(this._serverRevision)
+            && revision < this._serverRevision) {
+
+            devWarn(`${LOG_PREFIX} dropped stale server revision ${revision}`);
+
+            return false;
+
+        }
+
+        if (!Number.isSafeInteger(revision)
+            && SERVER_PHASE_ORDER[targetState] < SERVER_PHASE_ORDER[this._state]) {
+
+            devWarn(`${LOG_PREFIX} dropped regressive server phase ${targetState}`);
+
+            return false;
 
         }
 
         const previousState = this._state;
 
         this._state = targetState;
+
+        if (gameId) this._serverGameId = gameId;
+
+        if (Number.isSafeInteger(revision)) this._serverRevision = revision;
 
         devLog(
             `${LOG_PREFIX} [Server]\n\n${previousState} → ${targetState}`
@@ -135,6 +216,10 @@ export class GameStateMachine {
     reset() {
 
         this._state = GAME_STATES.READY;
+
+        this._serverGameId = null;
+
+        this._serverRevision = null;
 
         this._notify();
 

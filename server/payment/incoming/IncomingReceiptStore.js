@@ -72,6 +72,7 @@ export class IncomingReceiptStore {
     }
     recordUnresolved(record) { this.record({ ...record, roomId: null, ownershipStatus: 'UNRESOLVED' }); }
     get(transactionId) { return this.records.get(transactionId) ?? null; }
+    list() { return [...this.records.values()]; }
     listForRoom(roomId) { return [...this.records.values()].filter(r => r.roomId === roomId); }
     listUnresolved() { return [...this.records.values()].filter(r => r.ownershipStatus === 'UNRESOLVED'); }
 }

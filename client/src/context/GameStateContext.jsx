@@ -59,7 +59,12 @@ export function GameStateProvider({ children }) {
 
             if (state) {
 
-                machineRef.current.applyServerState(state);
+                const applied = machineRef.current.applyServerState(state, {
+                    gameId: payload?.gameId ?? null,
+                    revision: payload?.revision ?? null
+                });
+
+                if (!applied) return;
 
                 setGameState(machineRef.current.getState());
 
@@ -84,7 +89,12 @@ export function GameStateProvider({ children }) {
 
             }
 
-            machineRef.current.applyServerState(snapshot.gameState);
+            const applied = machineRef.current.applyServerState(snapshot.gameState, {
+                gameId: snapshot.gameId ?? null,
+                revision: snapshot.gameStateRevision ?? null
+            });
+
+            if (!applied) return;
 
             setGameState(machineRef.current.getState());
 

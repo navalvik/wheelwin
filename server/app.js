@@ -127,6 +127,7 @@ import { LIVE_PAYMENT_ACCEPTANCE_ENABLED } from "./payment/PaymentLifecycleAvail
 import { DeveloperConsoleProjectionService } from "./console/DeveloperConsoleProjectionService.js";
 import { registerDeveloperConsoleRoutes } from "./console/registerDeveloperConsoleRoutes.js";
 import { WalletQuarantineAdminService } from "./console/WalletQuarantineAdminService.js";
+import { FinancialObligationsReadService } from "./console/FinancialObligationsReadService.js";
 import { RoomNetworkHandoffStore } from "./network/RoomNetworkHandoffStore.js";
 import { RoomNetworkHandoffClient } from "./network/RoomNetworkHandoffClient.js";
 import { registerRoomNetworkHandoffRoutes } from "./network/registerRoomNetworkHandoffRoutes.js";
@@ -901,6 +902,8 @@ class WheelWinApplication {
             logger: this._logger,
             eventBus: this._eventBus,
             gameClockEngine: this._engines.gameClockEngine,
+            gameStateEngine: this._engines.gameStateEngine,
+            physicsEngine: this._engines.physicsEngine,
             devMode: this._productionConfig.isDevelopment
         });
 
@@ -1954,6 +1957,9 @@ class WheelWinApplication {
                 return this._adminSweepAdapter;
             }
         });
+        const financialObligationsReadService = new FinancialObligationsReadService({
+            getRuntime: () => this._paymentRuntime
+        });
         registerDeveloperConsoleRoutes(
             this._expressApp,
             this._consoleProjectionService,
@@ -1966,7 +1972,8 @@ class WheelWinApplication {
                 sessionHistoryArchive: this._sessionHistoryArchive,
                 runtimeConfigurationService: this._runtimeConfigurationService,
                 audioRegistryService: this._audioRegistryService,
-                walletQuarantineService
+                walletQuarantineService,
+                financialObligationsReadService
             }
         );
 
