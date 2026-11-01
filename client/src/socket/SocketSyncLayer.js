@@ -1,6 +1,7 @@
 import { EngineBridge } from "./EngineBridge";
 
 import { SocketDispatcher, normalizeSocketMessage } from "./SocketDispatcher";
+import { noteLocalPage5Socket, noteLocalPage5Dispatch } from "../game/diagnostics/page5LocalReport.js";
 
 import {
     INCOMING_SOCKET_EVENTS,
@@ -500,6 +501,16 @@ export class SocketSyncLayer {
 
         }
 
+        // Capture reception BEFORE dispatcher execution: a slow WebView can
+        // receive on time but apply or render the phase much later.
+        const receivedWallMs = Date.now();
+        const receivedMonoMs = typeof performance !== "undefined"
+            ? performance.now() : null;
+        noteLocalPage5Socket(
+            normalized.type, normalized.payload,
+            receivedWallMs, receivedMonoMs
+        );
+
         this._lastIncoming = normalized;
 
         this._notifyDebug();
@@ -515,7 +526,15 @@ export class SocketSyncLayer {
 
         }
 
+        const dispatchStartedAt = typeof performance !== "undefined"
+            ? performance.now() : null;
         this._dispatcher.dispatch(normalized);
+        if (dispatchStartedAt !== null) {
+            noteLocalPage5Dispatch(
+                normalized.type, performance.now() - dispatchStartedAt,
+                receivedWallMs
+            );
+        }
 
         if (normalized.type === INCOMING_SOCKET_EVENTS.PING) {
 
