@@ -1,0 +1,54 @@
+name: Testnet Page5 READY identity and phase reconciliation
+
+on:
+  push:
+    branches:
+      - fix/gzde-ready-identity-20261101
+  pull_request:
+    paths:
+      - "client/src/context/PreGameReadyContext.jsx"
+      - "client/src/context/CentralButtonContext.jsx"
+      - "client/src/context/GameStateContext.jsx"
+      - "client/src/socket/EngineBridge.js"
+      - "client/src/game/ready/**"
+      - "client/src/pages/Page5Game.jsx"
+      - "client/src/pages/Page6Result.jsx"
+      - ".github/workflows/testnet-ready-reconciliation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  client:
+    name: Client tests and production build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+
+  server-ready:
+    name: Existing server PRE_GAME_READY regressions
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+      - run: node --test tests/preGameReady.test.js tests/readyPhase.broadcaster.test.js tests/gameplayGameStateSync.integration.test.js
