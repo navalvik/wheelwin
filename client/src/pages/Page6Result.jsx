@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import GameLayout from "../layouts/GameLayout";
 
@@ -32,6 +32,12 @@ import {
 
 import { APP_PAGES } from "../game/sessionRecovery/recoveryFlow";
 import { configurePage5Diagnostics, recordPage5Diagnostic, flushPage5Diagnostics } from "../game/diagnostics/page5Telemetry.js";
+import { getLocalPage5Report } from "../game/diagnostics/page5LocalReport.js";
+import {
+    downloadPage5DeviceReport,
+    sharePage5DeviceReport,
+    copyPage5DeviceReport
+} from "../game/diagnostics/page5ReportExport.js";
 
 import { resolveLocalPlayerId } from "../game/session";
 import {
@@ -204,13 +210,16 @@ export default function Page6Result({ onFinish }) {
     const diagnosticRoomId = authoritative.roomId ?? identity.roomId;
     const diagnosticGameId = result?.gameId ?? identity.gameId ?? authoritative.gameId;
     const resultPresent = Boolean(result);
+    const [reportRevision, setReportRevision] = useState(0);
+    const [localReportFeedback, setLocalReportFeedback] = useState("");
 
     useEffect(() => {
 
         if (configurePage5Diagnostics({
             roomId: diagnosticRoomId,
             gameId: diagnosticGameId,
-            playerId: localPlayerId
+            playerId: localPlayerId,
+            nickname: identity.nickname
         })) {
             recordPage5Diagnostic({
                 kind: "page6_rendered",
@@ -220,10 +229,12 @@ export default function Page6Result({ onFinish }) {
                     ? Math.round(performance.now()) : null
             });
             flushPage5Diagnostics();
+            setReportRevision((current) => current + 1);
         }
 
     }, [
-        diagnosticRoomId, diagnosticGameId, localPlayerId, resultPresent
+        diagnosticRoomId, diagnosticGameId, localPlayerId, identity.nickname,
+        resultPresent
     ]);
 
     useEffect(() => {
@@ -346,16 +357,53 @@ export default function Page6Result({ onFinish }) {
 
     }, [gameReport, payment]);
 
-    function handleDownloadTxt() {
-
-        if (!gameReport) {
-
-            return;
-
+    const localDeviceReport = useMemo(() => {
+        if (!diagnosticRoomId || !diagnosticGameId || !localPlayerId) {
+            return null;
         }
+        return getLocalPage5Report({
+            roomId: diagnosticRoomId,
+            gameId: diagnosticGameId,
+            playerId: localPlayerId
+        });
+    }, [diagnosticRoomId, diagnosticGameId, localPlayerId, reportRevision]);
 
+    function handleDownloadTxt() {
+        if (!gameReport) return;
         downloadGameReportNative(gameReport, "txt");
+    }
 
+    function handleDeviceReportDownload() {
+        try {
+            const started = downloadPage5DeviceReport(localDeviceReport);
+            setLocalReportFeedback(started
+                ? "Download requested. If Telegram blocks it, use SHARE or COPY."
+                : "Download unavailable. Use SHARE or COPY.");
+        } catch {
+            setLocalReportFeedback("Download blocked. Use SHARE or COPY.");
+        }
+    }
+
+    async function handleDeviceReportShare() {
+        try {
+            const shared = await sharePage5DeviceReport(localDeviceReport);
+            setLocalReportFeedback(shared
+                ? "Shared using the device menu."
+                : "File sharing unavailable. Use DOWNLOAD or COPY.");
+        } catch {
+            setLocalReportFeedback("Sharing cancelled or blocked. Use COPY.");
+        }
+    }
+
+    async function handleDeviceReportCopy() {
+        try {
+            const copied = await copyPage5DeviceReport(localDeviceReport);
+            setLocalReportFeedback(copied
+                ? "Page5 JSON copied to clipboard."
+                : "Clipboard unavailable. Use SHARE or DOWNLOAD.");
+        } catch {
+            setLocalReportFeedback("Clipboard blocked. Use SHARE or DOWNLOAD.");
+        }
     }
 
     return (
@@ -515,47 +563,76 @@ export default function Page6Result({ onFinish }) {
 
                             </section>
 
-                            {gameReport ? (
+                            <div className="page6__gameReport">
 
-                                <div className="page6__gameReport">
-
-                                    <div className="page6__gameReportHeader">
-
-                                        <div className="page6__gameReportTitle">
-                                            {t("result.gameReport")}
-                                        </div>
-
-                                        <div className="page6__gameReportActions">
-
-                                            <button
-                                                type="button"
-                                                className="page6__downloadBtn"
-                                                onClick={handleDownloadTxt}
-                                            >
-                                                {t("result.downloadTxt")}
-                                            </button>
-
-                                        </div>
-
-                                    </div>
-
-                                </div>
-
-                            ) : (
-
-                                <div className="page6__gameReport page6__gameReport--pending">
+                                <div className="page6__gameReportHeader">
 
                                     <div className="page6__gameReportTitle">
-                                        {t("result.gameReport")}
-                                    </div>
-
-                                    <div className="page6__gameReportPending">
-                                        {t("result.awaitingReport")}
+                                        {t("result.gameReport")} · PAGE5 DIAGNOSTICS
                                     </div>
 
                                 </div>
 
-                            )}
+                                <div className="page6__gameReportPending">
+                                    {localDeviceReport
+                                        ? `This phone: ${localDeviceReport.nickname || "PLAYER"} · ${localDeviceReport.metrics.physicsReceived} physics packets · ${localDeviceReport.metrics.wheelPaints} wheel frames · ${localDeviceReport.metrics.mainThreadStalls} long pauses`
+                                        : "Local Page5 data not available for this player."}
+                                </div>
+
+                                {localDeviceReport?.device && (
+                                    <div className="page6__gameReportPending">
+                                        Build: {localDeviceReport.device.buildSha?.slice(0, 12) || "unknown"}
+                                        {" · "}Telegram: {localDeviceReport.device.telegramVersion || "unknown"}
+                                        {" · "}Android: {localDeviceReport.device.androidMajor ?? "n/a"}
+                                    </div>
+                                )}
+
+                                <div className="page6__gameReportActions">
+
+                                    <button
+                                        type="button"
+                                        className="page6__downloadBtn"
+                                        disabled={!localDeviceReport}
+                                        onClick={handleDeviceReportDownload}
+                                    >
+                                        DOWNLOAD JSON
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        className="page6__downloadBtn"
+                                        disabled={!localDeviceReport}
+                                        onClick={handleDeviceReportShare}
+                                    >
+                                        SHARE FILE
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        className="page6__downloadBtn"
+                                        disabled={!localDeviceReport}
+                                        onClick={handleDeviceReportCopy}
+                                    >
+                                        COPY JSON
+                                    </button>
+
+                                    {gameReport && (
+                                        <button
+                                            type="button"
+                                            className="page6__downloadBtn"
+                                            onClick={handleDownloadTxt}
+                                        >
+                                            {t("result.downloadTxt")} · SERVER
+                                        </button>
+                                    )}
+
+                                </div>
+
+                                <div className="page6__gameReportPending" aria-live="polite">
+                                    {localReportFeedback || "Save this phone's report before FINISH; send all three JSON files with the R2 ZIP."}
+                                </div>
+
+                            </div>
 
                         </div>
 

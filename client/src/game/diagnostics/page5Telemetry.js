@@ -8,6 +8,7 @@
 import socket from "../../socket/socket.js";
 import { LOBBY_OUTGOING_EVENTS } from "../../socket/socketEvents.js";
 import { createPage5DiagnosticsBuffer } from "./page5DiagnosticsBuffer.js";
+import { configureLocalPage5Report, recordLocalPage5Event } from "./page5LocalReport.js";
 
 let buffer = createPage5DiagnosticsBuffer();
 let identity = null;
@@ -40,15 +41,23 @@ export function configurePage5Diagnostics(next) {
         sending = false;
     }
     identity = values;
+    configureLocalPage5Report({
+        ...values,
+        nickname: next?.nickname ?? null
+    });
     return true;
 }
 
 export function recordPage5Diagnostic(input) {
     if (!identity) return false;
-    return buffer.record({
+    const observation = {
         ...input,
         receiveMs: input?.receiveMs ?? monotonicMs()
-    });
+    };
+    // The local report is independent of the server batch drain: even
+    // rejected/late diagnostic uploads cannot erase the phone's evidence.
+    recordLocalPage5Event(observation);
+    return buffer.record(observation);
 }
 
 function queueBufferedEvents() {

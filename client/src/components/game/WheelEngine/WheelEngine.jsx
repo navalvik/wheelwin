@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 
 import { WheelEngine as WheelEngineCore } from "./WheelRenderer";
 import { createLatestFrameRenderer } from "../../../game/physics/latestFrameRenderer.js";
+import { noteLocalPage5Canvas } from "../../../game/diagnostics/page5LocalReport.js";
 
 import "./wheelEngine.css";
 
@@ -71,7 +72,12 @@ export default function WheelEngine({
 
             engine.setAngle(getFrameRef.current().wheelAngle);
 
+            const startedAt = typeof performance !== "undefined"
+                ? performance.now() : null;
             engine.render();
+            if (startedAt !== null) {
+                noteLocalPage5Canvas("wheel", performance.now() - startedAt);
+            }
 
         });
 
