@@ -19,6 +19,7 @@ import { useWheelConfig } from "../context/WheelConfigContext";
 import { usePreGameReady } from "../context/PreGameReadyContext";
 import { useGameClock } from "../context/GameClockContext";
 import { usePhysics } from "../context/PhysicsContext";
+import { noteLocalMainThreadStall } from "../game/diagnostics/page5LocalReport.js";
 import {
     configurePage5Diagnostics,
     recordPage5Diagnostic,
@@ -144,7 +145,8 @@ export default function Page5Game({ onNavigate: _onNavigate }) {
         if (!configurePage5Diagnostics({
             roomId: identity.roomId ?? authoritative.roomId,
             gameId: diagnosticGameId,
-            playerId: localPlayerId
+            playerId: localPlayerId,
+            nickname: identity.nickname
         })) return undefined;
 
         recordPage5Diagnostic({ kind: "page5_mount" });
@@ -206,7 +208,15 @@ export default function Page5Game({ onNavigate: _onNavigate }) {
 
     useEffect(() => {
 
+        let lastTickMono = typeof performance !== "undefined"
+            ? performance.now() : null;
         const timer = setInterval(() => {
+            const tickMono = typeof performance !== "undefined"
+                ? performance.now() : null;
+            if (lastTickMono !== null && tickMono !== null) {
+                noteLocalMainThreadStall(Math.max(0, tickMono - lastTickMono - 1000));
+            }
+            lastTickMono = tickMono;
             const current = latestDiagnosticRef.current;
             if (!current) return;
             const frame = getFrame();
