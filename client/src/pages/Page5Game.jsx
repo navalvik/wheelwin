@@ -147,7 +147,7 @@ export default function Page5Game({ onNavigate: _onNavigate }) {
             playerId: identity.playerId
         })) return undefined;
 
-        recordPage5Diagnostic({ kind: "page5_mount", displayedPhase: gameState });
+        recordPage5Diagnostic({ kind: "page5_mount" });
         flushPage5Diagnostics();
 
         return () => {
@@ -294,10 +294,10 @@ export default function Page5Game({ onNavigate: _onNavigate }) {
 
     useEffect(() => {
         if (localConfirmed) {
+            const current = latestDiagnosticRef.current;
             recordPage5Diagnostic({
                 kind: "ready_ack",
-                displayedPhase: gameState,
-                buttonState: buttonSnapshot.state,
+                displayedPhase: current?.gameState ?? null,
                 readyConfirmed: true
             });
             flushPage5Diagnostics();
