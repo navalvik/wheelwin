@@ -67,9 +67,20 @@ const FIVE_MIN_MS = 5 * 60 * 1000;
         "R7.70C19A PRE_GAME_READY catalog default must be 180 seconds"
     );
     assert.equal(phases.readyDurationMs, 3000, "READY unchanged");
-    assert.equal(phases.selfTestDurationMs, 1500, "SELF_TEST unchanged");
+    assert.equal(phases.selfTestDurationMs, 2000, "SELF_TEST is 2 seconds");
+    assert.equal(
+        loadGameplayPhaseConfig({ GAMEPLAY_SELF_TEST_DURATION_MS: "1500" })
+            .selfTestDurationMs,
+        2000,
+        "stale SELF_TEST environment override cannot shorten the phase"
+    );
     assert.equal(phases.speedDurationMs, 8000, "SPEED unchanged");
     assert.equal(phases.brakeDurationMs, 6000, "BRAKE unchanged");
+    assert.equal(
+        phases.selfTestDurationMs + phases.speedDurationMs + phases.brakeDurationMs,
+        16000,
+        "SELF_TEST + SPEED + BRAKE total 16 seconds"
+    );
     assert.equal(phases.resultDurationMs, 4000, "RESULT clock phase unchanged");
     assert.equal(
         GAME_STATES.PRE_GAME_READY,

@@ -25,11 +25,56 @@ const PHASE_LABELS = Object.freeze({
     RESULT: "RESULT"
 });
 
-export function reduceGameClockUpdate(payload) {
+const GAMEPLAY_PHASE_RANK = Object.freeze({
+    PRE_GAME_READY: 0,
+    READY: 1,
+    SELF_TEST: 2,
+    SPEED: 3,
+    BRAKE: 4,
+    RESULT: 5
+});
+
+export function reduceGameClockUpdate(payload, current = INITIAL_GAME_CLOCK) {
 
     if (!payload) {
 
         return INITIAL_GAME_CLOCK;
+
+    }
+
+    const sameGame = !current?.gameId
+        || !payload.gameId
+        || payload.gameId === current.gameId;
+
+    const incomingTimestamp = Number(payload.serverTimestamp);
+
+    const currentTimestamp = Number(current?.serverTimestamp);
+
+    if (sameGame && Number.isFinite(incomingTimestamp)
+        && Number.isFinite(currentTimestamp)
+        && incomingTimestamp < currentTimestamp) {
+
+        return current;
+
+    }
+
+    const incomingRank = GAMEPLAY_PHASE_RANK[payload.phase] ?? null;
+
+    const currentRank = GAMEPLAY_PHASE_RANK[current?.phase] ?? null;
+
+    if (sameGame && incomingRank !== null && currentRank !== null
+        && incomingRank < currentRank) {
+
+        return current;
+
+    }
+
+    if (sameGame && payload.phase === current?.phase
+        && Number.isFinite(payload.remainingMs)
+        && Number.isFinite(current?.remainingMs)
+        && payload.remainingMs > current.remainingMs) {
+
+        return current;
 
     }
 

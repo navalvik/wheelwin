@@ -46,7 +46,9 @@ export const AUTHORITATIVE_SESSION_INITIAL_STATE = Object.freeze({
     players: Object.freeze({}),
     gameState: null,
     previousGameState: null,
+    gameStateServerTimestamp: null,
     clock: null,
+    gameClockServerTimestamp: null,
     configuration: null,
     winner: null,
     recovery: null,
@@ -62,6 +64,23 @@ export const AUTHORITATIVE_SESSION_INITIAL_STATE = Object.freeze({
     lastEventType: null,
     lastUpdatedAt: null
 });
+
+const GAMEPLAY_PHASE_RANK = Object.freeze({
+    PRE_GAME_READY: 0,
+    READY: 1,
+    SELF_TEST: 2,
+    SPEED: 3,
+    BRAKE: 4,
+    RESULT: 5
+});
+
+function phaseRank(phase) {
+
+    return Object.prototype.hasOwnProperty.call(GAMEPLAY_PHASE_RANK, phase)
+        ? GAMEPLAY_PHASE_RANK[phase]
+        : null;
+
+}
 
 function stamp(state, eventType) {
 
@@ -268,6 +287,12 @@ export function authoritativeSessionReducer(state, action) {
 
         case AUTHORITATIVE_SESSION_ACTIONS.GAME_START: {
 
+            const nextGameId = payload.gameId ?? state.gameId;
+
+            const gameChanged = Boolean(
+                nextGameId && state.gameId && nextGameId !== state.gameId
+            );
+
             const players = ingestPlayerList(
                 AUTHORITATIVE_SESSION_INITIAL_STATE.players,
                 payload.players
@@ -279,6 +304,15 @@ export function authoritativeSessionReducer(state, action) {
                 gameId: payload.gameId ?? state.gameId,
                 maxPlayers: payload.maxPlayers ?? state.maxPlayers,
                 players,
+                gameState: gameChanged ? null : state.gameState,
+                previousGameState: gameChanged ? null : state.previousGameState,
+                gameStateServerTimestamp: gameChanged
+                    ? null
+                    : state.gameStateServerTimestamp,
+                clock: gameChanged ? null : state.clock,
+                gameClockServerTimestamp: gameChanged
+                    ? null
+                    : state.gameClockServerTimestamp,
                 lifecycle: Object.freeze({
                     ...state.lifecycle,
                     gameStarted: true,
@@ -302,11 +336,46 @@ export function authoritativeSessionReducer(state, action) {
 
             }
 
+            if (state.gameId && payload.gameId && payload.gameId !== state.gameId) {
+
+                return state;
+
+            }
+
+            const nextRank = phaseRank(nextState);
+
+            const currentRank = phaseRank(state.gameState);
+
+            if (
+                nextRank !== null
+                && currentRank !== null
+                && nextRank < currentRank
+            ) {
+
+                return state;
+
+            }
+
+            const serverTimestamp = Number(payload.serverTimestamp ?? payload.timestamp);
+
+            if (
+                Number.isFinite(serverTimestamp)
+                && Number.isFinite(state.gameStateServerTimestamp)
+                && serverTimestamp < state.gameStateServerTimestamp
+            ) {
+
+                return state;
+
+            }
+
             return stamp({
                 ...state,
                 gameId: payload.gameId ?? state.gameId,
                 previousGameState: state.gameState,
-                gameState: nextState
+                gameState: nextState,
+                gameStateServerTimestamp: Number.isFinite(serverTimestamp)
+                    ? serverTimestamp
+                    : state.gameStateServerTimestamp
             }, action.type);
 
         }
@@ -319,10 +388,61 @@ export function authoritativeSessionReducer(state, action) {
 
             }
 
+            if (state.gameId && payload.gameId && payload.gameId !== state.gameId) {
+
+                return state;
+
+            }
+
+            const serverTimestamp = Number(payload.serverTimestamp);
+
+            if (
+                Number.isFinite(serverTimestamp)
+                && Number.isFinite(state.gameClockServerTimestamp)
+                && serverTimestamp < state.gameClockServerTimestamp
+            ) {
+
+                return state;
+
+            }
+
+            const incomingRank = phaseRank(payload.phase);
+
+            const currentClockRank = phaseRank(state.clock?.phase);
+
+            const currentStateRank = phaseRank(state.gameState);
+
+            const highestCurrentRank = Math.max(
+                currentClockRank ?? -1,
+                currentStateRank ?? -1
+            );
+
+            if (incomingRank !== null && incomingRank < highestCurrentRank) {
+
+                return state;
+
+            }
+
+            if (
+                incomingRank !== null
+                && incomingRank === currentClockRank
+                && Number.isFinite(payload.remainingMs)
+                && Number.isFinite(state.clock?.remainingMs)
+                && payload.remainingMs > state.clock.remainingMs
+                && serverTimestamp === state.gameClockServerTimestamp
+            ) {
+
+                return state;
+
+            }
+
             return stamp({
                 ...state,
                 gameId: payload.gameId ?? state.gameId,
-                clock: Object.freeze({ ...payload })
+                clock: Object.freeze({ ...payload }),
+                gameClockServerTimestamp: Number.isFinite(serverTimestamp)
+                    ? serverTimestamp
+                    : state.gameClockServerTimestamp
             }, action.type);
 
         }
