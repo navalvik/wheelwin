@@ -1,0 +1,24 @@
+import assert from "node:assert/strict";
+import { createPage5DiagnosticsBuffer, MAX_PAGE5_DIAGNOSTIC_EVENTS } from "./page5DiagnosticsBuffer.js";
+
+const buffer = createPage5DiagnosticsBuffer(3);
+assert.equal(buffer.record({kind:"sample", phase:"READY", wallet:"secret"},1000),true);
+assert.equal(buffer.record({kind:"sample"},1200),false);
+assert.equal(buffer.record({kind:"ready_attempt", buttonEnabled:false},1250),true);
+assert.equal(buffer.record({kind:"ready_sent"},1300),true);
+assert.equal(buffer.record({kind:"ready_ack"},1350),true);
+let snapshot=buffer.snapshot();
+assert.equal(snapshot.events.length,3);
+assert.equal(snapshot.events.some(e=>e.kind==="sample"),false);
+assert.equal(snapshot.droppedSamples,1);
+assert.equal(snapshot.events[0].wallet,undefined);
+assert.equal(buffer.record({kind:"state_rejected", reason:"stale"},1400),true);
+snapshot=buffer.drain();
+assert.equal(snapshot.events.length,3);
+assert.equal(snapshot.events.at(-1).reason,"stale");
+assert.equal(snapshot.droppedImportant,1);
+assert.equal(buffer.snapshot().events.length,0);
+const capped=createPage5DiagnosticsBuffer(10000);
+for(let i=0;i<1000;i++) capped.record({kind:"phase_changed",phase:"READY"},i);
+assert.equal(capped.snapshot().events.length,MAX_PAGE5_DIAGNOSTIC_EVENTS);
+console.log("page5DiagnosticsBuffer: OK");

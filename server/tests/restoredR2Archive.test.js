@@ -9,6 +9,7 @@ import { inflateRawSync } from "node:zlib";
 import { EVENT_TYPES } from "../events/EventTypes.js";
 import { SessionHistoryArchiveManager } from "../history/SessionHistoryArchiveManager.js";
 import { ForensicArchiveService } from "../forensic/ForensicArchiveService.js";
+import { recordClientGameplaySyncBatch, resetClientGameplaySyncStoreForTests } from "../forensic/ClientGameplaySyncStore.js";
 import { MockForensicArchiveUploader } from "../forensic/R2ForensicArchiveUploader.js";
 import { resolveForensicArchiveConfig } from "../forensic/forensicArchiveConfig.js";
 import { RecoveryOrchestrator } from "../recovery/RecoveryOrchestrator.js";
@@ -97,7 +98,13 @@ for (const [storedMode, expectedMode, expectedLabel] of [
 
 test("restored R2 archive ZIP contains room artifacts and uploads once", async () => {
     const f = fixture();
+    resetClientGameplaySyncStoreForTests();
     try {
+        assert.equal(recordClientGameplaySyncBatch({
+            roomId: "Abc", gameId: "game-1", playerId: "Olga",
+            rawBatch: { clientSession: "one", batchId: "1",
+                events: [{kind:"ready_attempt", buttonEnabled:false, mnemonic:"secret"}] }
+        }).ok, true);
         const uploader = new MockForensicArchiveUploader();
         const service = new ForensicArchiveService({ config: f.config, uploader });
         const result = await service.ensureArchivedAndUploaded({
@@ -112,7 +119,15 @@ test("restored R2 archive ZIP contains room artifacts and uploads once", async (
         const status = JSON.parse(readFileSync(join(f.config.stagingDir, "Abc", "status.json"), "utf8"));
         assert.equal(status.state, "uploaded");
         assert.equal(status.zipPath, null, "no local ZIP path is persisted");
-        assert.equal(status.manifest.files.length, 3);
+        assert.equal(status.manifest.files.length, 4);
+        assert.ok(status.manifest.files.some(f => f.zipPath === "forensics/client-gameplay-sync.json"));
+        const gameplayDiag = JSON.parse(extractZipEntry(zip, "forensics/client-gameplay-sync.json"));
+        assert.equal(gameplayDiag.schemaVersion, 1);
+        assert.equal(gameplayDiag.roomId, "Abc");
+        assert.equal(gameplayDiag.observed, true);
+        assert.equal(gameplayDiag.players.Olga.events[0].kind, "ready_attempt");
+        assert.equal(gameplayDiag.players.Olga.events[0].buttonEnabled, false);
+        assert.equal(gameplayDiag.players.Olga.events[0].mnemonic, undefined);
         assert.ok(status.manifest.files.some(f => f.zipPath === 'session/game-mode.json'));
         assert.ok(status.manifest.files.some(f => f.zipPath.includes("session-history")));
         assert.ok(status.manifest.files.some(f => f.zipPath.includes("diagnostic-logs")));
@@ -121,6 +136,7 @@ test("restored R2 archive ZIP contains room artifacts and uploads once", async (
         });
         assert.equal(uploader.uploads.length, 1, "completed upload is idempotent");
     } finally {
+        resetClientGameplaySyncStoreForTests();
         f.cleanup();
     }
 });

@@ -22,6 +22,7 @@ import {
     resolveRecoveryRoute
 } from "./gameplayRecoveryProtocol.js";
 import { page6LifecycleDiag } from "../logging/page6LifecycleDiag.js";
+import { recordClientGameplaySyncBatch } from "../forensic/ClientGameplaySyncStore.js";
 import {
     sanitizeIncomingPage6ClientDiag
 } from "../logging/page6ClientDiagSanitize.js";
@@ -853,9 +854,9 @@ export class SocketGateway {
         });
 
         // R12.5G — observation-only. Never mutates gameplay / navigation.
-        socket.on(LOBBY_CLIENT_EVENTS.PAGE6_CLIENT_DIAG, (payload) => {
+        socket.on(LOBBY_CLIENT_EVENTS.PAGE6_CLIENT_DIAG, (payload, acknowledge) => {
 
-            this._handlePage6ClientDiag(socket, payload);
+            this._handlePage6ClientDiag(socket, payload, acknowledge);
 
         });
 
@@ -2258,9 +2259,32 @@ export class SocketGateway {
      * R12.5G — Accept untrusted client Page6 diagnostics and forward to EventBus
      * / logger only. No gameplay, recovery, or navigation side effects.
      */
-    _handlePage6ClientDiag(socket, rawPayload) {
+    _handlePage6ClientDiag(socket, rawPayload, acknowledge) {
 
         const bound = this._gameplayContextResolver?.resolve?.(socket?.id) ?? null;
+
+        // Reuse the existing observation-only channel. Never trust client
+        // room/player/game IDs: they must match the live authenticated binding.
+        if (rawPayload?.event === "PAGE5_SYNC_BATCH") {
+
+            const idsMatch = bound?.ok === true
+                && String(rawPayload.roomId) === String(bound.roomId)
+                && String(rawPayload.playerId) === String(bound.playerId)
+                && String(rawPayload.gameId) === String(bound.gameId);
+
+            const result = idsMatch
+                ? recordClientGameplaySyncBatch({
+                    roomId: bound.roomId,
+                    gameId: bound.gameId,
+                    playerId: bound.playerId,
+                    rawBatch: rawPayload.syncBatch
+                })
+                : { ok: false, reason: "BINDING_MISMATCH" };
+
+            if (typeof acknowledge === "function") acknowledge(result);
+            return;
+
+        }
 
         const sanitized = sanitizeIncomingPage6ClientDiag(rawPayload, {
             socketId: socket?.id ?? null,

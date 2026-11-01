@@ -13,6 +13,7 @@ import {
 } from "../game/gameClock/gameClockView";
 
 import { useRegisterEngineModule } from "./EngineBridgeContext";
+import { recordPage5Diagnostic } from "../game/diagnostics/page5Telemetry.js";
 
 const GameClockContext = createContext(null);
 
@@ -28,12 +29,26 @@ export function GameClockProvider({ children }) {
 
         onClockUpdate: (payload) => {
 
+            recordPage5Diagnostic({
+                kind: "clock_received",
+                phase: payload?.phase ?? null,
+                serverTimestamp: payload?.serverTimestamp ?? null,
+                sequence: payload?.sequence ?? null,
+                clockValue: payload?.remainingSeconds ?? null
+            });
             setClock((current) => reduceGameClockUpdate(payload, current));
 
         },
 
         restoreClock: (snapshot) => {
 
+            recordPage5Diagnostic({
+                kind: "recovery",
+                phase: typeof snapshot?.gameState === "string"
+                    ? snapshot.gameState : snapshot?.gameState?.currentState ?? null,
+                serverTimestamp: snapshot?.timestamp ?? null,
+                reason: "clock_snapshot"
+            });
             if (!snapshot) {
 
                 return;

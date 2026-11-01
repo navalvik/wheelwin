@@ -31,6 +31,7 @@ import {
 } from "../game/result/webPage6StateDiag";
 
 import { APP_PAGES } from "../game/sessionRecovery/recoveryFlow";
+import { configurePage5Diagnostics, recordPage5Diagnostic, flushPage5Diagnostics } from "../game/diagnostics/page5Telemetry.js";
 
 import { resolveLocalPlayerId } from "../game/session";
 import {
@@ -199,6 +200,31 @@ export default function Page6Result({ onFinish }) {
             verifyCompleted: Boolean(authoritative.lifecycle?.verifyCompleted)
         }
     );
+
+    const diagnosticRoomId = authoritative.roomId ?? identity.roomId;
+    const diagnosticGameId = result?.gameId ?? identity.gameId ?? authoritative.gameId;
+    const resultPresent = Boolean(result);
+
+    useEffect(() => {
+
+        if (configurePage5Diagnostics({
+            roomId: diagnosticRoomId,
+            gameId: diagnosticGameId,
+            playerId: identity.playerId
+        })) {
+            recordPage5Diagnostic({
+                kind: "page6_rendered",
+                displayedPhase: "RESULT",
+                reason: resultPresent ? "result_present" : "result_not_yet_present",
+                renderMs: typeof performance !== "undefined"
+                    ? Math.round(performance.now()) : null
+            });
+            flushPage5Diagnostics();
+        }
+
+    }, [
+        diagnosticRoomId, diagnosticGameId, identity.playerId, resultPresent
+    ]);
 
     useEffect(() => {
 

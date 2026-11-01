@@ -8,6 +8,7 @@ import {
 
 import { useRegisterEngineModule } from "./EngineBridgeContext";
 import { usePlayerIdentity } from "./PlayerIdentityContext";
+import { recordPage5Diagnostic } from "../game/diagnostics/page5Telemetry.js";
 
 const INITIAL_STATE = Object.freeze({
     readyPlayers: {},
@@ -49,11 +50,33 @@ export function PreGameReadyProvider({ children }) {
 
     useRegisterEngineModule("preGameReady", () => ({
 
-        onPreGameReadyStarted: applyPayload,
+        onPreGameReadyStarted: (payload) => {
+            recordPage5Diagnostic({
+                kind: "ready_phase_started",
+                phase: "PRE_GAME_READY",
+                reason: "server_started",
+                serverTimestamp: payload?.startedAt ?? null
+            });
+            applyPayload(payload);
+        },
 
-        onPreGameReadyUpdated: applyPayload,
+        onPreGameReadyUpdated: (payload) => {
+            recordPage5Diagnostic({
+                kind: "ready_phase_updated",
+                phase: "PRE_GAME_READY",
+                reason: "server_updated"
+            });
+            applyPayload(payload);
+        },
 
-        onPreGameReadyCompleted: clearState,
+        onPreGameReadyCompleted: () => {
+            recordPage5Diagnostic({
+                kind: "ready_phase_completed",
+                phase: "PRE_GAME_READY",
+                reason: "server_completed"
+            });
+            clearState();
+        },
 
         restorePreGameReady: (snapshot) => {
 
