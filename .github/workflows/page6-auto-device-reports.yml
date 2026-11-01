@@ -1,0 +1,52 @@
+name: Page6 auto device reports one final R2 ZIP
+
+on:
+  push:
+    branches:
+      - feat/page6-auto-device-report-single-r2-zip-20261101
+  pull_request:
+    paths:
+      - "server/forensic/**"
+      - "server/socket/SocketGateway.js"
+      - "server/app.js"
+      - "server/tests/page5Device*"
+      - "client/src/pages/Page6Result.jsx"
+      - "client/src/game/diagnostics/page5AutoReportSender*"
+      - ".github/workflows/page6-auto-device-reports.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  server:
+    name: Server finality, binding and R2 single-ZIP integration
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+      - run: node --test tests/page5DeviceArchive.integration.test.js tests/page5DeviceReportSocket.test.js tests/page5ClientDiagSocket.test.js tests/oneFinalForensicArchive.test.js tests/restoredR2Archive.test.js
+  client:
+    name: Full client tests and production Vite build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
