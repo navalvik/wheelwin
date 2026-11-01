@@ -11,7 +11,7 @@ const PRIORITY_EVENTS = new Set([
     "ready_phase_started", "ready_phase_completed",
     "phase_changed", "state_rejected", "recovery",
     "page5_mount", "page5_unmount", "page6_received",
-    "page6_rendered", "connection_changed", "client_error"
+    "page6_rendered", "connection_changed", "visibility_changed", "client_error"
 ]);
 const MAX_BATCH_BYTES = 14000;
 const RETENTION_MS = 3 * 60 * 60 * 1000;
