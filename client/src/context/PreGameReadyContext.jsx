@@ -9,6 +9,7 @@ import {
 import { useRegisterEngineModule } from "./EngineBridgeContext";
 import { usePlayerIdentity } from "./PlayerIdentityContext";
 import { recordPage5Diagnostic } from "../game/diagnostics/page5Telemetry.js";
+import { resolveReadyPlayerId, isLocalPlayerReady } from "../game/ready/readyIdentity.js";
 
 const INITIAL_STATE = Object.freeze({
     readyPlayers: {},
@@ -21,7 +22,9 @@ const PreGameReadyContext = createContext(null);
 
 export function PreGameReadyProvider({ children }) {
 
-    const { playerId: localPlayerId } = usePlayerIdentity();
+    const identityContext = usePlayerIdentity();
+
+    const localPlayerId = resolveReadyPlayerId(identityContext);
 
     const [state, setState] = useState(INITIAL_STATE);
 
@@ -94,8 +97,7 @@ export function PreGameReadyProvider({ children }) {
 
     }));
 
-    const localConfirmed = localPlayerId != null
-        && state.readyPlayers[localPlayerId] === true;
+    const localConfirmed = isLocalPlayerReady(state.readyPlayers, localPlayerId);
 
     const value = useMemo(() => ({
         ...state,
