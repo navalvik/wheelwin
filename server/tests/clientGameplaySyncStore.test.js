@@ -43,6 +43,7 @@ for (let i = 0; i < 250; i++) {
 snapshot = getClientGameplaySyncSnapshot("ROOMA");
 assert.equal(snapshot.players.Olga.events.length, 240);
 assert.equal(snapshot.players.Olga.events.at(-1).sequence, 249);
+assert.equal(snapshot.players.Olga.events.some(e => e.kind === "ready_attempt"), true);
 resetClientGameplaySyncStoreForTests();
 assert.equal(getClientGameplaySyncSnapshot("ROOMA").observed, false);
 console.log("clientGameplaySyncStore: OK");
