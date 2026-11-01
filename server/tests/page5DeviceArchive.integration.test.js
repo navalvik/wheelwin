@@ -178,3 +178,34 @@ test("missing handset does not block FINAL financial ZIP beyond 90s",async()=>{
         assert.equal(f.uploader.uploads.length,1);
     } finally {f.cleanup();}
 });
+
+test("zero connected handsets: paid game still produces one final R2 ZIP",async()=>{
+    // All three paid before Page5 and may disconnect permanently. The result,
+    // winner payout and financial finality are server-owned; client telemetry
+    // must never become a permanent archive or settlement prerequisite.
+    const f=fixture({finishedAt:Date.now()-PAGE5_DEVICE_REPORT_WAIT_MS-1000});
+    try {
+        assert.equal(f.store.snapshot(roomId,gameId).received,0);
+        const result=await f.service.ensureArchivedAndUploaded({
+            roomId,gameId,reason:"game_completed"
+        });
+        assert.equal(result.uploaded,true);
+        assert.equal(f.uploader.uploads.length,1);
+        assert.equal(f.uploader.objects.size,1);
+        const archive=f.uploader.uploads[0].bytes;
+        const reportManifest=JSON.parse(extractZipEntry(
+            archive,"forensics/page5-device-report-manifest.json"
+        ));
+        assert.deepEqual(
+            {received:reportManifest.received,missing:reportManifest.missing,
+                complete:reportManifest.complete},
+            {received:0,missing:3,complete:false}
+        );
+        assert.ok(JSON.parse(extractZipEntry(archive,"financial/final-report.json")));
+        assert.equal((await f.service.ensureArchivedAndUploaded({
+            roomId,gameId,reason:"game_completed"
+        })).uploaded,true);
+        assert.equal(f.uploader.uploads.length,1,
+            "never publish a second ZIP even if all 3 clients are absent");
+    } finally {f.cleanup();}
+});
