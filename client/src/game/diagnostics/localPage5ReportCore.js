@@ -136,6 +136,20 @@ export function createLocalPage5Report({ now = Date.now, mono = () => null } = {
             droppedEvents = 0;
             lastSample = new Map();
         }
+        const sameGame = identity && identity.roomId === newIdentity.roomId
+            && identity.gameId === newIdentity.gameId
+            && identity.playerId === newIdentity.playerId;
+        const oldOriginMs = source?.timeOriginMs;
+        const newOriginMs = numeric(extra?.timeOriginMs);
+        if (sameGame && oldOriginMs !== null && oldOriginMs !== undefined
+            && newOriginMs !== null && Math.abs(oldOriginMs - newOriginMs) > 100) {
+            // WebView document was reloaded. Monotonic times from the previous
+            // document MUST NOT be subtracted from new performance.now() values.
+            stats.lastPhysicsMonoMs = null;
+            stats.page6PacketMonoMs = null;
+            stats.page6RenderedMonoMs = null;
+            append({ kind: "recovery", reason: "webview_document_reloaded" });
+        }
         identity = { ...newIdentity, nickname: newIdentity.nickname ?? identity?.nickname ?? null };
         if (extra && typeof extra === "object") {
             source = {
