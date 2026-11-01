@@ -1,0 +1,34 @@
+name: 8JfK Page5 visual render backpressure
+
+on:
+  push:
+    branches:
+      - fix/8jfk-page5-canvas-render-backpressure
+  pull_request:
+    paths:
+      - "client/src/game/physics/latestFrameRenderer*"
+      - "client/src/components/game/WheelEngine/WheelEngine.jsx"
+      - "client/src/components/game/TriangleEngine/TriangleEngine.jsx"
+      - ".github/workflows/8jfk-page5-canvas.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  client:
+    name: Existing client tests, render throttling and production build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
