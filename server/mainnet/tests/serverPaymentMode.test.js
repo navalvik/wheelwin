@@ -78,6 +78,12 @@ test("server app selects Mainnet bootstrap before the Testnet runtime branch", (
         /configureReservedWalletRoomNumberResolver\([\s\S]*?walletPool\.getReservationForRoom\(roomId\).*?roomNumber/);
     assert.match(app.slice(mainnetBranch, testnetBranch), /recordPage5Started\(roomId\)/);
     assert.match(app.slice(mainnetBranch, testnetBranch), /EVENT_TYPES\.GAME_START_BOOTSTRAP_READY/);
+    assert.match(app.slice(mainnetBranch, testnetBranch),
+        /new MainnetWinnerPayoutCoordinator\([\s\S]*?winnerEngine: this\._engines\.winnerEngine/);
+    assert.match(app.slice(mainnetBranch, testnetBranch),
+        /EVENT_TYPES\.GAME_RESULT_READY,[\s\S]*?this\._mainnetGameResultReadyHandler/);
+    assert.match(app.slice(mainnetBranch, testnetBranch),
+        /_mainnetWinnerPayoutCoordinator\.onGameResult\(\{ gameId \}\)/);
     assert.match(app.slice(mainnetBranch, testnetBranch), /hasPage5Started\(roomId\)/);
     assert.match(app.slice(mainnetBranch, testnetBranch),
         /roomManager\.attachRefundLifecycle\(\s*mainnetBootstrap\.paymentRuntime\.refundLifecycle\s*\)/);

@@ -126,6 +126,7 @@ import { bindPaymentRuntimeToApplication } from "./payment/runtime/PaymentApplic
 import { LIVE_PAYMENT_ACCEPTANCE_ENABLED } from "./payment/PaymentLifecycleAvailability.js";
 import { initializeMainnetServerRuntime, resolveServerPaymentMode } from "./mainnet/ServerPaymentMode.js";
 import { MainnetPage4PaymentApplicationBinding } from "./mainnet/payment/MainnetPage4PaymentApplicationBinding.js";
+import { MainnetWinnerPayoutCoordinator } from "./mainnet/payment/MainnetWinnerPayoutCoordinator.js";
 
 import { DeveloperConsoleProjectionService } from "./console/DeveloperConsoleProjectionService.js";
 import { registerDeveloperConsoleRoutes } from "./console/registerDeveloperConsoleRoutes.js";
@@ -262,6 +263,8 @@ class WheelWinApplication {
         this._mainnetBootstrap = null;
         this._mainnetPaymentRuntime = null;
         this._mainnetPage5StartedHandler = null;
+        this._mainnetGameResultReadyHandler = null;
+        this._mainnetWinnerPayoutCoordinator = null;
         this._mainnetRuntimeReady = false;
         this._nativeRoomWalletAdapter = null;
         this._adminSweepAdapter = null;
@@ -1289,6 +1292,32 @@ class WheelWinApplication {
                 // shared game-start barrier.
                 this._gameStartAuthorization.configurePaymentGate(
                     mainnetBootstrap.paymentRuntime.gameStartPaymentGate
+                );
+
+                this._mainnetWinnerPayoutCoordinator = new MainnetWinnerPayoutCoordinator({
+                    paymentRuntime: mainnetBootstrap.paymentRuntime,
+                    walletPool: mainnetBootstrap.walletPool,
+                    roomManager: this._managers.roomManager,
+                    playerManager: this._managers.playerManager,
+                    contextResolver: this._gameplayContextResolver,
+                    winnerEngine: this._engines.winnerEngine
+                });
+                this._mainnetGameResultReadyHandler = envelope => {
+                    const gameId = envelope?.payload?.gameId;
+                    void Promise.resolve()
+                        .then(() => this._mainnetWinnerPayoutCoordinator.onGameResult({ gameId }))
+                        .then(outcome => this._logger.info(
+                            `MAINNET_WINNER_PAYOUT | gameId=${gameId} | status=${outcome.status}`
+                                + ` | payoutId=${outcome.payoutId}`
+                        ))
+                        .catch(error => this._logger.warn(
+                            `MAINNET_WINNER_PAYOUT_PENDING | gameId=${gameId}`
+                                + ` | reason=${error?.message ?? "unavailable"}`
+                        ));
+                };
+                this._eventBus.subscribe(
+                    EVENT_TYPES.GAME_RESULT_READY,
+                    this._mainnetGameResultReadyHandler
                 );
 
                 this._logger.startupLine(
@@ -3830,6 +3859,15 @@ class WheelWinApplication {
             );
             this._mainnetPage5StartedHandler = null;
         }
+
+        if (this._mainnetGameResultReadyHandler) {
+            this._eventBus.unsubscribe(
+                EVENT_TYPES.GAME_RESULT_READY,
+                this._mainnetGameResultReadyHandler
+            );
+            this._mainnetGameResultReadyHandler = null;
+        }
+        this._mainnetWinnerPayoutCoordinator = null;
 
         this._eventBus.shutdown();
 
