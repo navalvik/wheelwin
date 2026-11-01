@@ -51,6 +51,7 @@ import { evaluateFinalForensicArchive } from "./forensic/FinalForensicArchiveGat
 import { purgeLocalForensicArchiveZips } from "./forensic/purgeLocalForensicArchiveZips.js";
 import { R2ForensicArchiveUploader } from "./forensic/R2ForensicArchiveUploader.js";
 import { resolveForensicArchiveConfig } from "./forensic/forensicArchiveConfig.js";
+import { resolveFinancialArchiveRuntimeBinding } from "./mainnet/payment/MainnetForensicFinancialSnapshot.js";
 import { LOG_LEVELS } from "./logging/levels.js";
 import { MonitoringManager } from "./monitoring/MonitoringManager.js";
 import { FailurePolicyManager } from "./failure/FailurePolicyManager.js";
@@ -1877,6 +1878,12 @@ class WheelWinApplication {
         // On Railway, keep history in the existing mounted volume so it can
         // survive a restart and support later R2 archive reconciliation.
         const archiveConfig = resolveForensicArchiveConfig();
+        const archiveBinding = resolveFinancialArchiveRuntimeBinding({
+            paymentMode: resolveServerPaymentMode(process.env),
+            archiveConfig,
+            testnetRuntime: this._paymentRuntime,
+            mainnetRuntime: this._mainnetPaymentRuntime
+        });
         this._sessionHistoryArchive = SessionHistoryArchiveManager.getInstance();
 
         this._sessionHistoryArchive.initialize({
@@ -1910,12 +1917,12 @@ class WheelWinApplication {
         try {
             const archiveUploader = new R2ForensicArchiveUploader({
                 logger: this._logger,
-                bucket: archiveConfig.bucket,
-                prefix: archiveConfig.prefix,
-                endpoint: archiveConfig.endpoint,
-                accessKeyId: archiveConfig.accessKeyId,
-                secretAccessKey: archiveConfig.secretAccessKey,
-                accountId: archiveConfig.accountId
+                bucket: archiveBinding.config.bucket,
+                prefix: archiveBinding.config.prefix,
+                endpoint: archiveBinding.config.endpoint,
+                accessKeyId: archiveBinding.config.accessKeyId,
+                secretAccessKey: archiveBinding.config.secretAccessKey,
+                accountId: archiveBinding.config.accountId
             });
             this._clientPage5DeviceReportStore = new ClientPage5DeviceReportStore({
                 stagingDir: archiveConfig.stagingDir,
@@ -1923,9 +1930,9 @@ class WheelWinApplication {
             });
             this._forensicArchiveService = new ForensicArchiveService({
                 logger: this._logger,
-                config: archiveConfig,
+                config: archiveBinding.config,
                 deviceReportStore: this._clientPage5DeviceReportStore,
-                financialSnapshotProvider: roomId => this._paymentRuntime?.financialSnapshot(roomId),
+                financialSnapshotProvider: archiveBinding.financialSnapshotProvider,
                 finalityChecker: (snapshot, {sessionRecord}) =>
                     evaluateFinalForensicArchive({snapshot,sessionRecord}),
                 gameReportEngine: this._gameReportEngine,

@@ -9,6 +9,7 @@ import { MainnetTonapiPayoutVerifier } from "./MainnetTonapiPayoutVerifier.js";
 import { MainnetToncenterOutgoingTransferObserver } from "./MainnetToncenterOutgoingTransferObserver.js";
 import { MainnetToncenterReadClient } from "./MainnetToncenterReadClient.js";
 import { MainnetGameStartPaymentGate } from "./MainnetGameStartPaymentGate.js";
+import { createMainnetForensicFinancialSnapshot } from "./MainnetForensicFinancialSnapshot.js";
 
 const DISABLED_ADAPTER = Object.freeze({
     async estimateOutboundTransferFee() { throw new Error("MAINNET_LIVE_FINANCIAL_OPERATIONS_DISABLED"); },
@@ -61,4 +62,12 @@ export class MainnetPaymentRuntime {
     }
 
     initialize() { return this; }
+
+    financialSnapshot(roomId) {
+        return createMainnetForensicFinancialSnapshot({
+            roomId,
+            incomingLedger: this.incomingLedger,
+            financialLedger: this.financialLedger
+        });
+    }
 }
