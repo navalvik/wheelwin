@@ -9,6 +9,12 @@ import test from "node:test";
 const mainnetDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = resolve(mainnetDir, "..", "..");
 const baseline = "643050aad9f48ebf16993f2bf99cbff4edc85a0b";
+const allowedSharedIntegrationFiles = new Set([
+    "server/app.js",
+    "server/socket/RoomLobbyBridge.js",
+    "client/src/pages/Page4Payment.jsx",
+    "client/src/tests/page4Payment.render.test.js"
+]);
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const canonicalCheckoutBytes = (bytes) => {
     if (bytes.includes(0)) return bytes;
@@ -52,13 +58,13 @@ test("all files present at Testnet baseline retain identical canonical SHA-256",
             mismatches.push(`${file}: missing`);
             continue;
         }
-        if (file !== "server/app.js"
+        if (!allowedSharedIntegrationFiles.has(file)
             && sha256(original) !== sha256(canonicalCheckoutBytes(current))) mismatches.push(file);
     }
     assert.deepEqual(mismatches, [], `Testnet baseline file hash differences: ${mismatches.join(", ")}`);
 });
 
-test("Mainnet startup integration is the only permitted change outside server/mainnet", () => {
+test("only Mainnet runtime and Page4 integration paths changed outside server/mainnet", () => {
     const changed = execFileSync("git", ["diff", "--name-only", baseline, "HEAD"], {
         cwd: repoRoot,
         encoding: "utf8"
@@ -67,7 +73,7 @@ test("Mainnet startup integration is the only permitted change outside server/ma
     const worktreePaths = status.split(/\r?\n/).filter(Boolean).map((line) => line.slice(3));
     const paths = [...changed, ...worktreePaths];
     const outside = [...new Set(paths)].filter((file) =>
-        !file.startsWith("server/mainnet/") && file !== "server/app.js");
+        !file.startsWith("server/mainnet/") && !allowedSharedIntegrationFiles.has(file));
     assert.deepEqual(outside, [], `non-Mainnet paths changed: ${outside.join(", ")}`);
 });
 
@@ -92,4 +98,32 @@ test("Testnet payment runtime setup remains byte-for-byte unchanged inside app.j
     };
 
     assert.equal(extract(currentApp, true), extract(baselineApp, false));
+});
+
+test("Testnet payment status delivery and requirement derivation remain unchanged", () => {
+    const baselineBridge = execFileSync("git", ["show", `${baseline}:server/socket/RoomLobbyBridge.js`], {
+        cwd: repoRoot,
+        encoding: "utf8"
+    });
+    const currentBridge = readFileSync(resolve(repoRoot, "server/socket/RoomLobbyBridge.js"), "utf8");
+    const extract = (source, startMarker, endMarker) => {
+        source = source.replace(/\r\n/g, "\n");
+        const start = source.indexOf(startMarker);
+        const end = source.indexOf(endMarker, start);
+        assert.ok(start >= 0 && end > start, `expected section ${startMarker}`);
+        return source.slice(start, end);
+    };
+    const statusStart = "        const paymentService = runtime ? runtime.paymentService : null;";
+    const statusEnd = "    _isAuthoritativeSettledPrincipal(entry, intent) {";
+    assert.equal(extract(currentBridge, statusStart, statusEnd),
+        extract(baselineBridge, statusStart, statusEnd));
+
+    const prepareStart = "        const uniquePlayers = new Set(room.players);";
+    const prepareEnd = "\n    }\n\n";
+    assert.equal(extract(currentBridge, prepareStart, prepareEnd),
+        extract(baselineBridge, prepareStart, prepareEnd));
+
+    const currentPage4 = readFileSync(resolve(repoRoot, "client/src/pages/Page4Payment.jsx"), "utf8");
+    assert.match(currentPage4, /const payable = !mainnetMode && payment\.paymentAcceptanceEnabled === true/);
+    assert.match(currentPage4, /Payments are unavailable\. Do not send GRAM to any room wallet\./);
 });

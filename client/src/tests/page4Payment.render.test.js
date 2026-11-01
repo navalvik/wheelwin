@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import process from "node:process";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 import { createServer } from "vite";
@@ -49,10 +51,20 @@ try {
 
     assert.match(html, /PAYMENT/,
         "Page4 renders the payment page heading");
-    assert.match(html, /Payments are unavailable\. Do not send GRAM to any room wallet\./,
-        "Page4 explains why payment is unavailable");
+    assert.match(html, /Checking payment availability\. Do not send funds to any room wallet\./,
+        "Page4 waits for the server-selected payment network before naming it");
     assert.doesNotMatch(html, /Room wallet:|Transfer comment:|CHECK PAYMENT|CONNECT TESTNET WALLET/,
         "Page4 does not expose the old raw payment details and separate actions");
+
+    const pageSource = readFileSync(resolve(clientRoot, "src/pages/Page4Payment.jsx"), "utf8");
+    assert.match(pageSource, /const payable = !mainnetMode && payment\.paymentAcceptanceEnabled === true/,
+        "Mainnet cannot enable the TonConnect transfer flow");
+    assert.match(pageSource, /payment\.paymentAcceptanceEnabled && !mainnetMode/,
+        "Mainnet never renders transfer QR or wallet instructions");
+    assert.match(pageSource, /Mainnet payments are unavailable\. Do not send TON\./,
+        "Page4 clearly says Mainnet payments are unavailable");
+    assert.match(pageSource, /Payments are unavailable\. Do not send GRAM to any room wallet\./,
+        "the existing Testnet-unavailable message is preserved");
 } finally {
     await vite.close();
 }

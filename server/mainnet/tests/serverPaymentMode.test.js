@@ -69,6 +69,8 @@ test("server app selects Mainnet bootstrap before the Testnet runtime branch", (
     assert.ok(testnetBranch > mainnetBootstrap);
     assert.ok(testnetRuntime > testnetBranch);
     assert.match(app.slice(mainnetBranch, testnetBranch),
+        /new MainnetPage4PaymentApplicationBinding\(/);
+    assert.match(app.slice(mainnetBranch, testnetBranch),
         /configurePaymentGate\(\s*mainnetBootstrap\.paymentRuntime\.gameStartPaymentGate\s*\)/);
     assert.match(app.slice(mainnetBranch, testnetBranch), /_paymentRuntimeReady = true/);
     assert.match(app.slice(mainnetBranch, testnetBranch), /paidGameStart=disabled/);

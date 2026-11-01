@@ -125,6 +125,7 @@ import {
 import { bindPaymentRuntimeToApplication } from "./payment/runtime/PaymentApplicationBinder.js";
 import { LIVE_PAYMENT_ACCEPTANCE_ENABLED } from "./payment/PaymentLifecycleAvailability.js";
 import { initializeMainnetServerRuntime, resolveServerPaymentMode } from "./mainnet/ServerPaymentMode.js";
+import { MainnetPage4PaymentApplicationBinding } from "./mainnet/payment/MainnetPage4PaymentApplicationBinding.js";
 
 import { DeveloperConsoleProjectionService } from "./console/DeveloperConsoleProjectionService.js";
 import { registerDeveloperConsoleRoutes } from "./console/registerDeveloperConsoleRoutes.js";
@@ -1244,11 +1245,18 @@ class WheelWinApplication {
                 this._mainnetPaymentRuntime = mainnetBootstrap.paymentRuntime;
                 this._mainnetRuntimeReady = true;
                 this._paymentRuntimeReady = true;
+                this._paymentApplicationBinding = new MainnetPage4PaymentApplicationBinding({
+                    runtime: mainnetBootstrap.paymentRuntime,
+                    walletPool: mainnetBootstrap.walletPool,
+                    dataDir: mainnetBootstrap.config.dataDir,
+                    roomManager: this._managers.roomManager
+                });
 
-                // Use the existing Mainnet ledger-backed gate. Page4/payment
-                // intent creation remains unconnected, and live financial
-                // operations stay disabled; only authoritative 3/3 ledger
-                // confirmations can satisfy this shared game-start barrier.
+                // Use the existing Mainnet ledger-backed gate and prepare
+                // Page4 intents through the Mainnet-only application binding.
+                // Live financial operations remain disabled; only
+                // authoritative 3/3 ledger confirmations can satisfy this
+                // shared game-start barrier.
                 this._gameStartAuthorization.configurePaymentGate(
                     mainnetBootstrap.paymentRuntime.gameStartPaymentGate
                 );

@@ -59,13 +59,26 @@ export default function Page4Payment() {
     const [transferQr, setTransferQr] = useState(null);
     const [showTransferQr, setShowTransferQr] = useState(false);
     const paymentReferenceRef = useRef(null);
+    const mainnetMode = payment.network === "mainnet";
+    const networkLabel = mainnetMode ? "MAINNET"
+        : payment.network === "testnet" ? "TESTNET" : "NETWORK";
 
     useEffect(() => {
         let disposed = false;
-        setTransferQr(null);
+        if (mainnetMode || payment.paymentAcceptanceEnabled !== true) return undefined;
         let uri;
         try {
-            uri = buildRoomWalletTransferUri(payment);
+            uri = buildRoomWalletTransferUri({
+                paymentAcceptanceEnabled: payment.paymentAcceptanceEnabled,
+                status: payment.status,
+                paymentReference: payment.paymentReference,
+                destinationWalletAddress: payment.destinationWalletAddress,
+                payerAddress: payment.payerAddress,
+                amountAtomic: payment.amountAtomic,
+                expiresAt: payment.expiresAt,
+                network: payment.network,
+                asset: payment.asset
+            });
         } catch {
             return undefined;
         }
@@ -80,7 +93,7 @@ export default function Page4Payment() {
         return () => { disposed = true; clearTimeout(expiry); };
     }, [payment.paymentReference, payment.status, payment.paymentAcceptanceEnabled,
         payment.destinationWalletAddress, payment.payerAddress, payment.amountAtomic,
-        payment.expiresAt, payment.network, payment.asset]);
+        payment.expiresAt, payment.network, payment.asset, mainnetMode]);
 
     // Only request the authoritative payment state once per identity cycle.
     // Resetting the flag when the identity changes lets a later identity
@@ -104,8 +117,13 @@ export default function Page4Payment() {
                 || typeof payload.status !== "string") {
                 return;
             }
+            const nextPaymentReference = payload.paymentReference ?? null;
+            if (paymentReferenceRef.current !== nextPaymentReference) {
+                setTransferQr(null);
+                setShowTransferQr(false);
+            }
             setPayment(payload);
-            paymentReferenceRef.current = payload.paymentReference ?? null;
+            paymentReferenceRef.current = nextPaymentReference;
             setSentToWallet(submissionAttemptIsActive(localStorage, payload.paymentReference));
         }
 
@@ -137,6 +155,7 @@ export default function Page4Payment() {
     // catalog is never scanned. Stop immediately on settlement/unmount/expiry.
     useEffect(() => {
         if (!roomId || !playerId
+            || mainnetMode
             || payment.paymentAcceptanceEnabled !== true
             || !["AWAITING_PAYMENT", "MATCHED", "AWAITING_CONFIRMATION"].includes(payment.status)
             || !Number.isSafeInteger(payment.expiresAt)) return undefined;
@@ -152,10 +171,10 @@ export default function Page4Payment() {
         const id = setInterval(check, 3000);
         return () => clearInterval(id);
     }, [roomId, playerId, payment.paymentAcceptanceEnabled,
-        payment.status, payment.expiresAt, payment.paymentReference]);
+        payment.status, payment.expiresAt, payment.paymentReference, mainnetMode]);
 
     const walletMatches = payerMatchesConnectedWallet(payment.payerAddress, connectedWallet, payment.network);
-    const payable = payment.paymentAcceptanceEnabled === true
+    const payable = !mainnetMode && payment.paymentAcceptanceEnabled === true
         && status === "AWAITING_PAYMENT";
 
     const localPlayerId = resolveLocalPlayerId(
@@ -232,7 +251,7 @@ export default function Page4Payment() {
             <section className="page4Payment" aria-live="polite">
                 <div className="page4Payment__panel">
                     <div className="page4Payment__identity">
-                        YOUR NICKNAME: {localPlayer?.nickname ?? "—"} · TESTNET
+                        YOUR NICKNAME: {localPlayer?.nickname ?? "—"} · {networkLabel}
                     </div>
 
                     <div className="page4Payment__players">
@@ -252,15 +271,19 @@ export default function Page4Payment() {
                                 </div>
                                 <div className="page4Payment__detail">
                                     <span>STATUS</span>
-                                    <strong>{status === "SETTLED" && player.isLocal
-                                        ? "Payment verified"
-                                        : "Waiting for payments"}</strong>
+                                    <strong>{mainnetMode
+                                        ? payment.playerPaymentStatuses?.find(item => item.playerId === player.playerId)?.status === "SETTLED"
+                                            ? "Payment verified"
+                                            : "Payment unavailable"
+                                        : status === "SETTLED" && player.isLocal
+                                            ? "Payment verified"
+                                            : "Waiting for payments"}</strong>
                                 </div>
                             </article>
                         ))}
                     </div>
 
-                    {payment.paymentAcceptanceEnabled ? (
+                    {payment.paymentAcceptanceEnabled && !mainnetMode ? (
                         <>
                             <div className="page4Payment__summary">
                                 PAY (AMOUNT) {assetLabel}: {amount ?? "—"} {assetLabel}
@@ -337,7 +360,11 @@ export default function Page4Payment() {
                         </>
                     ) : (
                         <p className="page4Payment__waiting">
-                            Payments are unavailable. Do not send GRAM to any room wallet.
+                            {mainnetMode
+                                ? `Mainnet payments are unavailable. Do not send TON. Ledger status: ${payment.confirmedCount ?? 0}/3 confirmed.`
+                                : payment.network === "testnet"
+                                    ? "Payments are unavailable. Do not send GRAM to any room wallet."
+                                    : "Checking payment availability. Do not send funds to any room wallet."}
                         </p>
                     )}
                 </div>

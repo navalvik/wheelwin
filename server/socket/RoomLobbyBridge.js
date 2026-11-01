@@ -5516,10 +5516,11 @@ export class RoomLobbyBridge {
             }
         });
 
-        // Create payment intents before Page4 receives its first authoritative
-        // snapshot; otherwise all three seats see PAYMENT_UNAVAILABLE even
-        // when real intake is enabled.
-        if (LIVE_PAYMENT_ACCEPTANCE_ENABLED) {
+        // Create intents before Page4 receives its first authoritative
+        // snapshot. Mainnet prepares durable ledger records while keeping live
+        // acceptance and all payment instructions disabled.
+        const mainnetPaymentMode = this._paymentApplicationBinding?.runtime?.network === "mainnet";
+        if (LIVE_PAYMENT_ACCEPTANCE_ENABLED || mainnetPaymentMode) {
             this._preparePaymentSessionIfEnabled(roomId, room);
         }
 
@@ -5588,6 +5589,61 @@ export class RoomLobbyBridge {
 
         const binding = this._paymentApplicationBinding;
         const runtime = binding && binding.runtime ? binding.runtime : null;
+
+        if (runtime?.network === "mainnet") {
+            const ledger = runtime.incomingLedger;
+            let intents = [];
+            let paymentStatus = null;
+            try {
+                intents = ledger?.listRoomIntents?.(roomId) ?? [];
+                paymentStatus = ledger?.getRoomPaymentStatus?.(roomId) ?? null;
+            } catch {
+                // The Mainnet store is authoritative; read failure stays closed.
+            }
+            const exactRoster = intents.length === 3
+                && room.players.length === 3
+                && new Set(intents.map(intent => intent.playerId)).size === 3
+                && new Set(intents.map(intent => intent.destinationWalletId)).size === 1
+                && new Set(intents.map(intent => intent.destinationWalletAddress)).size === 1
+                && room.players.every(player => intents.some(intent =>
+                    intent.playerId === player
+                    && intent.network === "mainnet"
+                    && intent.globalId === -239
+                ));
+            const playerIntent = exactRoster
+                ? intents.find(intent => intent.playerId === playerId)
+                : null;
+            const playerPaymentStatuses = exactRoster
+                ? room.players.map(id => ({
+                    playerId: id,
+                    status: intents.find(intent => intent.playerId === id)?.state === "SETTLED"
+                        ? "SETTLED" : "PENDING"
+                }))
+                : [];
+
+            this._deliverToSocket(
+                socketId,
+                LOBBY_SERVER_EVENTS.ENTRY_PAYMENT_SESSION_UPDATED,
+                {
+                    roomId,
+                    playerId,
+                    status: "PAYMENT_UNAVAILABLE",
+                    paymentAcceptanceEnabled: false,
+                    network: "mainnet",
+                    globalId: -239,
+                    reason: playerIntent
+                        ? "MAINNET_LIVE_OPERATIONS_DISABLED"
+                        : "mainnet_payment_state_unavailable",
+                    playerPaymentStatus: playerIntent?.state === "SETTLED" ? "SETTLED" : "PENDING",
+                    playerPaymentStatuses,
+                    confirmedCount: Number.isInteger(paymentStatus?.confirmedCount)
+                        ? paymentStatus.confirmedCount : 0,
+                    requiredCount: 3
+                }
+            );
+            return;
+        }
+
         const paymentService = runtime ? runtime.paymentService : null;
         const ledger = runtime ? runtime.ledger : null;
 
@@ -5973,7 +6029,8 @@ export class RoomLobbyBridge {
         if (!binding || typeof binding.prepareRoomPaymentSession !== "function") {
             return;
         }
-        if (!LIVE_PAYMENT_ACCEPTANCE_ENABLED) {
+        const mainnetPaymentMode = binding.runtime?.network === "mainnet";
+        if (!LIVE_PAYMENT_ACCEPTANCE_ENABLED && !mainnetPaymentMode) {
             return;
         }
         if (!room || !Array.isArray(room.players) || room.players.length !== 3) {
