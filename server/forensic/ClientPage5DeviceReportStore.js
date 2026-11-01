@@ -7,6 +7,7 @@
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 
 export const PAGE5_DEVICE_REPORT_SCHEMA = "wheelwin.page5-device-diagnostics.v1";
 export const PAGE5_DEVICE_REPORT_WAIT_MS = 90_000;
@@ -157,7 +158,9 @@ export class ClientPage5DeviceReportStore {
         }
         const dir = this._dir(roomId);
         mkdirSync(dir, {recursive:true});
-        const temp = file + ".tmp";
+        // A previous server crash may leave an orphan temp file. A unique
+        // name ensures reconnect retries can still publish this report.
+        const temp = file + "." + randomUUID() + ".tmp";
         try {
             writeFileSync(temp, JSON.stringify(accepted.report) + "\n", {flag:"wx",mode:0o600});
             renameSync(temp,file);
