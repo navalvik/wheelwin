@@ -488,9 +488,15 @@ export class GameClockEngine {
 
         this._logger.info("RESULT Phase Started");
 
-        this._emitPhaseStarted(record);
-
+        // Arm the authoritative RESULT completion before notifying lifecycle
+        // listeners that RESULT has started. GameplayLifecycle schedules its
+        // cleanup timer from the resulting GAME_STATE_CHANGED event using the
+        // same duration; registering this timer first guarantees
+        // RESULT_COMPLETED (and the existing Page6 lifecycle) runs before
+        // CLEANUP_COMPLETED when both deadlines coincide.
         this._schedulePhaseTimeout(record);
+
+        this._emitPhaseStarted(record);
 
         return this._createSnapshot(record);
 
