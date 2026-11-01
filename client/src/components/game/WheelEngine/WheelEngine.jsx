@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 
 import { WheelEngine as WheelEngineCore } from "./WheelRenderer";
+import { createLatestFrameRenderer } from "../../../game/physics/latestFrameRenderer.js";
 
 import "./wheelEngine.css";
 
@@ -60,21 +61,26 @@ export default function WheelEngine({
 
         }
 
-        return subscribeFrame(() => {
+        // At most one queued animation frame; read the newest server angle.
+        // Dropping obsolete canvas paints never drops authoritative packets.
+        const painter = createLatestFrameRenderer(() => {
 
             const engine = engineRef.current;
 
-            if (!engine) {
-
-                return;
-
-            }
+            if (!engine) return;
 
             engine.setAngle(getFrameRef.current().wheelAngle);
 
             engine.render();
 
         });
+
+        const unsubscribe = subscribeFrame(() => painter.request());
+
+        return () => {
+            unsubscribe();
+            painter.dispose();
+        };
 
     }, [subscribeFrame]);
 
