@@ -9,6 +9,9 @@ export function buildGameStateSyncPayload(statePayload) {
         state: statePayload?.currentState ?? null,
         previousState: statePayload?.previousState ?? null,
         timestamp: statePayload?.timestamp ?? null,
+        revision: Number.isSafeInteger(statePayload?.revision)
+            ? statePayload.revision
+            : null,
         reason: statePayload?.reason ?? null,
         serverTimestamp: Date.now()
     };

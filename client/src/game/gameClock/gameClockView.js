@@ -13,7 +13,8 @@ export const INITIAL_GAME_CLOCK = Object.freeze({
     remainingSeconds: null,
     running: false,
     active: false,
-    serverTimestamp: null
+    serverTimestamp: null,
+    receivedAtMonotonic: null
 });
 
 const PHASE_LABELS = Object.freeze({
@@ -25,11 +26,57 @@ const PHASE_LABELS = Object.freeze({
     RESULT: "RESULT"
 });
 
-export function reduceGameClockUpdate(payload) {
+const CLOCK_PHASE_ORDER = Object.freeze({
+    PRE_GAME_READY: 0,
+    READY: 1,
+    SELF_TEST: 2,
+    SPEED: 3,
+    BRAKE: 4,
+    RESULT: 5
+});
+
+export function reduceGameClockUpdate(
+    payload,
+    current = INITIAL_GAME_CLOCK,
+    receivedAtMonotonic = null
+) {
 
     if (!payload) {
 
         return INITIAL_GAME_CLOCK;
+
+    }
+
+    if (payload.gameId && current?.gameId === payload.gameId) {
+
+        const incomingOrder = CLOCK_PHASE_ORDER[payload.phase];
+        const currentOrder = CLOCK_PHASE_ORDER[current.phase];
+
+        if (Number.isFinite(incomingOrder)
+            && Number.isFinite(currentOrder)
+            && incomingOrder < currentOrder) {
+
+            return current;
+
+        }
+
+        if (payload.phase === current.phase
+            && Number.isFinite(payload.startedAt)
+            && Number.isFinite(current.startedAt)
+            && payload.startedAt < current.startedAt) {
+
+            return current;
+
+        }
+
+        if (payload.phase === current.phase
+            && Number.isFinite(payload.serverTimestamp)
+            && Number.isFinite(current.serverTimestamp)
+            && payload.serverTimestamp < current.serverTimestamp) {
+
+            return current;
+
+        }
 
     }
 
@@ -44,7 +91,10 @@ export function reduceGameClockUpdate(payload) {
         remainingSeconds,
         running: payload.running === true,
         active: payload.running === true && Boolean(payload.phase),
-        serverTimestamp: payload.serverTimestamp ?? null
+        serverTimestamp: payload.serverTimestamp ?? null,
+        receivedAtMonotonic: Number.isFinite(receivedAtMonotonic)
+            ? receivedAtMonotonic
+            : null
     };
 
 }
@@ -61,7 +111,20 @@ export function remainingSecondsFromEndsAt(endsAt) {
 
 }
 
-export function resolveGameplayCountdown(clock) {
+export function resolveGameplayCountdown(
+    clock,
+    nowMonotonic = (typeof performance !== "undefined" ? performance.now() : null)
+) {
+
+    if (Number.isFinite(clock?.remainingMs)
+        && Number.isFinite(clock?.receivedAtMonotonic)
+        && Number.isFinite(nowMonotonic)) {
+
+        const elapsed = Math.max(0, nowMonotonic - clock.receivedAtMonotonic);
+
+        return Math.max(0, Math.ceil((clock.remainingMs - elapsed) / 1000));
+
+    }
 
     if (Number.isFinite(clock?.endsAt)) {
 

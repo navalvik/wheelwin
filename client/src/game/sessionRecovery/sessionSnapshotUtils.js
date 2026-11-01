@@ -23,6 +23,11 @@ export function normalizeSessionSnapshot(snapshot = {}) {
         roomId: snapshot.roomId ?? null,
         playerId: snapshot.playerId ?? null,
         gameState,
+        gameStateRevision: Number.isSafeInteger(snapshot.gameStateRevision)
+            ? snapshot.gameStateRevision
+            : (Number.isSafeInteger(snapshot.gameState?.revision)
+                ? snapshot.gameState.revision
+                : null),
         wheelConfiguration: snapshot.wheelConfiguration || null,
         wheelAngle: snapshot.wheelAngle
             ?? physicsSource.wheelAngle
@@ -43,6 +48,7 @@ export function normalizeSessionSnapshot(snapshot = {}) {
             triangleSpeed: physicsSource.triangleSpeed ?? 0,
             isBraking: physicsSource.isBraking ?? false,
             remainingBrakeTime: physicsSource.remainingBrakeTime ?? null,
+            simulationTimeMs: physicsSource.simulationTimeMs ?? null,
             elapsedTime: physicsSource.elapsedTime ?? null
         },
         playerStates: Array.isArray(snapshot.playerStates)

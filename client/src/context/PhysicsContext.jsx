@@ -143,6 +143,11 @@ export function PhysicsProvider({ children }) {
 
         applyUpdate: (payload) => {
 
+            const activeGameId = authoritativeSession.getSnapshot()?.gameId;
+
+            if (activeGameId && payload?.gameId
+                && payload.gameId !== activeGameId) return;
+
             engineRef.current.applyServerUpdate(payload);
 
             frameStore.publishFrame(engineRef.current);
@@ -161,6 +166,11 @@ export function PhysicsProvider({ children }) {
         },
 
         restorePhysics: (snapshot) => {
+
+            const activeGameId = authoritativeSession.getSnapshot()?.gameId;
+
+            if (activeGameId && snapshot?.gameId
+                && snapshot.gameId !== activeGameId) return;
 
             engineRef.current.restoreSessionSnapshot(snapshot);
 

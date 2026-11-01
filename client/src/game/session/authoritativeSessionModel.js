@@ -19,6 +19,8 @@
  * currentPage                           | App.jsx (client navigation shell)
  */
 
+import { GAME_STATES } from "../GameState.js";
+
 export const AUTHORITATIVE_SESSION_ACTIONS = Object.freeze({
     GAME_START: "GAME_START",
     GAME_STATE: "GAME_STATE",
@@ -45,6 +47,7 @@ export const AUTHORITATIVE_SESSION_INITIAL_STATE = Object.freeze({
     maxPlayers: null,
     players: Object.freeze({}),
     gameState: null,
+    gameStateRevision: null,
     previousGameState: null,
     clock: null,
     configuration: null,
@@ -250,6 +253,30 @@ function acceptAuthoritativeGameplayIdentity(state, payload) {
 
 }
 
+const GAME_STATE_ORDER = Object.freeze({
+    [GAME_STATES.PRE_GAME_READY]: 0,
+    [GAME_STATES.READY]: 1,
+    [GAME_STATES.SELF_TEST]: 2,
+    [GAME_STATES.SPEED]: 3,
+    [GAME_STATES.BRAKE]: 4,
+    [GAME_STATES.RESULT]: 5
+});
+
+function isRegressiveGameplayState(currentState, currentRevision, nextState, nextRevision) {
+
+    if (Number.isSafeInteger(nextRevision)
+        && Number.isSafeInteger(currentRevision)) {
+
+        return nextRevision < currentRevision;
+
+    }
+
+    return Number.isFinite(GAME_STATE_ORDER[currentState])
+        && Number.isFinite(GAME_STATE_ORDER[nextState])
+        && GAME_STATE_ORDER[nextState] < GAME_STATE_ORDER[currentState];
+
+}
+
 /**
  * Pure reducer: copies server fields into the session mirror. Never invents
  * values that were absent from the payload.
@@ -268,6 +295,11 @@ export function authoritativeSessionReducer(state, action) {
 
         case AUTHORITATIVE_SESSION_ACTIONS.GAME_START: {
 
+            const isNewGame = Boolean(
+                payload.gameId
+                && payload.gameId !== state.gameId
+            );
+
             const players = ingestPlayerList(
                 AUTHORITATIVE_SESSION_INITIAL_STATE.players,
                 payload.players
@@ -277,6 +309,9 @@ export function authoritativeSessionReducer(state, action) {
                 ...state,
                 roomId: payload.roomId ?? state.roomId,
                 gameId: payload.gameId ?? state.gameId,
+                gameState: isNewGame ? null : state.gameState,
+                previousGameState: isNewGame ? null : state.previousGameState,
+                gameStateRevision: isNewGame ? null : state.gameStateRevision,
                 maxPlayers: payload.maxPlayers ?? state.maxPlayers,
                 players,
                 lifecycle: Object.freeze({
@@ -302,11 +337,33 @@ export function authoritativeSessionReducer(state, action) {
 
             }
 
+            if (payload.gameId && state.gameId && payload.gameId !== state.gameId) {
+
+                return state;
+
+            }
+
+            const revision = Number.isSafeInteger(payload.revision)
+                ? payload.revision
+                : null;
+
+            if (isRegressiveGameplayState(
+                state.gameState,
+                state.gameStateRevision,
+                nextState,
+                revision
+            )) {
+
+                return state;
+
+            }
+
             return stamp({
                 ...state,
                 gameId: payload.gameId ?? state.gameId,
                 previousGameState: state.gameState,
-                gameState: nextState
+                gameState: nextState,
+                gameStateRevision: revision ?? state.gameStateRevision
             }, action.type);
 
         }
@@ -443,12 +500,30 @@ export function authoritativeSessionReducer(state, action) {
                 ].includes(gameState)
                 && acceptAuthoritativeGameplayIdentity(state, payload);
 
+            const gameStateRevision = Number.isSafeInteger(payload.gameStateRevision)
+                ? payload.gameStateRevision
+                : (Number.isSafeInteger(rawGameState?.revision)
+                    ? rawGameState.revision
+                    : null);
+
+            if (recoveredGameplay && isRegressiveGameplayState(
+                state.gameState,
+                state.gameStateRevision,
+                gameState,
+                gameStateRevision
+            )) {
+
+                return state;
+
+            }
+
             return stamp({
                 ...state,
                 roomId: payload.roomId ?? state.roomId,
                 gameId: payload.gameId ?? state.gameId,
                 players,
                 gameState,
+                gameStateRevision: gameStateRevision ?? state.gameStateRevision,
                 // A fresh WebView can recover a live gameplay snapshot without
                 // ever seeing the original GAME_START event.
                 lifecycle: recoveredGameplay ? Object.freeze({
