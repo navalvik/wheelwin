@@ -124,6 +124,7 @@ import {
 } from "./payment/runtime/PaymentRuntimeFactory.js";
 import { bindPaymentRuntimeToApplication } from "./payment/runtime/PaymentApplicationBinder.js";
 import { LIVE_PAYMENT_ACCEPTANCE_ENABLED } from "./payment/PaymentLifecycleAvailability.js";
+import { initializeMainnetServerRuntime, resolveServerPaymentMode } from "./mainnet/ServerPaymentMode.js";
 
 import { DeveloperConsoleProjectionService } from "./console/DeveloperConsoleProjectionService.js";
 import { registerDeveloperConsoleRoutes } from "./console/registerDeveloperConsoleRoutes.js";
@@ -257,6 +258,9 @@ class WheelWinApplication {
         this._recoveryCheckpointManager = null;
 
         this._paymentRuntime = null;
+        this._mainnetBootstrap = null;
+        this._mainnetPaymentRuntime = null;
+        this._mainnetRuntimeReady = false;
         this._nativeRoomWalletAdapter = null;
         this._adminSweepAdapter = null;
 
@@ -1227,207 +1231,241 @@ class WheelWinApplication {
         // keeps running observably, but no payment or game-start is possible.
         try {
 
-            // Transfers stay closed by default. An explicit Testnet opt-in
-            // resolves secrets only in server memory and wires all recovery workers.
-            let nativeRoomWalletAdapter = null;
-            const paymentRuntime = buildPaymentRuntime({
-                logger: this._logger,
-                dataDir: resolveDefaultRoomWalletPaymentDataDir(),
-                refundSubmitterFactory: LIVE_PAYMENT_ACCEPTANCE_ENABLED
-                    ? ({walletPool,networkDataDir,network}) => {
-                        if(network !== "testnet"
-                            || String(process.env.TON_NETWORK ?? "").toLowerCase() !== "testnet") {
-                            throw new Error("TESTNET_REFUND_NETWORK_MISMATCH");
-                        }
-                        const walletResolver = createRoomWalletRuntimeResolver({env:process.env});
-                        nativeRoomWalletAdapter = new RoomWalletAdapter({
-                            sequenceStateDir: join(networkDataDir, "outbound-sequences"),
-                            walletResolver,
-                            tonService:new TestnetNativeTonService(),
-                            gasReserveNano:10_000_000n
-                        });
-                        const capabilities = createTestnetNativeRefundCapabilities({
-                            walletPool,
-                            roomWalletAdapter:nativeRoomWalletAdapter,
-                            dataDir:networkDataDir
-                        });
-                        return Object.freeze({
-                            ...capabilities,
-                            outgoingTransferProvider:new ToncenterTestnetOutgoingTransferProvider({
-                                client:new ToncenterTransactionsClient()
-                            })
-                        });
-                    }
-                    : null
-            });
+            const paymentMode = resolveServerPaymentMode(process.env);
 
-            const recovery = paymentRuntime.initialize();
+            if (paymentMode === "mainnet") {
 
-            this._paymentRuntime = paymentRuntime;
-            this._nativeRoomWalletAdapter = nativeRoomWalletAdapter;
-
-            this._paymentRuntimeReady = true;
-
-            this._paymentApplicationBinding = bindPaymentRuntimeToApplication(
-                paymentRuntime,
-                {
-                    roomManager: this._managers.roomManager,
-                    gameStartAuthorization: this._gameStartAuthorization,
+                const mainnetBootstrap = initializeMainnetServerRuntime({
+                    env: process.env,
                     logger: this._logger
-                }
-            );
-            // This event is emitted only by the server's authoritative
-            // RESULT lifecycle. The payout plan uses fixed 95% / 4.9% shares
-            // and a retained 0.1% gas reserve. Fee quotes do not gate the send;
-            // actual source-wallet fees are recorded from verified chain data.
-            // Live entry acceptance MUST NOT be enabled without both a
-            // working refund executor and the native V4 winner/owner sender.
-            // When acceptance is disabled (the current Testnet release),
-            // wallet signing material is neither resolved nor loaded.
-            let nativePayoutTransport = null;
-            if (LIVE_PAYMENT_ACCEPTANCE_ENABLED) {
-                if (paymentRuntime.outgoingRefundProvider?.canExecute?.() !== true) {
-                    throw new Error("TESTNET_REFUND_EXECUTOR_NOT_READY");
-                }
-                if (String(process.env.TON_NETWORK ?? "").toLowerCase() !== "testnet") {
-                    throw new Error("TESTNET_PAYOUT_NETWORK_MISMATCH");
-                }
-                const finalizedHistory = new ToncenterTestnetOutgoingTransferProvider({
-                    client: new ToncenterTransactionsClient()
                 });
-                const independentCredit = new TonapiTestnetPayoutVerifier();
-                nativePayoutTransport = new TestnetNativeRoomPayoutTransport({
-                    walletPool: paymentRuntime.walletPool,
-                    adapter: nativeRoomWalletAdapter,
-                    dataDir: paymentRuntime.networkDataDir,
-                    logger: this._logger,
-                    ledger: paymentRuntime.ledger,
-                    independentVerifier: independentCredit,
-                    outgoingObserver: finalizedHistory
-                });
-                this._pendingRefundRecovery = new TestnetPendingRefundReconciler({
-                    receiptStore: paymentRuntime.receiptStore,
-                    refundStore: paymentRuntime.refundStore,
-                    intentStore: paymentRuntime.intentStore,
-                    toncenterObserver: finalizedHistory,
-                    independentVerifier: independentCredit,
-                    maxPerPass:2,
-                    logger:this._logger
-                });
-                // Server-owned, bounded read-only recovery. Survives game
-                // room destruction because it reads the persisted ledger.
-                // No signing or re-broadcasting on this path.
-                this._pendingPayoutRecovery = new TestnetPendingPayoutReconciler({
-                    ledgerStore:paymentRuntime.ledgerStore,
-                    ledger:paymentRuntime.ledger,
-                    walletPool:paymentRuntime.walletPool,
-                    transport:nativePayoutTransport,
-                    maxPerPass:2,
-                    logger:this._logger
-                });
-                const refundExecutor = new TestnetPendingRefundExecutor({runtime: paymentRuntime});
-                const incomingRecovery = new HistoricalIncomingReceiptReconciler({
-                    runtime:paymentRuntime,
-                    incomingProvider:new ToncenterIncomingProvider({client:new ToncenterTransactionsClient()}),
-                    chainObserver:finalizedHistory, independentVerifier:independentCredit
-                });
-                let financialPassRunning = false;
-                let archiveCursor = 0;
-                const reconcileOnce=() => {
-                    if (financialPassRunning) return;
-                    financialPassRunning = true;
-                    // One bounded pass: execute unattempted debts, verify history, archive.
-                    void incomingRecovery.runPass().catch(() => this._logger.warn('Testnet incoming receipt history pending'))
-                        .then(() => refundExecutor.runPass()).then(() => this._winnerPayoutCoordinator?.recoverPendingResults?.()).then(() => this._pendingPayoutRecovery.runPass())
-                        .then(() => this._pendingRefundRecovery.runPass())
-                        .then(async () => {
-                            if (!this._forensicArchiveService) return;
-                            await this._forensicArchiveService.recoverPendingUploads({limit: 3});
-                            // Both refund outcomes and successful winner payouts
-                            // must be archived only AFTER confirmed finality.
-                            // Rotation prevents one held room starving others.
-                            const roomMap = new Map();
-                            for (const closed of paymentRuntime.refundStore.listClosedRooms()) {
-                                roomMap.set(closed.roomId, {roomId:closed.roomId, reason:closed.closureReason});
-                            }
-                            for (const outcome of paymentRuntime.outcomeStore?.list?.() ?? []) {
-                                if (outcome.kind === "PAYOUT" && !roomMap.has(outcome.roomId)) {
-                                    roomMap.set(outcome.roomId, {
-                                        roomId:outcome.roomId, gameId:outcome.context?.gameId ?? null,
-                                        reason:"game_completed"
-                                    });
-                                }
-                            }
-                            const rooms = [...roomMap.values()];
-                            for (let i = 0; i < Math.min(3, rooms.length); i++) {
-                                const closed = rooms[(archiveCursor + i) % rooms.length];
-                                await this._forensicArchiveService.ensureArchivedAndUploaded(closed);
-                            }
-                            archiveCursor = rooms.length ? (archiveCursor + 3) % rooms.length : 0;
-                        })
-                        .catch(() => this._logger.warn(
-                            "Testnet financial recovery pass pending"
-                        )).finally(() => { financialPassRunning = false; });
-                };
-                reconcileOnce();
-                this._payoutRecoveryTimer=setInterval(reconcileOnce,60_000);
-                this._payoutRecoveryTimer.unref?.();
-            }
-            this._winnerPayoutCoordinator = new TestnetWinnerPayoutCoordinator({
-                paymentRuntime,
-                roomManager: this._managers.roomManager,
-                playerManager: this._managers.playerManager,
-                contextResolver: this._gameplayContextResolver,
-                winnerEngine: this._engines.winnerEngine,
-                payoutSubmitter: nativePayoutTransport
-            });
-            this._eventBus.subscribe(
-                EVENT_TYPES.GAME_RESULT_READY,
-                (envelope) => {
-                    void Promise.resolve()
-                        .then(() => this._winnerPayoutCoordinator.onGameResult({
-                            gameId: envelope.payload?.gameId
-                        }))
-                        .then((outcome) => this._logger.info(
-                            `TESTNET_WINNER_PAYOUT | gameId=${envelope.payload?.gameId}`
-                                + ` | status=${outcome.status}`
-                        ))
-                        .catch((error) => this._logger.warn(
-                            `TESTNET_WINNER_PAYOUT_PENDING | gameId=${envelope.payload?.gameId}`
-                                + ` | reason=${error?.message ?? "unavailable"}`
-                        ));
-                }
-            );
 
+                this._mainnetBootstrap = mainnetBootstrap;
+                this._mainnetPaymentRuntime = mainnetBootstrap.paymentRuntime;
+                this._mainnetRuntimeReady = true;
+                this._paymentRuntimeReady = true;
 
-            const refundRecovery = recovery?.refundRecovery ?? [];
-            const refundExecutionEnabled = paymentRuntime.outgoingRefundProvider?.canExecute?.() === true;
+                // Mainnet Page4 is not connected to this application yet.
+                // Keep the shared game-start authority closed and do not bind
+                // any Testnet runtime, refund lifecycle, workers or payout
+                // coordinator in this mode.
+                this._gameStartAuthorization.configurePaymentGate(null);
 
-            this._logger.startupLine(
-                `RoomWalletPayment (TESTNET globalId=${paymentRuntime.globalId}`
-                    + ` | gate=enforced | refundExecution=${refundExecutionEnabled ? "enabled" : "disabled"}`
-                    + ` | liveAcceptance=${
-                        LIVE_PAYMENT_ACCEPTANCE_ENABLED ? "enabled" : "disabled"}`
-                    + ` | refundsPending=${
-                        paymentRuntime.refundStore.listPending().length}`
-                    + ` | recovered=${refundRecovery.length})`
-            );
-
-            for (const item of refundRecovery) {
-
-                this._logger.warn?.(
-                    "REFUND_RECOVERY_PENDING"
-                        + ` | obligationId=${item.obligationId}`
-                        + ` | roomNumber=${item.roomNumber}`
-                        + ` | state=${item.state}`
-                        + ` | outcome=${item.outcome}`
+                this._logger.startupLine(
+                    `MainnetPaymentRuntime (globalId=${mainnetBootstrap.config.globalId}`
+                        + ` | wallets=${mainnetBootstrap.config.walletCount}`
+                        + " | storage=isolated | liveOperations=disabled"
+                        + " | paidGameStart=disabled)"
                 );
+
+            } else {
+
+                // Transfers stay closed by default. An explicit Testnet opt-in
+                // resolves secrets only in server memory and wires all recovery workers.
+                let nativeRoomWalletAdapter = null;
+                const paymentRuntime = buildPaymentRuntime({
+                    logger: this._logger,
+                    dataDir: resolveDefaultRoomWalletPaymentDataDir(),
+                    refundSubmitterFactory: LIVE_PAYMENT_ACCEPTANCE_ENABLED
+                        ? ({walletPool,networkDataDir,network}) => {
+                            if(network !== "testnet"
+                                || String(process.env.TON_NETWORK ?? "").toLowerCase() !== "testnet") {
+                                throw new Error("TESTNET_REFUND_NETWORK_MISMATCH");
+                            }
+                            const walletResolver = createRoomWalletRuntimeResolver({env:process.env});
+                            nativeRoomWalletAdapter = new RoomWalletAdapter({
+                                sequenceStateDir: join(networkDataDir, "outbound-sequences"),
+                                walletResolver,
+                                tonService:new TestnetNativeTonService(),
+                                gasReserveNano:10_000_000n
+                            });
+                            const capabilities = createTestnetNativeRefundCapabilities({
+                                walletPool,
+                                roomWalletAdapter:nativeRoomWalletAdapter,
+                                dataDir:networkDataDir
+                            });
+                            return Object.freeze({
+                                ...capabilities,
+                                outgoingTransferProvider:new ToncenterTestnetOutgoingTransferProvider({
+                                    client:new ToncenterTransactionsClient()
+                                })
+                            });
+                        }
+                        : null
+                });
+
+                const recovery = paymentRuntime.initialize();
+
+                this._paymentRuntime = paymentRuntime;
+                this._nativeRoomWalletAdapter = nativeRoomWalletAdapter;
+
+                this._paymentRuntimeReady = true;
+
+                this._paymentApplicationBinding = bindPaymentRuntimeToApplication(
+                    paymentRuntime,
+                    {
+                        roomManager: this._managers.roomManager,
+                        gameStartAuthorization: this._gameStartAuthorization,
+                        logger: this._logger
+                    }
+                );
+                // This event is emitted only by the server's authoritative
+                // RESULT lifecycle. The payout plan uses fixed 95% / 4.9% shares
+                // and a retained 0.1% gas reserve. Fee quotes do not gate the send;
+                // actual source-wallet fees are recorded from verified chain data.
+                // Live entry acceptance MUST NOT be enabled without both a
+                // working refund executor and the native V4 winner/owner sender.
+                // When acceptance is disabled (the current Testnet release),
+                // wallet signing material is neither resolved nor loaded.
+                let nativePayoutTransport = null;
+                if (LIVE_PAYMENT_ACCEPTANCE_ENABLED) {
+                    if (paymentRuntime.outgoingRefundProvider?.canExecute?.() !== true) {
+                        throw new Error("TESTNET_REFUND_EXECUTOR_NOT_READY");
+                    }
+                    if (String(process.env.TON_NETWORK ?? "").toLowerCase() !== "testnet") {
+                        throw new Error("TESTNET_PAYOUT_NETWORK_MISMATCH");
+                    }
+                    const finalizedHistory = new ToncenterTestnetOutgoingTransferProvider({
+                        client: new ToncenterTransactionsClient()
+                    });
+                    const independentCredit = new TonapiTestnetPayoutVerifier();
+                    nativePayoutTransport = new TestnetNativeRoomPayoutTransport({
+                        walletPool: paymentRuntime.walletPool,
+                        adapter: nativeRoomWalletAdapter,
+                        dataDir: paymentRuntime.networkDataDir,
+                        logger: this._logger,
+                        ledger: paymentRuntime.ledger,
+                        independentVerifier: independentCredit,
+                        outgoingObserver: finalizedHistory
+                    });
+                    this._pendingRefundRecovery = new TestnetPendingRefundReconciler({
+                        receiptStore: paymentRuntime.receiptStore,
+                        refundStore: paymentRuntime.refundStore,
+                        intentStore: paymentRuntime.intentStore,
+                        toncenterObserver: finalizedHistory,
+                        independentVerifier: independentCredit,
+                        maxPerPass:2,
+                        logger:this._logger
+                    });
+                    // Server-owned, bounded read-only recovery. Survives game
+                    // room destruction because it reads the persisted ledger.
+                    // No signing or re-broadcasting on this path.
+                    this._pendingPayoutRecovery = new TestnetPendingPayoutReconciler({
+                        ledgerStore:paymentRuntime.ledgerStore,
+                        ledger:paymentRuntime.ledger,
+                        walletPool:paymentRuntime.walletPool,
+                        transport:nativePayoutTransport,
+                        maxPerPass:2,
+                        logger:this._logger
+                    });
+                    const refundExecutor = new TestnetPendingRefundExecutor({runtime: paymentRuntime});
+                    const incomingRecovery = new HistoricalIncomingReceiptReconciler({
+                        runtime:paymentRuntime,
+                        incomingProvider:new ToncenterIncomingProvider({client:new ToncenterTransactionsClient()}),
+                        chainObserver:finalizedHistory, independentVerifier:independentCredit
+                    });
+                    let financialPassRunning = false;
+                    let archiveCursor = 0;
+                    const reconcileOnce=() => {
+                        if (financialPassRunning) return;
+                        financialPassRunning = true;
+                        // One bounded pass: execute unattempted debts, verify history, archive.
+                        void incomingRecovery.runPass().catch(() => this._logger.warn('Testnet incoming receipt history pending'))
+                            .then(() => refundExecutor.runPass()).then(() => this._winnerPayoutCoordinator?.recoverPendingResults?.()).then(() => this._pendingPayoutRecovery.runPass())
+                            .then(() => this._pendingRefundRecovery.runPass())
+                            .then(async () => {
+                                if (!this._forensicArchiveService) return;
+                                await this._forensicArchiveService.recoverPendingUploads({limit: 3});
+                                // Both refund outcomes and successful winner payouts
+                                // must be archived only AFTER confirmed finality.
+                                // Rotation prevents one held room starving others.
+                                const roomMap = new Map();
+                                for (const closed of paymentRuntime.refundStore.listClosedRooms()) {
+                                    roomMap.set(closed.roomId, {roomId:closed.roomId, reason:closed.closureReason});
+                                }
+                                for (const outcome of paymentRuntime.outcomeStore?.list?.() ?? []) {
+                                    if (outcome.kind === "PAYOUT" && !roomMap.has(outcome.roomId)) {
+                                        roomMap.set(outcome.roomId, {
+                                            roomId:outcome.roomId, gameId:outcome.context?.gameId ?? null,
+                                            reason:"game_completed"
+                                        });
+                                    }
+                                }
+                                const rooms = [...roomMap.values()];
+                                for (let i = 0; i < Math.min(3, rooms.length); i++) {
+                                    const closed = rooms[(archiveCursor + i) % rooms.length];
+                                    await this._forensicArchiveService.ensureArchivedAndUploaded(closed);
+                                }
+                                archiveCursor = rooms.length ? (archiveCursor + 3) % rooms.length : 0;
+                            })
+                            .catch(() => this._logger.warn(
+                                "Testnet financial recovery pass pending"
+                            )).finally(() => { financialPassRunning = false; });
+                    };
+                    reconcileOnce();
+                    this._payoutRecoveryTimer=setInterval(reconcileOnce,60_000);
+                    this._payoutRecoveryTimer.unref?.();
+                }
+                this._winnerPayoutCoordinator = new TestnetWinnerPayoutCoordinator({
+                    paymentRuntime,
+                    roomManager: this._managers.roomManager,
+                    playerManager: this._managers.playerManager,
+                    contextResolver: this._gameplayContextResolver,
+                    winnerEngine: this._engines.winnerEngine,
+                    payoutSubmitter: nativePayoutTransport
+                });
+                this._eventBus.subscribe(
+                    EVENT_TYPES.GAME_RESULT_READY,
+                    (envelope) => {
+                        void Promise.resolve()
+                            .then(() => this._winnerPayoutCoordinator.onGameResult({
+                                gameId: envelope.payload?.gameId
+                            }))
+                            .then((outcome) => this._logger.info(
+                                `TESTNET_WINNER_PAYOUT | gameId=${envelope.payload?.gameId}`
+                                    + ` | status=${outcome.status}`
+                            ))
+                            .catch((error) => this._logger.warn(
+                                `TESTNET_WINNER_PAYOUT_PENDING | gameId=${envelope.payload?.gameId}`
+                                    + ` | reason=${error?.message ?? "unavailable"}`
+                            ));
+                    }
+                );
+
+
+                const refundRecovery = recovery?.refundRecovery ?? [];
+                const refundExecutionEnabled = paymentRuntime.outgoingRefundProvider?.canExecute?.() === true;
+
+                this._logger.startupLine(
+                    `RoomWalletPayment (TESTNET globalId=${paymentRuntime.globalId}`
+                        + ` | gate=enforced | refundExecution=${refundExecutionEnabled ? "enabled" : "disabled"}`
+                        + ` | liveAcceptance=${
+                            LIVE_PAYMENT_ACCEPTANCE_ENABLED ? "enabled" : "disabled"}`
+                        + ` | refundsPending=${
+                            paymentRuntime.refundStore.listPending().length}`
+                        + ` | recovered=${refundRecovery.length})`
+                );
+
+                for (const item of refundRecovery) {
+
+                    this._logger.warn?.(
+                        "REFUND_RECOVERY_PENDING"
+                            + ` | obligationId=${item.obligationId}`
+                            + ` | roomNumber=${item.roomNumber}`
+                            + ` | state=${item.state}`
+                            + ` | outcome=${item.outcome}`
+                    );
+
+                }
 
             }
 
         } catch (error) {
 
             this._paymentRuntime = null;
+            this._mainnetBootstrap = null;
+            this._mainnetPaymentRuntime = null;
+            this._mainnetRuntimeReady = false;
             this._nativeRoomWalletAdapter = null;
 
             this._paymentRuntimeReady = false;

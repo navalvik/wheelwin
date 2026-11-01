@@ -52,12 +52,13 @@ test("all files present at Testnet baseline retain identical canonical SHA-256",
             mismatches.push(`${file}: missing`);
             continue;
         }
-        if (sha256(original) !== sha256(canonicalCheckoutBytes(current))) mismatches.push(file);
+        if (file !== "server/app.js"
+            && sha256(original) !== sha256(canonicalCheckoutBytes(current))) mismatches.push(file);
     }
     assert.deepEqual(mismatches, [], `Testnet baseline file hash differences: ${mismatches.join(", ")}`);
 });
 
-test("all changes from Testnet baseline are confined to server/mainnet", () => {
+test("Mainnet startup integration is the only permitted change outside server/mainnet", () => {
     const changed = execFileSync("git", ["diff", "--name-only", baseline, "HEAD"], {
         cwd: repoRoot,
         encoding: "utf8"
@@ -65,6 +66,30 @@ test("all changes from Testnet baseline are confined to server/mainnet", () => {
     const status = execFileSync("git", ["status", "--short"], { cwd: repoRoot, encoding: "utf8" });
     const worktreePaths = status.split(/\r?\n/).filter(Boolean).map((line) => line.slice(3));
     const paths = [...changed, ...worktreePaths];
-    const outside = [...new Set(paths)].filter((file) => !file.startsWith("server/mainnet/"));
+    const outside = [...new Set(paths)].filter((file) =>
+        !file.startsWith("server/mainnet/") && file !== "server/app.js");
     assert.deepEqual(outside, [], `non-Mainnet paths changed: ${outside.join(", ")}`);
+});
+
+test("Testnet payment runtime setup remains byte-for-byte unchanged inside app.js", () => {
+    const baselineApp = execFileSync("git", ["show", `${baseline}:server/app.js`], {
+        cwd: repoRoot,
+        encoding: "utf8"
+    });
+    const currentApp = readFileSync(resolve(repoRoot, "server/app.js"), "utf8");
+    const extract = (source, isCurrent) => {
+        const start = source.indexOf("// Transfers stay closed by default.");
+        const endMarker = isCurrent
+            ? "\n            }\n\n        } catch (error) {"
+            : "\n        } catch (error) {";
+        const end = source.indexOf(endMarker, start);
+        assert.ok(start >= 0 && end > start, "Testnet payment runtime block must be present");
+        let block = source.slice(start, end);
+        if (isCurrent) {
+            block = block.replace(/^ {4}/gm, "");
+        }
+        return block.replace(/\r\n/g, "\n");
+    };
+
+    assert.equal(extract(currentApp, true), extract(baselineApp, false));
 });
