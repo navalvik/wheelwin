@@ -106,6 +106,86 @@ test("Page4 bridge prepares exactly three private Mainnet ledger intents once", 
     assert.equal(h.getRpcCalls(), 0);
 });
 
+test("offline PAYMENT_REQUEST delivery preserves per-player routing and reconnect data without enabling production delivery", (t) => {
+    const h = setup(t);
+    const otherRoom = { roomId: "mainnet-page4-other-room", createdAt: h.room.createdAt,
+        maxPlayers: 3, players: ["other-a", "other-b", "other-c"] };
+    h.roomManager.getRoom = roomId => roomId === h.room.roomId ? h.room
+        : roomId === otherRoom.roomId ? otherRoom : null;
+    otherRoom.players.forEach((playerId, index) => h.identities.set(playerId, {
+        playerId, wallet: `0:${String(index + 1000).padStart(64, "0")}`,
+        baseStake: 1, sectorCount: 1
+    }));
+
+    const otherRoomPrepared = h.binding.prepareRoomPaymentSession(otherRoom.roomId,
+        otherRoom.players.map((playerId, index) => ({ playerId,
+            paymentReference: `WW_${otherRoom.roomId}_${playerId}`,
+            expectedSender: `0:${String(index + 1000).padStart(64, "0")}`,
+            amountAtomic: 1_000_000_000 })));
+    assert.equal(otherRoomPrepared.intentCount, 3);
+    const otherRoomRequests = h.binding.getPaymentRequestData(otherRoom.roomId);
+
+    const { bridge, delivered } = makeBridge(h);
+    // Test-only projection into the existing bridge sender. Production binding
+    // continues to return payments: [] while live Mainnet payments are off.
+    bridge._paymentApplicationBinding = {
+        runtime: h.binding.runtime,
+        prepareRoomPaymentSession(roomId, playerPayments) {
+            const prepared = h.binding.prepareRoomPaymentSession(roomId, playerPayments);
+            assert.deepEqual(prepared.payments, []);
+            return { ...prepared, payments: h.binding.getPaymentRequestData(roomId) };
+        }
+    };
+    bridge._preparePaymentSessionIfEnabled(h.room.roomId, h.room);
+
+    const requests = h.binding.getPaymentRequestData(h.room.roomId);
+    assert.equal(requests.length, 3);
+    assert.ok(requests.every(request => request.network === "mainnet" && request.asset === "TON"));
+    assert.ok(requests.every(request => !otherRoomRequests.some(other =>
+        other.paymentReference === request.paymentReference)));
+    const events = delivered.filter(([, event]) => event === LOBBY_SERVER_EVENTS.PAYMENT_REQUEST);
+    assert.equal(events.length, 3);
+    for (const request of requests) {
+        const socketId = `socket-${PLAYER_IDS.indexOf(request.playerId)}`;
+        const ownEvents = events.filter(([targetSocket]) => targetSocket === socketId);
+        assert.equal(ownEvents.length, 1, "each socket receives one request for its authenticated player");
+        const [, , payload] = ownEvents[0];
+        assert.deepEqual(payload, {
+            roomId: h.room.roomId,
+            playerId: request.playerId,
+            paymentReference: request.paymentReference,
+            destination: request.destinationWalletAddress,
+            amount: request.amountAtomic,
+            amountAtomic: request.amountAtomic,
+            asset: request.asset,
+            network: request.network,
+            expiresAt: request.expiresAt
+        });
+        assert.equal(payload.destination, h.bootstrap.walletPool.getReservationForRoom(h.room.roomId).address);
+    }
+
+    const firstRequest = events.find(([, , payload]) => payload.playerId === PLAYER_IDS[0])[2];
+    bridge._playerToSocket.set(PLAYER_IDS[0], "socket-a-reconnected");
+    delivered.length = 0;
+    bridge._preparePaymentSessionIfEnabled(h.room.roomId, h.room);
+    const reconnectEvent = delivered.find(([socketId, event, payload]) =>
+        socketId === "socket-a-reconnected" && event === LOBBY_SERVER_EVENTS.PAYMENT_REQUEST
+            && payload.playerId === PLAYER_IDS[0]);
+    assert.ok(reconnectEvent);
+    assert.deepEqual(reconnectEvent[2], firstRequest,
+        "reconnect receives the same saved payment reference, address, amount, and deadline");
+    assert.equal(h.bootstrap.paymentRuntime.incomingLedger.listRoomIntents(h.room.roomId).length, 3,
+        "delivery replay creates no additional intents");
+    assert.deepEqual(h.binding.prepareRoomPaymentSession(h.room.roomId,
+        PLAYER_IDS.map((playerId, index) => ({ playerId,
+            paymentReference: requests[index].paymentReference,
+            expectedSender: `0:${String(index + 1).padStart(64, "0")}`,
+            amountAtomic: Number(requests[index].amountAtomic) }))).payments, [],
+    "the production Mainnet binding remains non-delivering");
+    assert.equal(h.bootstrap.paymentRuntime.liveOperationsEnabled, false);
+    assert.equal(h.getRpcCalls(), 0, "offline bridge exercise performs no RPC calls");
+});
+
 test("Page4 status is ledger-derived, reconnect-idempotent, and bound to the authenticated socket", (t) => {
     const h = setup(t);
     const { bridge, delivered } = makeBridge(h);
