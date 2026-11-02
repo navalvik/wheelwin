@@ -278,6 +278,8 @@ class WheelWinApplication {
         this._mainnetWalletReleaseTimer = null;
         this._mainnetRefundReconciler = null;
         this._mainnetRefundReconciliationTimer = null;
+        this._mainnetPendingRefundExecutor = null;
+        this._mainnetRefundExecutionTimer = null;
         this._mainnetPayoutReconciler = null;
         this._mainnetPayoutReconciliationTimer = null;
         this._mainnetRuntimeReady = false;
@@ -1318,6 +1320,19 @@ class WheelWinApplication {
                 reconcileMainnetRefunds();
                 this._mainnetRefundReconciliationTimer = setInterval(reconcileMainnetRefunds, 60_000);
                 this._mainnetRefundReconciliationTimer.unref?.();
+                this._mainnetPendingRefundExecutor = mainnetBootstrap.paymentRuntime.pendingRefundExecutor;
+                if (mainnetBootstrap.paymentRuntime.liveOperationsEnabled === true) {
+                    const executeMainnetPendingRefunds = () => {
+                        void this._mainnetPendingRefundExecutor?.runPass()
+                            .catch(error => this._logger.warn?.(
+                                "MAINNET_PENDING_REFUND_EXECUTION_RETRY_LATER | code="
+                                    + (error?.code ?? "SUBMISSION_FAILED")
+                            ));
+                    };
+                    executeMainnetPendingRefunds();
+                    this._mainnetRefundExecutionTimer = setInterval(executeMainnetPendingRefunds, 60_000);
+                    this._mainnetRefundExecutionTimer.unref?.();
+                }
                 this._managers.roomManager.attachRefundLifecycle(
                     mainnetBootstrap.paymentRuntime.refundLifecycle
                 );
@@ -1652,6 +1667,12 @@ class WheelWinApplication {
             }
             this._mainnetRefundReconciler?.stop();
             this._mainnetRefundReconciler = null;
+            if (this._mainnetRefundExecutionTimer) {
+                clearInterval(this._mainnetRefundExecutionTimer);
+                this._mainnetRefundExecutionTimer = null;
+            }
+            this._mainnetPendingRefundExecutor?.stop();
+            this._mainnetPendingRefundExecutor = null;
             if (this._mainnetPayoutReconciliationTimer) {
                 clearInterval(this._mainnetPayoutReconciliationTimer);
                 this._mainnetPayoutReconciliationTimer = null;
@@ -2405,6 +2426,12 @@ class WheelWinApplication {
         }
         this._mainnetRefundReconciler?.stop();
         this._mainnetRefundReconciler = null;
+        if (this._mainnetRefundExecutionTimer) {
+            clearInterval(this._mainnetRefundExecutionTimer);
+            this._mainnetRefundExecutionTimer = null;
+        }
+        this._mainnetPendingRefundExecutor?.stop();
+        this._mainnetPendingRefundExecutor = null;
         if (this._mainnetPayoutReconciliationTimer) {
             clearInterval(this._mainnetPayoutReconciliationTimer);
             this._mainnetPayoutReconciliationTimer = null;

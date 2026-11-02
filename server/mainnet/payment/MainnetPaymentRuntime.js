@@ -5,6 +5,7 @@ import { MainnetIncomingPaymentLedger } from "./MainnetIncomingPaymentLedger.js"
 import { MainnetIncomingPaymentService } from "./MainnetIncomingPaymentService.js";
 import { MainnetPayoutLifecycle } from "./MainnetPayoutLifecycle.js";
 import { MainnetRefundLifecycle } from "./MainnetRefundLifecycle.js";
+import { MainnetPendingRefundExecutor } from "./MainnetPendingRefundExecutor.js";
 import { MainnetTonapiPayoutVerifier } from "./MainnetTonapiPayoutVerifier.js";
 import { MainnetToncenterOutgoingTransferObserver } from "./MainnetToncenterOutgoingTransferObserver.js";
 import { MainnetToncenterReadClient } from "./MainnetToncenterReadClient.js";
@@ -56,6 +57,7 @@ export class MainnetPaymentRuntime {
             adapter, outgoingObserver: this.outgoingObserver,
             independentVerifier: this.independentVerifier, nowProvider
         });
+        this.pendingRefundExecutor = new MainnetPendingRefundExecutor({ paymentRuntime: this });
         this.payoutLifecycle = new MainnetPayoutLifecycle({
             financialLedger: this.financialLedger, adapter, outgoingObserver: this.outgoingObserver,
             independentVerifier: this.independentVerifier, nowProvider

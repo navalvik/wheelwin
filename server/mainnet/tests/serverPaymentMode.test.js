@@ -116,12 +116,16 @@ test("server app selects Mainnet bootstrap before the Testnet runtime branch", (
     assert.match(app.slice(mainnetBranch, app.indexOf("const archivePaymentMode")),
         /refundLifecycle:\s*mainnetBootstrap\.paymentRuntime\.refundLifecycle/);
     assert.match(app.slice(mainnetBranch, app.indexOf("const archivePaymentMode")),
+        /_mainnetPendingRefundExecutor\s*=\s*mainnetBootstrap\.paymentRuntime\.pendingRefundExecutor[\s\S]*?liveOperationsEnabled\s*===\s*true[\s\S]*?runPass\(\)[\s\S]*?setInterval\(executeMainnetPendingRefunds,\s*60_000\)/);
+    assert.match(app.slice(mainnetBranch, app.indexOf("const archivePaymentMode")),
         /reconcileMainnetHistoricalReceipts\(\)[\s\S]*?setInterval\(\s*reconcileMainnetHistoricalReceipts,\s*60_000\s*\)/);
     assert.doesNotMatch(app.slice(app.indexOf("const reconcileMainnetArchives"),
         app.indexOf("this._mainnetForensicHistoryTimer = setInterval")), /_mainnetHistoryReconciler\.runPass\(\)/,
     "R2 archive polling must not own historical receipt reconciliation");
     assert.match(app, /clearInterval\(this\._mainnetRefundReconciliationTimer\)/);
     assert.match(app, /this\._mainnetRefundReconciler\?\.stop\(\)/);
+    assert.match(app, /clearInterval\(this\._mainnetRefundExecutionTimer\)/);
+    assert.match(app, /this\._mainnetPendingRefundExecutor\?\.stop\(\)/);
     assert.match(app, /clearInterval\(this\._mainnetHistoryReconciliationTimer\)/);
     assert.match(app, /this\._mainnetHistoryReconciler\?\.stop\(\)/);
     assert.match(app, /clearInterval\(this\._mainnetWalletReleaseTimer\)/);
