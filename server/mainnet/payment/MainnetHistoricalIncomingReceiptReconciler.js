@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { MAINNET_GLOBAL_ID } from "../config/MainnetRuntimeConfig.js";
 import { mainnetAddressIdentity } from "./MainnetAddress.js";
 
@@ -15,38 +16,63 @@ function safeAtomic(value) {
     } catch { return null; }
 }
 
-/** Bounded read-only closed-room history check for the shared final archive gate. */
+function fingerprint(record) {
+    const stable = {
+        transactionId: record.transactionId,
+        providerTransactionId: record.providerTransactionId,
+        accountId: record.accountId,
+        sourceAddress: record.sourceAddress,
+        destinationAddress: record.destinationAddress,
+        amountAtomic: record.amountAtomic,
+        asset: record.asset,
+        transactionTime: record.transactionTime,
+        paymentReference: record.paymentReference,
+        malformedComment: record.malformedComment
+    };
+    return createHash("sha256").update(JSON.stringify(stable)).digest("hex");
+}
+
+/** Bounded Mainnet counterpart of Testnet historical receipt recovery. */
 export class MainnetHistoricalIncomingReceiptReconciler {
     constructor({ incomingLedger, financialLedger, client, outgoingObserver,
-        independentVerifier, walletPool, nowProvider = Date.now,
+        independentVerifier, walletPool, refundLifecycle, nowProvider = Date.now,
         maxCandidatesPerPass = 3, historyLimit = 1000 } = {}) {
         if (incomingLedger?.network !== "mainnet" || incomingLedger?.globalId !== MAINNET_GLOBAL_ID
             || typeof incomingLedger.listRoomIntents !== "function"
             || typeof incomingLedger.listAllIntents !== "function"
             || typeof incomingLedger.listReceipts !== "function"
+            || typeof incomingLedger.listObservations !== "function"
+            || typeof incomingLedger.getReceipt !== "function"
+            || typeof incomingLedger.recordTransfer !== "function"
             || financialLedger?.network !== "mainnet" || financialLedger?.globalId !== MAINNET_GLOBAL_ID
             || typeof financialLedger.listClosedRooms !== "function"
             || typeof financialLedger.getOutcome !== "function"
             || typeof financialLedger.getHistoryCoverage !== "function"
             || typeof financialLedger.recordHistoryCoverage !== "function"
+            || typeof financialLedger.hasPage5Started !== "function"
             || client?.network !== "mainnet" || client?.globalId !== MAINNET_GLOBAL_ID
             || typeof client.listIncomingTransactions !== "function"
             || typeof outgoingObserver?.findOutgoingTransfer !== "function"
             || typeof outgoingObserver?.verifyIndexedRecipientCredit !== "function"
             || typeof independentVerifier?.verifyTransfer !== "function"
             || typeof walletPool?.resolveReservationOwnerAt !== "function"
+            || typeof refundLifecycle?.prepareClosedRoom !== "function"
             || typeof nowProvider !== "function"
-            || !Number.isSafeInteger(maxCandidatesPerPass) || maxCandidatesPerPass < 1 || maxCandidatesPerPass > 10
+            || !Number.isSafeInteger(maxCandidatesPerPass) || maxCandidatesPerPass < 1 || maxCandidatesPerPass > 3
             || !Number.isSafeInteger(historyLimit) || historyLimit < 1 || historyLimit > 1000) {
             throw new Error("MAINNET_HISTORICAL_RECEIPT_RECONCILER_CONFIG_INVALID");
         }
         Object.assign(this, { incomingLedger, financialLedger, client, outgoingObserver,
-            independentVerifier, walletPool, nowProvider, maxCandidatesPerPass, historyLimit });
+            independentVerifier, walletPool, refundLifecycle, nowProvider, maxCandidatesPerPass, historyLimit });
         this.cursor = 0;
         this.running = false;
+        this.stopped = false;
     }
 
+    stop() { this.stopped = true; }
+
     async runPass() {
+        if (this.stopped) return { status: "STOPPED" };
         if (this.running) return { status: "ALREADY_RUNNING" };
         this.running = true;
         try {
@@ -60,8 +86,11 @@ export class MainnetHistoricalIncomingReceiptReconciler {
     }
 
     async recoverRoom(roomId) {
+        if (this.stopped) return { roomId, status: "STOPPED" };
         const closed = this.financialLedger.getOutcome(roomId);
         if (closed?.kind !== "REFUND") return { roomId, status: "ROOM_NOT_CLOSED" };
+        // A stale/refund outcome must never make a played room eligible for a refund.
+        if (this.financialLedger.hasPage5Started(roomId)) return { roomId, status: "PAGE5_ALREADY_STARTED" };
         const intents = this.incomingLedger.listRoomIntents(roomId);
         if (intents.length === 0) return { roomId, status: "NO_INTENTS" };
         const startedAt = this.nowProvider();
@@ -131,119 +160,169 @@ export class MainnetHistoricalIncomingReceiptReconciler {
             return { roomId, status: "HISTORY_INCOMPLETE" };
         }
 
-        const currentIds = new Set(transactionIds);
-        const verified = new Set((prior?.verifiedTransactionIds ?? []).filter(id => currentIds.has(id)));
-        const candidates = records.filter(record => !verified.has(record.transactionId));
-        const start = candidates.length ? (prior?.candidateCursor ?? 0) % candidates.length : 0;
-        const attemptedCount = Math.min(this.maxCandidatesPerPass, candidates.length);
+        const candidates = records.filter(record => this._isCandidate(record, intents, floorMs, ceilingMs));
+        const candidateIds = new Set(candidates.map(record => record.transactionId));
+        const priorVerified = new Set((prior?.verifiedTransactionIds ?? []).filter(id => candidateIds.has(id)));
+        const unverified = candidates.filter(record => !priorVerified.has(record.transactionId));
+        const start = unverified.length ? (prior?.candidateCursor ?? 0) % unverified.length : 0;
+        const attemptedCount = Math.min(this.maxCandidatesPerPass, unverified.length);
+        const verified = new Set(priorVerified);
+        let failed = 0;
         for (let offset = 0; offset < attemptedCount; offset++) {
-            const record = candidates[(start + offset) % candidates.length];
-            if (await this._verifyCandidate(record, roomId, intents, floorMs, ceilingMs)) {
-                verified.add(record.transactionId);
+            if (this.stopped) break;
+            const record = unverified[(start + offset) % unverified.length];
+            try {
+                const captured = await this._verifyAndCapture(record, roomId, intents, floorMs);
+                if (captured) {
+                    // Do not mark the history candidate complete until the existing
+                    // refund lifecycle has persisted all eligible obligations.
+                    this.refundLifecycle.prepareClosedRoom({ roomId,
+                        roomNumber: closed.roomNumber, closureReason: closed.closureReason,
+                        status: "DESTROYED", prePage5: true });
+                    verified.add(record.transactionId);
+                } else failed++;
+            } catch {
+                failed++;
             }
         }
 
-        const receipts = this.incomingLedger.listReceipts(roomId);
-        const receiptByTransactionId = new Map(receipts.map(receipt => [receipt.transactionId, receipt]));
-        let unaccounted = 0;
-        for (const record of records) {
-            const receipt = receiptByTransactionId.get(record.transactionId);
-            if (receipt?.status !== "CONFIRMED"
-                || receipt.network !== "mainnet" || receipt.globalId !== MAINNET_GLOBAL_ID
-                || receipt.roomId !== roomId) unaccounted++;
-        }
-        const recordIds = new Set(transactionIds);
-        const missingSettledIntents = intents.filter(intent => intent.state === "SETTLED"
-            && !recordIds.has(intent.confirmedTransactionId)).length;
-        const checkedCount = verified.size;
-        const pendingCount = Math.max(0, records.length - checkedCount)
-            + unaccounted + missingSettledIntents;
-        const nextCursor = candidates.length ? (start + attemptedCount) % candidates.length : 0;
+        const receiptById = new Map(this.incomingLedger.listReceipts(roomId)
+            .map(receipt => [receipt.transactionId, receipt]));
+        const pendingRecords = candidates.filter(record => !verified.has(record.transactionId)
+            || !["CONFIRMED", "EXTRA_PAYMENT"].includes(receiptById.get(record.transactionId)?.status));
+        const pendingCount = pendingRecords.length + malformedCandidates;
+        const nextCursor = unverified.length ? (start + attemptedCount) % unverified.length : 0;
         this._record(roomId, { completedAt: this.nowProvider(), ceilingMs,
-            resultWindowComplete: true, providerError: null,
-            candidateCount: records.length, checkedCount, pendingCount,
-            verifiedTransactionIds: [...verified].sort(), candidateCursor: nextCursor });
+            resultWindowComplete: true, providerError: failed > 0 ? "CANDIDATE_VERIFICATION_PENDING" : null,
+            candidateCount: candidates.length + malformedCandidates,
+            checkedCount: verified.size, pendingCount,
+            verifiedTransactionIds: [...verified].filter(id => candidates.some(r => r.transactionId === id)).sort(),
+            candidateCursor: nextCursor });
         return { roomId, status: pendingCount === 0 ? "HISTORY_CHECKED" : "HISTORY_PENDING",
-            candidateCount: records.length, checkedCount, pendingCount };
+            candidateCount: candidates.length, checkedCount: attemptedCount, pendingCount };
     }
 
-    async _verifyCandidate(record, roomId, intents, floorMs, ceilingMs) {
-        if (!record || record.network !== "mainnet" || record.globalId !== MAINNET_GLOBAL_ID
-            || record.asset !== "TON" || !Number.isSafeInteger(record.transactionTime)
-            || record.transactionTime < floorMs || record.transactionTime > ceilingMs
-            || !sameAddress(record.destinationAddress, intents[0].destinationWalletAddress)) return false;
-        const amountAtomic = safeAtomic(record.amountAtomic);
-        if (amountAtomic === null) return false;
+    _isCandidate(record, intents, floorMs, ceilingMs) {
+        return record?.network === "mainnet" && record.globalId === MAINNET_GLOBAL_ID
+            && record.asset === "TON" && Number.isSafeInteger(record.transactionTime)
+            && record.transactionTime >= floorMs && record.transactionTime <= ceilingMs
+            && sameAddress(record.destinationAddress, intents[0].destinationWalletAddress)
+            && sameAddress(record.accountId, record.destinationAddress)
+            && typeof record.providerTransactionId === "string" && !!record.providerTransactionId
+            && safeAtomic(record.amountAtomic) !== null;
+    }
 
-        const owners = this.incomingLedger.listAllIntents();
-        const referenceOwners = record.paymentReference
-            ? owners.filter(intent => intent.destinationWalletId === intents[0].destinationWalletId
-                && intent.paymentReference === record.paymentReference
-                && intent.createdAt <= record.transactionTime
-                && sameAddress(intent.destinationWalletAddress, record.destinationAddress)
-                && sameAddress(intent.expectedSender, record.sourceAddress)) : [];
-        const referenceRoomIds = [...new Set(referenceOwners.map(intent => intent.roomId))];
-        const exactReferenceRoom = referenceRoomIds.length === 1 ? referenceRoomIds[0] : null;
-        const ownership = this.walletPool.resolveReservationOwnerAt({
-            walletId: intents[0].destinationWalletId, transactionTime: record.transactionTime
-        });
-        if (ownership?.status === "AMBIGUOUS"
-            || ownership?.status === "OWNED" && ownership.roomId !== roomId
-            || ownership?.status === "UNKNOWN" && exactReferenceRoom !== roomId
-            || ownership?.status !== "OWNED" && ownership?.status !== "UNKNOWN") return false;
-        if (ownership.status === "UNKNOWN" && exactReferenceRoom !== roomId) return false;
-
-        const receipt = this.incomingLedger.getReceipt(record.transactionId);
-        if (!receipt || receipt.status !== "CONFIRMED" || receipt.roomId !== roomId
-            || receipt.network !== "mainnet" || receipt.globalId !== MAINNET_GLOBAL_ID
-            || receipt.asset !== "TON" || receipt.transactionId !== record.transactionId
-            || receipt.providerTransactionId !== record.providerTransactionId
-            || (record.paymentReference ?? null) !== null
-                && receipt.paymentReference !== record.paymentReference
-            || receipt.amountAtomic !== record.amountAtomic
-            || !sameAddress(receipt.sourceAddress, record.sourceAddress)
-            || !sameAddress(receipt.destinationAddress, record.destinationAddress)) return false;
-        const intent = intents.find(item => item.paymentReference === receipt.paymentReference);
-        if (!intent || intent.state !== "SETTLED" || intent.confirmedTransactionId !== record.transactionId
-            || intent.playerId !== receipt.playerId || intent.amountAtomic !== record.amountAtomic
-            || !sameAddress(intent.expectedSender, record.sourceAddress)
-            || !sameAddress(intent.destinationWalletAddress, record.destinationAddress)) return false;
-
-        try {
-            const query = { sourceWalletAddress: record.sourceAddress,
-                destinationIdentity: record.destinationAddress, amountAtomic, minCreatedAtMs: floorMs };
-            const outgoing = await this.outgoingObserver.findOutgoingTransfer(query);
-            if (!outgoing?.transactionId || outgoing.ambiguous) return false;
-            const indexed = await this.outgoingObserver.verifyIndexedRecipientCredit({
-                ...query, transactionId: outgoing.transactionId
-            });
-            if (indexed?.status !== "MASTERCHAIN_INDEXED_RECIPIENT_CREDIT_OBSERVED"
-                || indexed.globalId !== MAINNET_GLOBAL_ID
-                || indexed.sourceTransactionId !== outgoing.transactionId
-                || indexed.recipientTransactionId !== record.providerTransactionId
-                || indexed.amountAtomic !== amountAtomic
-                || !sameAddress(indexed.sourceWalletAddress, record.sourceAddress)
-                || !sameAddress(indexed.destinationAddress, record.destinationAddress)) return false;
-            const independent = await this.independentVerifier.verifyTransfer({
-                sourceTransactionId: indexed.sourceTransactionId,
-                recipientTransactionId: indexed.recipientTransactionId,
-                messageHash: indexed.messageHash,
-                sourceWalletAddress: record.sourceAddress,
-                destinationAddress: record.destinationAddress,
-                amountAtomic
-            });
-            return independent?.status === "INDEPENDENT_INDEXED_CREDIT_OBSERVED"
-                && independent.provider === "tonapi-mainnet"
-                && independent.network === "mainnet" && independent.globalId === MAINNET_GLOBAL_ID
-                && independent.sourceTransactionId === indexed.sourceTransactionId
-                && independent.recipientTransactionId === indexed.recipientTransactionId
-                && independent.messageHash === indexed.messageHash
-                && independent.amountAtomic === amountAtomic
-                && sameAddress(independent.sourceWalletAddress, record.sourceAddress)
-                && sameAddress(independent.destinationAddress, record.destinationAddress);
-        } catch {
-            return false;
+    _resolveIntent(record, roomId, intents) {
+        if (record.malformedComment || record.paymentReference && record.hasComment !== true
+            || record.hasComment === true && !record.paymentReference) return null;
+        const pool = this.incomingLedger.listAllIntents();
+        const candidates = intents.filter(intent => intent.roomId === roomId
+            && intent.network === "mainnet" && intent.globalId === MAINNET_GLOBAL_ID
+            && intent.asset === "TON"
+            && intent.createdAt <= record.transactionTime
+            && sameAddress(intent.destinationWalletAddress, record.destinationAddress)
+            && sameAddress(intent.expectedSender, record.sourceAddress)
+            && intent.amountAtomic === record.amountAtomic
+            && (record.paymentReference ? intent.paymentReference === record.paymentReference : true));
+        if (!record.paymentReference && record.hasComment !== false) return null;
+        if (candidates.length !== 1) return null;
+        const intent = candidates[0];
+        if (record.paymentReference) {
+            const referenceOwners = pool.filter(item => item.paymentReference === record.paymentReference
+                && item.destinationWalletId === intent.destinationWalletId
+                && item.createdAt <= record.transactionTime
+                && sameAddress(item.destinationWalletAddress, record.destinationAddress)
+                && sameAddress(item.expectedSender, record.sourceAddress));
+            if (referenceOwners.length !== 1 || referenceOwners[0].roomId !== roomId) return null;
         }
+        const owner = this.walletPool.resolveReservationOwnerAt({
+            walletId: intent.destinationWalletId, transactionTime: record.transactionTime
+        });
+        if (owner?.status === "OWNED") return owner.roomId === roomId ? intent : null;
+        if (owner?.status === "UNKNOWN" && record.paymentReference) {
+            const exactOwners = pool.filter(item => item.destinationWalletId === intent.destinationWalletId
+                && item.paymentReference === record.paymentReference
+                && item.createdAt <= record.transactionTime
+                && sameAddress(item.destinationWalletAddress, record.destinationAddress)
+                && sameAddress(item.expectedSender, record.sourceAddress));
+            return exactOwners.length === 1 && exactOwners[0].roomId === roomId ? intent : null;
+        }
+        return null;
+    }
+
+    async _verifyAndCapture(record, roomId, intents, floorMs) {
+        const intent = this._resolveIntent(record, roomId, intents);
+        if (!intent || this.financialLedger.hasPage5Started(roomId)) return false;
+        const amountAtomic = safeAtomic(record.amountAtomic);
+        const query = { sourceWalletAddress: record.sourceAddress,
+            destinationIdentity: record.destinationAddress, amountAtomic, minCreatedAtMs: floorMs };
+        const outgoing = await this.outgoingObserver.findOutgoingTransfer(query);
+        if (!outgoing?.transactionId || outgoing.ambiguous) return false;
+        const indexed = await this.outgoingObserver.verifyIndexedRecipientCredit({
+            ...query, transactionId: outgoing.transactionId
+        });
+        if (indexed?.status !== "MASTERCHAIN_INDEXED_RECIPIENT_CREDIT_OBSERVED"
+            || indexed.globalId !== MAINNET_GLOBAL_ID
+            || indexed.sourceFinality !== "finalized" || indexed.recipientFinality !== "finalized"
+            || indexed.sourceTransactionId !== outgoing.transactionId
+            || indexed.recipientTransactionId !== record.providerTransactionId
+            || typeof indexed.messageHash !== "string" || !indexed.messageHash
+            || indexed.amountAtomic !== amountAtomic
+            || !sameAddress(indexed.sourceWalletAddress, record.sourceAddress)
+            || !sameAddress(indexed.destinationAddress, record.destinationAddress)) return false;
+        const independent = await this.independentVerifier.verifyTransfer({
+            sourceTransactionId: indexed.sourceTransactionId,
+            recipientTransactionId: indexed.recipientTransactionId,
+            messageHash: indexed.messageHash,
+            sourceWalletAddress: record.sourceAddress,
+            destinationAddress: record.destinationAddress,
+            amountAtomic
+        });
+        if (independent?.status !== "INDEPENDENT_INDEXED_CREDIT_OBSERVED"
+            || independent.provider !== "tonapi-mainnet"
+            || independent.network !== "mainnet" || independent.globalId !== MAINNET_GLOBAL_ID
+            || independent.sourceTransactionId !== indexed.sourceTransactionId
+            || independent.recipientTransactionId !== indexed.recipientTransactionId
+            || independent.messageHash !== indexed.messageHash
+            || independent.amountAtomic !== amountAtomic
+            || !sameAddress(independent.sourceWalletAddress, record.sourceAddress)
+            || !sameAddress(independent.destinationAddress, record.destinationAddress)) return false;
+
+        const priorObservation = this.incomingLedger.listObservations(roomId)
+            .find(item => item.transactionId === record.transactionId);
+        const priorReceipt = this.incomingLedger.getReceipt(record.transactionId);
+        if (priorObservation && (priorObservation.roomId !== roomId
+            || priorObservation.payloadFingerprint !== fingerprint(record))) return false;
+        if (priorReceipt && priorReceipt.roomId !== roomId) return false;
+
+        const currentIntent = this.incomingLedger.getIntent(intent.paymentReference);
+        if (!currentIntent || currentIntent.roomId !== roomId) return false;
+        const status = currentIntent.state === "SETTLED"
+            && currentIntent.confirmedTransactionId !== record.transactionId
+            ? "EXTRA_PAYMENT" : "CONFIRMED";
+        const receipt = Object.freeze({
+            network: "mainnet", globalId: MAINNET_GLOBAL_ID, roomId,
+            transactionId: record.transactionId,
+            providerTransactionId: record.providerTransactionId,
+            paymentReference: intent.paymentReference, playerId: intent.playerId,
+            status, reason: status === "EXTRA_PAYMENT" ? "PAYMENT_ALREADY_SETTLED" : null,
+            amountAtomic: record.amountAtomic, sourceAddress: record.sourceAddress,
+            destinationAddress: record.destinationAddress, transactionTime: record.transactionTime,
+            asset: "TON", masterchainHeadSeqno: null, updatedAt: this.nowProvider()
+        });
+        const observation = Object.freeze({
+            network: "mainnet", globalId: MAINNET_GLOBAL_ID, roomId,
+            transactionId: record.transactionId,
+            providerTransactionId: record.providerTransactionId,
+            accountId: record.accountId, sourceAddress: record.sourceAddress,
+            destinationAddress: record.destinationAddress, amountAtomic: record.amountAtomic,
+            asset: record.asset, transactionTime: record.transactionTime,
+            payloadFingerprint: fingerprint(record), observedAt: this.nowProvider()
+        });
+        this.incomingLedger.recordTransfer({ observation, receipt,
+            settleReference: status === "CONFIRMED" ? intent.paymentReference : null });
+        const saved = this.incomingLedger.getReceipt(record.transactionId);
+        return saved?.roomId === roomId && ["CONFIRMED", "EXTRA_PAYMENT"].includes(saved.status);
     }
 
     _record(roomId, record) {

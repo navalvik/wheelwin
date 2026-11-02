@@ -271,6 +271,7 @@ class WheelWinApplication {
         this._mainnetGameResultReadyHandler = null;
         this._mainnetWinnerPayoutCoordinator = null;
         this._mainnetHistoryReconciler = null;
+        this._mainnetHistoryReconciliationTimer = null;
         this._mainnetForensicHistoryTimer = null;
         this._mainnetRefundReconciler = null;
         this._mainnetRefundReconciliationTimer = null;
@@ -1314,6 +1315,31 @@ class WheelWinApplication {
                     mainnetBootstrap.paymentRuntime.refundLifecycle
                 );
 
+                // Recover late incoming payments for destroyed Mainnet rooms
+                // independently of archive/R2 availability. This only reads
+                // chain history and records receipts/refund obligations.
+                this._mainnetHistoryReconciler = new MainnetHistoricalIncomingReceiptReconciler({
+                    incomingLedger: mainnetBootstrap.paymentRuntime.incomingLedger,
+                    financialLedger: mainnetBootstrap.paymentRuntime.financialLedger,
+                    client: mainnetBootstrap.paymentRuntime.client,
+                    outgoingObserver: mainnetBootstrap.paymentRuntime.outgoingObserver,
+                    independentVerifier: mainnetBootstrap.paymentRuntime.independentVerifier,
+                    walletPool: mainnetBootstrap.walletPool,
+                    refundLifecycle: mainnetBootstrap.paymentRuntime.refundLifecycle
+                });
+                const reconcileMainnetHistoricalReceipts = () => {
+                    void this._mainnetHistoryReconciler?.runPass()
+                        .catch(error => this._logger.warn?.(
+                            "MAINNET_HISTORICAL_RECEIPT_RECOVERY_PENDING | code="
+                                + (error?.code ?? "RECONCILIATION_FAILED")
+                        ));
+                };
+                reconcileMainnetHistoricalReceipts();
+                this._mainnetHistoryReconciliationTimer = setInterval(
+                    reconcileMainnetHistoricalReceipts, 60_000
+                );
+                this._mainnetHistoryReconciliationTimer.unref?.();
+
                 // Use the existing Mainnet ledger-backed gate and prepare
                 // Page4 intents through the Mainnet-only application binding.
                 // Live financial operations remain disabled; only
@@ -2017,21 +2043,12 @@ class WheelWinApplication {
                 });
             if (archivePaymentMode === "mainnet" && this._mainnetBootstrap
                 && archiveUploader.isConfigured() && archiveConfig.enabled) {
-                this._mainnetHistoryReconciler = new MainnetHistoricalIncomingReceiptReconciler({
-                    incomingLedger: this._mainnetPaymentRuntime.incomingLedger,
-                    financialLedger: this._mainnetPaymentRuntime.financialLedger,
-                    client: this._mainnetPaymentRuntime.client,
-                    outgoingObserver: this._mainnetPaymentRuntime.outgoingObserver,
-                    independentVerifier: this._mainnetPaymentRuntime.independentVerifier,
-                    walletPool: this._mainnetBootstrap.walletPool
-                });
                 let mainnetArchivePassRunning = false;
                 let mainnetArchiveCursor = 0;
                 const reconcileMainnetArchives = async () => {
                     if (mainnetArchivePassRunning) return;
                     mainnetArchivePassRunning = true;
                     try {
-                        await this._mainnetHistoryReconciler.runPass();
                         await this._forensicArchiveService.recoverPendingUploads({ limit: 3 });
                         const candidates = listMainnetArchiveCandidates(
                             this._mainnetPaymentRuntime.financialLedger
@@ -2340,6 +2357,12 @@ class WheelWinApplication {
             clearInterval(this._mainnetForensicHistoryTimer);
             this._mainnetForensicHistoryTimer=null;
         }
+        if (this._mainnetHistoryReconciliationTimer) {
+            clearInterval(this._mainnetHistoryReconciliationTimer);
+            this._mainnetHistoryReconciliationTimer = null;
+        }
+        this._mainnetHistoryReconciler?.stop();
+        this._mainnetHistoryReconciler = null;
         if (this._mainnetRefundReconciliationTimer) {
             clearInterval(this._mainnetRefundReconciliationTimer);
             this._mainnetRefundReconciliationTimer = null;
