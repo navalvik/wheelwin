@@ -23,7 +23,7 @@ export function createMainnetBootstrap({ env = process.env, logger = null,
         initialize() {
             if (initialized) return walletPool;
             walletPool.initialize({ snapshotDir: join(config.dataDir, "wallet-registry") });
-            paymentRuntime = new MainnetPaymentRuntime({ config, fetchImpl, nowProvider }).initialize();
+            paymentRuntime = new MainnetPaymentRuntime({ config, fetchImpl, nowProvider, walletPool }).initialize();
             initialized = true;
             return walletPool;
         }

@@ -6,6 +6,7 @@ import { MainnetIncomingPaymentService } from "./MainnetIncomingPaymentService.j
 import { MainnetPayoutLifecycle } from "./MainnetPayoutLifecycle.js";
 import { MainnetRefundLifecycle } from "./MainnetRefundLifecycle.js";
 import { MainnetPendingRefundExecutor } from "./MainnetPendingRefundExecutor.js";
+import { MainnetPendingPayoutExecutor } from "./MainnetPendingPayoutExecutor.js";
 import { MainnetTonapiPayoutVerifier } from "./MainnetTonapiPayoutVerifier.js";
 import { MainnetToncenterOutgoingTransferObserver } from "./MainnetToncenterOutgoingTransferObserver.js";
 import { MainnetToncenterReadClient } from "./MainnetToncenterReadClient.js";
@@ -21,7 +22,7 @@ const DISABLED_ADAPTER = Object.freeze({
 export class MainnetPaymentRuntime {
     constructor({ config, client = null, fetchImpl = globalThis.fetch,
         adapter = DISABLED_ADAPTER, nowProvider = Date.now,
-        independentVerifier = null } = {}) {
+        independentVerifier = null, walletPool = null } = {}) {
         if (config?.network !== "mainnet" || config?.globalId !== -239
             || typeof nowProvider !== "function" || typeof adapter?.sendTransfer !== "function"
             || typeof adapter?.estimateOutboundTransferFee !== "function") {
@@ -62,6 +63,8 @@ export class MainnetPaymentRuntime {
             financialLedger: this.financialLedger, adapter, outgoingObserver: this.outgoingObserver,
             independentVerifier: this.independentVerifier, nowProvider
         });
+        this.pendingPayoutExecutor = walletPool
+            ? new MainnetPendingPayoutExecutor({ paymentRuntime: this, walletPool }) : null;
     }
 
     initialize() { return this; }

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createMainnetBootstrap } from "../MainnetBootstrap.js";
+import { MainnetPendingPayoutExecutor } from "../payment/MainnetPendingPayoutExecutor.js";
 import {
     initializeMainnetServerRuntime,
     resolveServerPaymentMode
@@ -51,6 +52,7 @@ test("main server Mainnet initialization uses only the Mainnet bootstrap and rem
     assert.equal(bootstrap.config.walletCount, 64);
     assert.equal(bootstrap.paymentRuntime.network, "mainnet");
     assert.equal(bootstrap.paymentRuntime.liveOperationsEnabled, false);
+    assert.equal(bootstrap.paymentRuntime.pendingPayoutExecutor instanceof MainnetPendingPayoutExecutor, true);
     assert.equal(rpcCalls, 0);
     assert.equal(bootstrap.paymentRuntime.stateDirectories.gameplay.startsWith(dataDir), true);
 });
@@ -118,6 +120,8 @@ test("server app selects Mainnet bootstrap before the Testnet runtime branch", (
     assert.match(app.slice(mainnetBranch, app.indexOf("const archivePaymentMode")),
         /_mainnetPendingRefundExecutor\s*=\s*mainnetBootstrap\.paymentRuntime\.pendingRefundExecutor[\s\S]*?liveOperationsEnabled\s*===\s*true[\s\S]*?runPass\(\)[\s\S]*?setInterval\(executeMainnetPendingRefunds,\s*60_000\)/);
     assert.match(app.slice(mainnetBranch, app.indexOf("const archivePaymentMode")),
+        /_mainnetPendingPayoutExecutor\s*=\s*mainnetBootstrap\.paymentRuntime\.pendingPayoutExecutor[\s\S]*?liveOperationsEnabled\s*===\s*true[\s\S]*?runPass\(\)[\s\S]*?setInterval\(executeMainnetPendingPayouts,\s*60_000\)/);
+    assert.match(app.slice(mainnetBranch, app.indexOf("const archivePaymentMode")),
         /reconcileMainnetHistoricalReceipts\(\)[\s\S]*?setInterval\(\s*reconcileMainnetHistoricalReceipts,\s*60_000\s*\)/);
     assert.doesNotMatch(app.slice(app.indexOf("const reconcileMainnetArchives"),
         app.indexOf("this._mainnetForensicHistoryTimer = setInterval")), /_mainnetHistoryReconciler\.runPass\(\)/,
@@ -126,6 +130,8 @@ test("server app selects Mainnet bootstrap before the Testnet runtime branch", (
     assert.match(app, /this\._mainnetRefundReconciler\?\.stop\(\)/);
     assert.match(app, /clearInterval\(this\._mainnetRefundExecutionTimer\)/);
     assert.match(app, /this\._mainnetPendingRefundExecutor\?\.stop\(\)/);
+    assert.match(app, /clearInterval\(this\._mainnetPayoutExecutionTimer\)/);
+    assert.match(app, /this\._mainnetPendingPayoutExecutor\?\.stop\(\)/);
     assert.match(app, /clearInterval\(this\._mainnetHistoryReconciliationTimer\)/);
     assert.match(app, /this\._mainnetHistoryReconciler\?\.stop\(\)/);
     assert.match(app, /clearInterval\(this\._mainnetWalletReleaseTimer\)/);
@@ -137,6 +143,6 @@ test("server app selects Mainnet bootstrap before the Testnet runtime branch", (
     assert.match(app.slice(mainnetBranch, testnetBranch), /_paymentRuntimeReady = true/);
     assert.match(app.slice(mainnetBranch, testnetBranch), /paidGameStart=disabled/);
     const initializationFailure = app.indexOf("} catch (error) {", testnetRuntime);
-    assert.match(app.slice(initializationFailure, initializationFailure + 1500),
+    assert.match(app.slice(initializationFailure, initializationFailure + 3000),
         /configurePaymentGate\?\.\(null\)/);
 });

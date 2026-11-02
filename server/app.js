@@ -282,6 +282,8 @@ class WheelWinApplication {
         this._mainnetRefundExecutionTimer = null;
         this._mainnetPayoutReconciler = null;
         this._mainnetPayoutReconciliationTimer = null;
+        this._mainnetPendingPayoutExecutor = null;
+        this._mainnetPayoutExecutionTimer = null;
         this._mainnetRuntimeReady = false;
         this._nativeRoomWalletAdapter = null;
         this._adminSweepAdapter = null;
@@ -1432,6 +1434,19 @@ class WheelWinApplication {
                 reconcileMainnetPayouts();
                 this._mainnetPayoutReconciliationTimer = setInterval(reconcileMainnetPayouts, 60_000);
                 this._mainnetPayoutReconciliationTimer.unref?.();
+                this._mainnetPendingPayoutExecutor = mainnetBootstrap.paymentRuntime.pendingPayoutExecutor;
+                if (mainnetBootstrap.paymentRuntime.liveOperationsEnabled === true) {
+                    const executeMainnetPendingPayouts = () => {
+                        void this._mainnetPendingPayoutExecutor?.runPass()
+                            .catch(error => this._logger.warn?.(
+                                "MAINNET_PENDING_PAYOUT_EXECUTION_RETRY_LATER | code="
+                                    + (error?.code ?? "SUBMISSION_FAILED")
+                            ));
+                    };
+                    executeMainnetPendingPayouts();
+                    this._mainnetPayoutExecutionTimer = setInterval(executeMainnetPendingPayouts, 60_000);
+                    this._mainnetPayoutExecutionTimer.unref?.();
+                }
                 this._mainnetGameResultReadyHandler = envelope => {
                     const gameId = envelope?.payload?.gameId;
                     void Promise.resolve()
@@ -1679,6 +1694,12 @@ class WheelWinApplication {
             }
             this._mainnetPayoutReconciler?.stop();
             this._mainnetPayoutReconciler = null;
+            if (this._mainnetPayoutExecutionTimer) {
+                clearInterval(this._mainnetPayoutExecutionTimer);
+                this._mainnetPayoutExecutionTimer = null;
+            }
+            this._mainnetPendingPayoutExecutor?.stop();
+            this._mainnetPendingPayoutExecutor = null;
 
             this._paymentRuntime = null;
             this._mainnetBootstrap = null;
@@ -2438,6 +2459,12 @@ class WheelWinApplication {
         }
         this._mainnetPayoutReconciler?.stop();
         this._mainnetPayoutReconciler = null;
+        if (this._mainnetPayoutExecutionTimer) {
+            clearInterval(this._mainnetPayoutExecutionTimer);
+            this._mainnetPayoutExecutionTimer = null;
+        }
+        this._mainnetPendingPayoutExecutor?.stop();
+        this._mainnetPendingPayoutExecutor = null;
 
         this._logger.info("");
         this._logger.info("Stopping WheelWin Server...");

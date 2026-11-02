@@ -5,7 +5,9 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { loadMainnetRuntimeConfig } from "../config/MainnetRuntimeConfig.js";
 import { MainnetPaymentRuntime } from "../payment/MainnetPaymentRuntime.js";
+import { MainnetPendingPayoutExecutor } from "../payment/MainnetPendingPayoutExecutor.js";
 import { MainnetPendingPayoutReconciler } from "../payment/MainnetPendingPayoutReconciler.js";
+import { MainnetWalletPoolRegistry } from "../wallet/MainnetWalletPoolRegistry.js";
 
 const NOW = 1_800_000_000_000;
 const SOURCE = `0:${"1".repeat(64)}`;
@@ -34,6 +36,47 @@ function plan(payoutId, index = 0) {
         sourceWalletAddress: addr(index + 10), principalAtomic: 100_000_000,
         winner: { address: addr(index + 100), recipientId: `winner-${index}`, amountAtomic: 95_000_000 },
         owner: { address: addr(index + 200), recipientId: "owner", amountAtomic: 4_900_000 } };
+}
+
+function makeWalletPool(config, roomId, roomNumber = 2) {
+    const walletPool = new MainnetWalletPoolRegistry({ config });
+    walletPool.initialize({ snapshotDir: join(config.dataDir, "wallet-registry") });
+    return { walletPool, reservation: walletPool.reserve({ roomId, network: "mainnet",
+        walletId: `payout-wallet-${roomNumber}`, now: NOW }).wallet };
+}
+
+function makeExecutorRuntime(payouts, submitPayout) {
+    const roomNumbers = new Map(payouts.map(payout => [payout.roomId, payout.roomNumber]));
+    return {
+        network: "mainnet", globalId: -239, liveOperationsEnabled: true,
+        financialLedger: { network: "mainnet", globalId: -239, listPayouts: () => payouts },
+        payoutLifecycle: { submitPayout },
+        walletPool: { network: "mainnet", getReservationForRoom(roomId) {
+            const payout = payouts.find(item => item.roomId === roomId);
+            if (!payout) return null;
+            const roomNumber = roomNumbers.get(roomId);
+            return { network: "mainnet", roomNumber, walletId: `wallet-${roomNumber}`,
+                address: payout.sourceWalletAddress, reservedByRoomId: roomId };
+        } }
+    };
+}
+
+function indexedCreditRows({ source, destination, amount, suffix }) {
+    const messageHash = `${suffix}`.repeat(64);
+    const sourceTransactionId = `${String.fromCharCode(97 + Number(suffix))}`.repeat(64);
+    const recipientTransactionId = `${String.fromCharCode(65 + Number(suffix))}`.repeat(64);
+    const now = Math.floor((NOW + 80_000) / 1000);
+    const block = seqno => ({ workchain: 0, shard: "8000000000000000", seqno });
+    return [
+        { hash: sourceTransactionId, account: source, now,
+            description: { aborted: false, action: { success: true } }, mc_block_seqno: 20,
+            block_ref: block(20), emulated: false, finality: 2,
+            out_msgs: [{ hash: messageHash, source, destination, value: String(amount), bounced: false }] },
+        { hash: recipientTransactionId, account: destination, now: now + 1,
+            description: { aborted: false, action: { success: true } }, mc_block_seqno: 21,
+            block_ref: block(21), emulated: false, finality: 2,
+            in_msg: { hash: messageHash, source, destination, value: String(amount), bounced: false } }
+    ];
 }
 
 test("scheduler scans only attempted unsettled legs, at most two, and rotates fairly", async () => {
@@ -200,5 +243,187 @@ test("missing dual-source evidence leaves payout unsettled and never retries sub
     assert.equal(pass.scanned, 1);
     assert.equal(runtime.financialLedger.getPayout(payout.payoutId).winner.state, "SUBMITTED");
     assert.equal(runtime.financialLedger.getPayout(payout.payoutId).owner.state, "PENDING");
+    assert.equal(sends, 0);
+});
+
+test("executor submits only fresh payout legs, rotates bounded batches, and skips mismatched ownership", async () => {
+    const payouts = Array.from({ length: 5 }, (_, index) => ({ ...plan(`fresh-${index}`, index),
+        winner: { ...plan("winner", index).winner, state: "PENDING" },
+        owner: { ...plan("owner", index).owner, state: "PENDING" } }));
+    payouts.push(
+        { ...plan("winner-attempted"), winner: { ...plan("w").winner, state: "SUBMISSION_UNKNOWN" },
+            owner: { ...plan("o").owner, state: "PENDING" } },
+        { ...plan("winner-submitted"), winner: { ...plan("w").winner, state: "SUBMITTED" },
+            owner: { ...plan("o").owner, state: "PENDING" } },
+        { ...plan("owner-unpaid"), winner: { ...plan("w").winner, state: "CONFIRMED" },
+            owner: { ...plan("o").owner, state: "UNPAID_INSUFFICIENT_GAS" } },
+        { ...plan("complete"), winner: { ...plan("w").winner, state: "CONFIRMED" },
+            owner: { ...plan("o").owner, state: "CONFIRMED" } }
+    );
+    const calls = [];
+    let concurrent = 0;
+    let maxConcurrent = 0;
+    const runtime = makeExecutorRuntime(payouts, async payoutId => {
+        concurrent += 1;
+        maxConcurrent = Math.max(maxConcurrent, concurrent);
+        await new Promise(resolve => setTimeout(resolve, 2));
+        calls.push(payoutId);
+        payouts.find(item => item.payoutId === payoutId).winner.state = "SUBMISSION_UNKNOWN";
+        concurrent -= 1;
+        return { status: "WINNER_CONFIRMATION_PENDING" };
+    });
+    const executor = new MainnetPendingPayoutExecutor({ paymentRuntime: runtime,
+        walletPool: runtime.walletPool, maxPerPass: 2 });
+    const first = await executor.runPass();
+    const second = await executor.runPass();
+    const third = await executor.runPass();
+    assert.deepEqual(calls, ["fresh-0", "fresh-1", "fresh-4", "fresh-2", "fresh-3"]);
+    assert.equal(first.attempted, 2);
+    assert.equal(second.attempted, 2);
+    assert.equal(third.attempted, 1);
+    assert.equal(maxConcurrent, 1);
+    assert.equal((await executor.runPass()).status, "NO_PENDING_PAYOUT_SUBMISSIONS");
+
+    const mismatch = { ...plan("ownership-mismatch"), winner: { ...plan("w").winner, state: "PENDING" },
+        owner: { ...plan("o").owner, state: "PENDING" } };
+    const mismatchRuntime = makeExecutorRuntime([mismatch], async id => { calls.push(id); return { status: "sent" }; });
+    mismatchRuntime.walletPool.getReservationForRoom = () => ({ network: "mainnet", roomNumber: 2,
+        walletId: "wallet-2", address: mismatch.sourceWalletAddress, reservedByRoomId: "another-room" });
+    const mismatchExecutor = new MainnetPendingPayoutExecutor({ paymentRuntime: mismatchRuntime,
+        walletPool: mismatchRuntime.walletPool });
+    assert.equal((await mismatchExecutor.runPass()).results[0].status,
+        "PAYOUT_WALLET_RESERVATION_MISSING_HOLD");
+    assert.equal(calls.includes("ownership-mismatch"), false);
+});
+
+test("parallel payout executor passes are coalesced and stop blocks later work", async () => {
+    const payout = { ...plan("one"), winner: { ...plan("w").winner, state: "PENDING" },
+        owner: { ...plan("o").owner, state: "PENDING" } };
+    let release;
+    const held = new Promise(resolve => { release = resolve; });
+    const calls = [];
+    const runtime = makeExecutorRuntime([payout], async id => {
+        calls.push(id);
+        await held;
+        return { status: "WINNER_CONFIRMATION_PENDING" };
+    });
+    const executor = new MainnetPendingPayoutExecutor({ paymentRuntime: runtime,
+        walletPool: runtime.walletPool });
+    const first = executor.runPass();
+    assert.equal((await executor.runPass()).status, "EXECUTOR_IN_PROGRESS");
+    assert.deepEqual(calls, ["one"]);
+    release();
+    assert.equal((await first).attempted, 1);
+    executor.stop();
+    assert.equal((await executor.runPass()).status, "EXECUTOR_STOPPED");
+    assert.deepEqual(calls, ["one"]);
+});
+
+test("runtime executor resumes persisted payout and pays owner only after winner confirmation", async t => {
+    const config = makeConfig(t);
+    const roomId = "executor-sequence-room";
+    const { walletPool, reservation } = makeWalletPool(config, roomId);
+    let indexedTransactions = [];
+    let publishTransfers = false;
+    const sent = [];
+    const fetchImpl = async requestUrl => {
+        const url = new URL(String(requestUrl));
+        if (url.pathname.endsWith("/masterchainInfo")) {
+            return { status: 200, json: async () => ({ last: { global_id: -239, seqno: 100 } }) };
+        }
+        const account = url.searchParams.get("account");
+        const offset = Number(url.searchParams.get("offset") ?? 0);
+        const limit = Number(url.searchParams.get("limit") ?? 1000);
+        return { status: 200, json: async () => ({ transactions: indexedTransactions
+            .filter(row => row.account === account).slice(offset, offset + limit) }) };
+    };
+    const adapter = {
+        async estimateOutboundTransferFee() { throw new Error("payout does not estimate refund fees"); },
+        async sendTransfer(request) {
+            sent.push(request.destination);
+            const sequence = sent.length;
+            const transactionId = String.fromCharCode(97 + sequence).repeat(64);
+            if (publishTransfers) indexedTransactions.push(...indexedCreditRows({ source: reservation.address,
+                destination: request.destination, amount: request.amountNano, suffix: String(sequence) }));
+            return { ok: true, txHash: transactionId };
+        }
+    };
+    const independentVerifier = { async verifyTransfer(input) {
+        return { status: "INDEPENDENT_INDEXED_CREDIT_OBSERVED", ...input,
+            provider: "tonapi-mainnet", network: "mainnet", globalId: -239, actualFeeAtomic: 100 };
+    } };
+    const firstRuntime = new MainnetPaymentRuntime({ config, walletPool, fetchImpl, adapter,
+        independentVerifier, nowProvider: () => NOW + 60_000 });
+    const payout = firstRuntime.payoutLifecycle.createPayout({
+        payoutId: "payout_executor_restart", roomId, roomNumber: reservation.roomNumber,
+        sourceWalletAddress: reservation.address, principalAtomic: 100_000_000,
+        winner: { recipientId: "winner-1", address: WINNER },
+        owner: { recipientId: "owner", address: OWNER }
+    });
+    assert.equal(payout.winner.state, "PENDING");
+
+    // Restart before executing the saved plan; no chain transfer exists yet.
+    const runtime = new MainnetPaymentRuntime({ config, walletPool, fetchImpl, adapter,
+        independentVerifier, nowProvider: () => NOW + 60_000 });
+    assert.equal(runtime.liveOperationsEnabled, false);
+    assert.equal(runtime.pendingPayoutExecutor instanceof MainnetPendingPayoutExecutor, true);
+    assert.equal(runtime.financialLedger.listPayouts().length, 1);
+    assert.equal((await runtime.pendingPayoutExecutor.runPass()).status, "LIVE_OPERATIONS_DISABLED");
+    assert.deepEqual(sent, []);
+
+    // Test-only enablement with an injected synthetic adapter; live configuration stays closed.
+    runtime.liveOperationsEnabled = true;
+    const winnerAttempt = await runtime.pendingPayoutExecutor.runPass();
+    assert.equal(winnerAttempt.results[0].status, "WINNER_CONFIRMATION_PENDING");
+    assert.deepEqual(sent, [WINNER]);
+    assert.equal(runtime.financialLedger.getPayout(payout.payoutId).winner.state, "SUBMITTED");
+    assert.equal(runtime.financialLedger.getPayout(payout.payoutId).owner.state, "PENDING");
+    assert.equal((await runtime.pendingPayoutExecutor.runPass()).status, "NO_PENDING_PAYOUT_SUBMISSIONS",
+        "an attempted winner is left to the read-only payout reconciler");
+    assert.deepEqual(sent, [WINNER]);
+
+    indexedTransactions = indexedCreditRows({ source: reservation.address, destination: WINNER,
+        amount: payout.winner.amountAtomic, suffix: "1" });
+    const reconciler = new MainnetPendingPayoutReconciler({ financialLedger: runtime.financialLedger,
+        payoutLifecycle: runtime.payoutLifecycle });
+    const recovered = await reconciler.runPass();
+    assert.equal(recovered.results[0].winnerState, "CONFIRMED");
+    assert.equal(recovered.results[0].ownerState, "PENDING");
+
+    publishTransfers = true;
+    const ownerAttempt = await runtime.pendingPayoutExecutor.runPass();
+    assert.equal(ownerAttempt.results[0].status, "PAYOUT_COMPLETE");
+    assert.deepEqual(sent, [WINNER, OWNER]);
+    assert.equal(runtime.financialLedger.getPayout(payout.payoutId).winner.state, "CONFIRMED");
+    assert.equal(runtime.financialLedger.getPayout(payout.payoutId).owner.state, "CONFIRMED");
+    assert.equal((await runtime.pendingPayoutExecutor.runPass()).status, "NO_PENDING_PAYOUT_SUBMISSIONS");
+    assert.deepEqual(sent, [WINNER, OWNER]);
+});
+
+test("executor excludes UNPAID_INSUFFICIENT_GAS and never sends while operations are disabled after restart", async t => {
+    const config = makeConfig(t);
+    const roomId = "payout-owner-unpaid-room";
+    const { walletPool, reservation } = makeWalletPool(config, roomId);
+    let sends = 0;
+    const adapter = {
+        async estimateOutboundTransferFee() { throw new Error("unexpected fee estimate"); },
+        async sendTransfer() { sends += 1; throw new Error("disabled test must not send"); }
+    };
+    const firstRuntime = new MainnetPaymentRuntime({ config, walletPool, adapter,
+        nowProvider: () => NOW });
+    const payout = firstRuntime.payoutLifecycle.createPayout({ payoutId: "payout_owner_unpaid",
+        roomId, roomNumber: reservation.roomNumber, sourceWalletAddress: reservation.address,
+        principalAtomic: 100_000_000, winner: { recipientId: "winner", address: WINNER },
+        owner: { recipientId: "owner", address: OWNER } });
+    firstRuntime.financialLedger.updatePayoutLeg(payout.payoutId, "winner", { state: "SUBMISSION_UNKNOWN" });
+    firstRuntime.financialLedger.updatePayoutLeg(payout.payoutId, "winner", { state: "CONFIRMED" });
+    firstRuntime.financialLedger.updatePayoutLeg(payout.payoutId, "owner", { state: "SUBMISSION_UNKNOWN" });
+    firstRuntime.financialLedger.updatePayoutLeg(payout.payoutId, "owner", { state: "UNPAID_INSUFFICIENT_GAS" });
+
+    const restarted = new MainnetPaymentRuntime({ config, walletPool, adapter, nowProvider: () => NOW + 1 });
+    assert.equal((await restarted.pendingPayoutExecutor.runPass()).status, "LIVE_OPERATIONS_DISABLED");
+    restarted.liveOperationsEnabled = true;
+    assert.equal((await restarted.pendingPayoutExecutor.runPass()).status, "NO_PENDING_PAYOUT_SUBMISSIONS");
+    assert.equal(restarted.financialLedger.getPayout(payout.payoutId).owner.state, "UNPAID_INSUFFICIENT_GAS");
     assert.equal(sends, 0);
 });
