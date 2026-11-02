@@ -51,6 +51,7 @@ export function mapMainnetTransactionsResponse(payload, { account, floorMs, ceil
     const addressBook = payload.address_book && typeof payload.address_book === "object"
         ? payload.address_book : {};
     const records = [];
+    let malformedIncomingCandidateCount = 0;
     for (const tx of payload.transactions) {
         if (!tx || typeof tx !== "object" || typeof tx.hash !== "string" || !tx.hash.trim()
             || !Number.isSafeInteger(tx.now) || tx.now <= 0) {
@@ -65,18 +66,29 @@ export function mapMainnetTransactionsResponse(payload, { account, floorMs, ceil
         if (!message || typeof message !== "object") continue;
         const sourceAddress = resolveAddress(message.source, addressBook);
         const destinationAddress = resolveAddress(message.destination, addressBook);
-        if (!sourceAddress || !destinationAddress) continue;
         let destinationIdentity;
-        try {
-            mainnetAddressIdentity(sourceAddress);
-            destinationIdentity = mainnetAddressIdentity(message.destination?.address ?? message.destination);
-        }
+        try { destinationIdentity = mainnetAddressIdentity(message.destination?.address ?? message.destination); }
         catch { continue; }
         if (destinationIdentity !== accountIdentity) continue;
+        if (!sourceAddress || !destinationAddress) {
+            malformedIncomingCandidateCount++;
+            continue;
+        }
+        try { mainnetAddressIdentity(sourceAddress); }
+        catch {
+            malformedIncomingCandidateCount++;
+            continue;
+        }
         if (typeof tx.account === "string" && tx.account.trim()) {
             try {
-                if (mainnetAddressIdentity(tx.account) !== accountIdentity) continue;
-            } catch { continue; }
+                if (mainnetAddressIdentity(tx.account) !== accountIdentity) {
+                    malformedIncomingCandidateCount++;
+                    continue;
+                }
+            } catch {
+                malformedIncomingCandidateCount++;
+                continue;
+            }
         }
         if (typeof message.value !== "string" || !/^(0|[1-9][0-9]*)$/.test(message.value)) {
             throw new Error("MAINNET_TONCENTER_AMOUNT_INVALID");
@@ -110,6 +122,7 @@ export function mapMainnetTransactionsResponse(payload, { account, floorMs, ceil
     return Object.freeze({
         records: Object.freeze(records),
         rowsReturned: payload.transactions.length,
-        resultWindowComplete: payload.transactions.length < limit
+        resultWindowComplete: payload.transactions.length < limit,
+        ...(malformedIncomingCandidateCount > 0 ? { malformedIncomingCandidateCount } : {})
     });
 }

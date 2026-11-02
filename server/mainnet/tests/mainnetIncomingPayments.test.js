@@ -313,6 +313,15 @@ test("incomplete Toncenter history window cannot settle a payment", async (t) =>
     assert.equal(h.ledger.listReceipts(ROOM).length, 0);
 });
 
+test("malformed incoming sender for the queried Mainnet wallet is surfaced as incomplete history", async t => {
+    const h = harness(t, { transactions: [tx({ source: "not-a-valid-ton-address" })] });
+    const batch = await h.client.listIncomingTransactions({ account: WALLET,
+        floorMs: NOW_MS - 10_000, ceilingMs: NOW_MS + 1_000, limit: 100 });
+    assert.equal(batch.resultWindowComplete, true);
+    assert.equal(batch.records.length, 0);
+    assert.equal(batch.malformedIncomingCandidateCount, 1);
+});
+
 test("Mainnet transport is fixed to Toncenter Mainnet and exposes read-only calls only", (t) => {
     const h = harness(t);
     assert.equal(h.client.baseUrl, "https://toncenter.com");

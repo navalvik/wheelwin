@@ -7,7 +7,7 @@ import { mainnetAddressIdentity } from "./MainnetAddress.js";
 import { calculateMainnetPayout } from "./MainnetPayoutPolicy.js";
 
 const EMPTY = Object.freeze({ schemaVersion: 1, network: "mainnet", globalId: MAINNET_GLOBAL_ID,
-    outcomes: [], refunds: [], payouts: [], page5StartedRooms: [] });
+    outcomes: [], refunds: [], payouts: [], page5StartedRooms: [], historyCoverage: [] });
 const REFUND_STATES = new Set(["PENDING", "SUBMISSION_UNKNOWN", "SUBMITTED", "COMPLETE"]);
 const PAYOUT_STATES = new Set(["PENDING", "SUBMISSION_UNKNOWN", "SUBMITTED", "CONFIRMED", "UNPAID_INSUFFICIENT_GAS"]);
 const clone = (value) => JSON.parse(JSON.stringify(value));
@@ -30,7 +30,10 @@ export class MainnetFinancialLedger {
         if (this._initialized) return this;
         mkdirSync(join(this._file, ".."), { recursive: true });
         if (existsSync(this._file)) {
-            try { this._state = JSON.parse(readFileSync(this._file, "utf8")); }
+            try {
+                this._state = JSON.parse(readFileSync(this._file, "utf8"));
+                this._state.historyCoverage ??= [];
+            }
             catch { throw new Error("MAINNET_FINANCIAL_LEDGER_CORRUPT"); }
         }
         this._validate(this._state);
@@ -69,6 +72,39 @@ export class MainnetFinancialLedger {
         this._assertReady();
         return Object.freeze(this._state.outcomes.filter(entry => entry.kind === "REFUND")
             .map(entry => Object.freeze({ ...entry })));
+    }
+
+    /** Replace the latest read-only archive-history check for one closed room. */
+    recordHistoryCoverage(record) {
+        this._assertReady();
+        if (!record || typeof record.roomId !== "string" || !record.roomId
+            || record.source !== "FINAL_FORENSIC_HISTORY_COVERAGE"
+            || !Number.isSafeInteger(record.completedAt) || record.completedAt <= 0
+            || typeof record.resultWindowComplete !== "boolean"
+            || !(record.providerError === null || typeof record.providerError === "string")
+            || !Number.isSafeInteger(record.candidateCount) || record.candidateCount < 0
+            || !Number.isSafeInteger(record.checkedCount) || record.checkedCount < 0
+            || !Number.isSafeInteger(record.pendingCount) || record.pendingCount < 0
+            || record.candidateCursor !== undefined
+                && (!Number.isSafeInteger(record.candidateCursor) || record.candidateCursor < 0)
+            || !Array.isArray(record.verifiedTransactionIds)
+            || record.verifiedTransactionIds.some(id => typeof id !== "string" || !id)
+            || new Set(record.verifiedTransactionIds).size !== record.verifiedTransactionIds.length) {
+            throw new Error("MAINNET_HISTORY_COVERAGE_RECORD_INVALID");
+        }
+        const historyCoverage = [
+            ...(this._state.historyCoverage ?? []).filter(item => item.roomId !== record.roomId),
+            { ...record, verifiedTransactionIds: [...record.verifiedTransactionIds] }
+        ];
+        this._commit({ ...this._state, historyCoverage });
+        return Object.freeze({ ...record, verifiedTransactionIds: Object.freeze([...record.verifiedTransactionIds]) });
+    }
+
+    getHistoryCoverage(roomId) {
+        this._assertReady();
+        const record = (this._state.historyCoverage ?? []).find(item => item.roomId === roomId);
+        return record ? Object.freeze({ ...record,
+            verifiedTransactionIds: Object.freeze([...(record.verifiedTransactionIds ?? [])]) }) : null;
     }
 
     hasPayoutOutcome(roomId) {
@@ -335,7 +371,8 @@ export class MainnetFinancialLedger {
     _validate(state) {
         if (!state || state.schemaVersion !== 1 || state.network !== "mainnet" || state.globalId !== MAINNET_GLOBAL_ID
             || !Array.isArray(state.outcomes) || !Array.isArray(state.refunds) || !Array.isArray(state.payouts)
-            || (state.page5StartedRooms !== undefined && !Array.isArray(state.page5StartedRooms))) {
+            || (state.page5StartedRooms !== undefined && !Array.isArray(state.page5StartedRooms))
+            || (state.historyCoverage !== undefined && !Array.isArray(state.historyCoverage))) {
             throw new Error("MAINNET_FINANCIAL_LEDGER_IDENTITY_INVALID");
         }
         const started = state.page5StartedRooms ?? [];
@@ -347,6 +384,26 @@ export class MainnetFinancialLedger {
         for (const item of state.refunds) { this._validateRefund(item); if (refundIds.has(item.obligationId)) throw new Error("MAINNET_REFUND_DUPLICATE"); refundIds.add(item.obligationId); }
         const payouts = new Set();
         for (const item of state.payouts) { this._validatePayout(item); if (payouts.has(item.payoutId)) throw new Error("MAINNET_PAYOUT_DUPLICATE"); payouts.add(item.payoutId); }
+        const coverageRooms = new Set();
+        for (const item of state.historyCoverage ?? []) {
+            if (!item || typeof item.roomId !== "string" || !item.roomId
+                || item.source !== "FINAL_FORENSIC_HISTORY_COVERAGE"
+                || !Number.isSafeInteger(item.completedAt) || item.completedAt <= 0
+                || typeof item.resultWindowComplete !== "boolean"
+                || !(item.providerError === null || typeof item.providerError === "string")
+                || !Number.isSafeInteger(item.candidateCount) || item.candidateCount < 0
+                || !Number.isSafeInteger(item.checkedCount) || item.checkedCount < 0
+                || !Number.isSafeInteger(item.pendingCount) || item.pendingCount < 0
+                || item.candidateCursor !== undefined
+                    && (!Number.isSafeInteger(item.candidateCursor) || item.candidateCursor < 0)
+                || !Array.isArray(item.verifiedTransactionIds)
+                || item.verifiedTransactionIds.some(id => typeof id !== "string" || !id)
+                || new Set(item.verifiedTransactionIds).size !== item.verifiedTransactionIds.length
+                || coverageRooms.has(item.roomId)) {
+                throw new Error("MAINNET_HISTORY_COVERAGE_RECORD_INVALID");
+            }
+            coverageRooms.add(item.roomId);
+        }
     }
 
     _commit(state) { this._validate(state); this._persist(state); }

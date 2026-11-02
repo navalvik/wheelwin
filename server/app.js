@@ -128,6 +128,7 @@ import { LIVE_PAYMENT_ACCEPTANCE_ENABLED } from "./payment/PaymentLifecycleAvail
 import { initializeMainnetServerRuntime, resolveServerPaymentMode } from "./mainnet/ServerPaymentMode.js";
 import { MainnetPage4PaymentApplicationBinding } from "./mainnet/payment/MainnetPage4PaymentApplicationBinding.js";
 import { MainnetWinnerPayoutCoordinator } from "./mainnet/payment/MainnetWinnerPayoutCoordinator.js";
+import { MainnetHistoricalIncomingReceiptReconciler } from "./mainnet/payment/MainnetHistoricalIncomingReceiptReconciler.js";
 
 import { DeveloperConsoleProjectionService } from "./console/DeveloperConsoleProjectionService.js";
 import { registerDeveloperConsoleRoutes } from "./console/registerDeveloperConsoleRoutes.js";
@@ -266,6 +267,8 @@ class WheelWinApplication {
         this._mainnetPage5StartedHandler = null;
         this._mainnetGameResultReadyHandler = null;
         this._mainnetWinnerPayoutCoordinator = null;
+        this._mainnetHistoryReconciler = null;
+        this._mainnetForensicHistoryTimer = null;
         this._mainnetRuntimeReady = false;
         this._nativeRoomWalletAdapter = null;
         this._adminSweepAdapter = null;
@@ -1878,8 +1881,9 @@ class WheelWinApplication {
         // On Railway, keep history in the existing mounted volume so it can
         // survive a restart and support later R2 archive reconciliation.
         const archiveConfig = resolveForensicArchiveConfig();
+        const archivePaymentMode = resolveServerPaymentMode(process.env);
         const archiveBinding = resolveFinancialArchiveRuntimeBinding({
-            paymentMode: resolveServerPaymentMode(process.env),
+            paymentMode: archivePaymentMode,
             archiveConfig,
             testnetRuntime: this._paymentRuntime,
             mainnetRuntime: this._mainnetPaymentRuntime
@@ -1955,6 +1959,45 @@ class WheelWinApplication {
                         + (error?.code ?? "RECOVERY_FAILED")
                     );
                 });
+            if (archivePaymentMode === "mainnet" && this._mainnetBootstrap
+                && archiveUploader.isConfigured() && archiveConfig.enabled) {
+                this._mainnetHistoryReconciler = new MainnetHistoricalIncomingReceiptReconciler({
+                    incomingLedger: this._mainnetPaymentRuntime.incomingLedger,
+                    financialLedger: this._mainnetPaymentRuntime.financialLedger,
+                    client: this._mainnetPaymentRuntime.client,
+                    outgoingObserver: this._mainnetPaymentRuntime.outgoingObserver,
+                    independentVerifier: this._mainnetPaymentRuntime.independentVerifier,
+                    walletPool: this._mainnetBootstrap.walletPool
+                });
+                let mainnetArchivePassRunning = false;
+                let mainnetArchiveCursor = 0;
+                const reconcileMainnetArchives = async () => {
+                    if (mainnetArchivePassRunning) return;
+                    mainnetArchivePassRunning = true;
+                    try {
+                        await this._mainnetHistoryReconciler.runPass();
+                        await this._forensicArchiveService.recoverPendingUploads({ limit: 3 });
+                        const closedRooms = this._mainnetPaymentRuntime.financialLedger.listClosedRooms();
+                        const count = Math.min(3, closedRooms.length);
+                        for (let index = 0; index < count; index++) {
+                            const closed = closedRooms[(mainnetArchiveCursor + index) % closedRooms.length];
+                            await this._forensicArchiveService.ensureArchivedAndUploaded({
+                                roomId: closed.roomId, reason: closed.closureReason
+                            });
+                        }
+                        mainnetArchiveCursor = closedRooms.length
+                            ? (mainnetArchiveCursor + count) % closedRooms.length : 0;
+                    } catch (error) {
+                        this._logger.warn?.("MAINNET_FORENSIC_HISTORY_PENDING | code="
+                            + (error?.code ?? "RECONCILIATION_PENDING"));
+                    } finally {
+                        mainnetArchivePassRunning = false;
+                    }
+                };
+                void reconcileMainnetArchives();
+                this._mainnetForensicHistoryTimer = setInterval(reconcileMainnetArchives, 60_000);
+                this._mainnetForensicHistoryTimer.unref?.();
+            }
             this._logger.startupLine(
                 "R2ForensicArchive (enabled="
                 + archiveConfig.enabled
@@ -2238,6 +2281,10 @@ class WheelWinApplication {
         if(this._payoutRecoveryTimer){
             clearInterval(this._payoutRecoveryTimer);
             this._payoutRecoveryTimer=null;
+        }
+        if(this._mainnetForensicHistoryTimer){
+            clearInterval(this._mainnetForensicHistoryTimer);
+            this._mainnetForensicHistoryTimer=null;
         }
 
         this._logger.info("");

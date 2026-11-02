@@ -112,6 +112,7 @@ export function createMainnetForensicFinancialSnapshot({ roomId, incomingLedger,
         createdAtMs: closedRoom.closedAtMs
     } : null;
 
+    const historyCoverage = financialLedger.getHistoryCoverage?.(roomId) ?? null;
     return {
         schemaVersion: 1,
         network: "mainnet",
@@ -124,7 +125,7 @@ export function createMainnetForensicFinancialSnapshot({ roomId, incomingLedger,
         receipts,
         unresolvedReceipts,
         refunds,
-        paymentObservations,
+        paymentObservations: [...paymentObservations, ...(historyCoverage ? [historyCoverage] : [])],
         paymentDecisions: [],
         outstandingObligations: financialLedger.countOpenObligations(roomId)
     };

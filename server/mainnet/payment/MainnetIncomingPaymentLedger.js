@@ -137,6 +137,11 @@ export class MainnetIncomingPaymentLedger {
         return Object.freeze(this._state.intents.filter((intent) => intent.roomId === roomId));
     }
 
+    listAllIntents() {
+        this._assertInitialized();
+        return Object.freeze([...this._state.intents]);
+    }
+
     getIntent(paymentReference) {
         this._assertInitialized();
         return this._state.intents.find((intent) => intent.paymentReference === paymentReference) ?? null;
