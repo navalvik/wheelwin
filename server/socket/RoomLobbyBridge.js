@@ -3378,7 +3378,7 @@ export class RoomLobbyBridge {
             if (this._verifyBarrierCompletedByRoom.has(roomId)) {
                 this._deliverToSocket(socketId, LOBBY_SERVER_EVENTS.PAYMENT_STAGE_READY, {
                     roomId,
-                    paymentAcceptanceEnabled: LIVE_PAYMENT_ACCEPTANCE_ENABLED
+                    paymentAcceptanceEnabled: this._page4PaymentAcceptanceEnabled()
                 });
             } else {
                 const optionsReady = this._noFriendsOptionsReadyByRoom.get(roomId);
