@@ -52,6 +52,7 @@ import { purgeLocalForensicArchiveZips } from "./forensic/purgeLocalForensicArch
 import { R2ForensicArchiveUploader } from "./forensic/R2ForensicArchiveUploader.js";
 import { resolveForensicArchiveConfig } from "./forensic/forensicArchiveConfig.js";
 import { resolveFinancialArchiveRuntimeBinding } from "./mainnet/payment/MainnetForensicFinancialSnapshot.js";
+import { listMainnetArchiveCandidates, selectMainnetArchiveBatch } from "./mainnet/payment/MainnetArchiveRecoveryQueue.js";
 import { LOG_LEVELS } from "./logging/levels.js";
 import { MonitoringManager } from "./monitoring/MonitoringManager.js";
 import { FailurePolicyManager } from "./failure/FailurePolicyManager.js";
@@ -1977,16 +1978,14 @@ class WheelWinApplication {
                     try {
                         await this._mainnetHistoryReconciler.runPass();
                         await this._forensicArchiveService.recoverPendingUploads({ limit: 3 });
-                        const closedRooms = this._mainnetPaymentRuntime.financialLedger.listClosedRooms();
-                        const count = Math.min(3, closedRooms.length);
-                        for (let index = 0; index < count; index++) {
-                            const closed = closedRooms[(mainnetArchiveCursor + index) % closedRooms.length];
-                            await this._forensicArchiveService.ensureArchivedAndUploaded({
-                                roomId: closed.roomId, reason: closed.closureReason
-                            });
+                        const candidates = listMainnetArchiveCandidates(
+                            this._mainnetPaymentRuntime.financialLedger
+                        );
+                        const batch = selectMainnetArchiveBatch(candidates, mainnetArchiveCursor, 3);
+                        for (const candidate of batch.items) {
+                            await this._forensicArchiveService.ensureArchivedAndUploaded(candidate);
                         }
-                        mainnetArchiveCursor = closedRooms.length
-                            ? (mainnetArchiveCursor + count) % closedRooms.length : 0;
+                        mainnetArchiveCursor = batch.nextCursor;
                     } catch (error) {
                         this._logger.warn?.("MAINNET_FORENSIC_HISTORY_PENDING | code="
                             + (error?.code ?? "RECONCILIATION_PENDING"));
