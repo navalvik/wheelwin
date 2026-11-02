@@ -200,13 +200,17 @@ test("late payment after release and wallet reassignment uses persisted historic
         status: "INDEPENDENT_INDEXED_CREDIT_OBSERVED", provider: "tonapi-mainnet",
         network: "mainnet", globalId: -239, ...input
     }; } };
+    let feeQuotes = 0;
+    let outboundSends = 0;
     const refundLifecycle = new MainnetRefundLifecycle({ financialLedger: recoveredFinancialLedger,
         incomingLedger: recoveredIncomingLedger,
-        adapter: { async sendTransfer() { throw new Error("live send forbidden"); },
-            async estimateOutboundTransferFee() { throw new Error("live fee quote forbidden"); } },
+        adapter: { async sendTransfer() { outboundSends++; return { ok: true, txHash: "must-not-send" }; },
+            async estimateOutboundTransferFee() { feeQuotes++; return { ok: true, totalNano: 1n }; } },
         outgoingObserver, independentVerifier, nowProvider: () => NOW });
     refundLifecycle.configureReservedWalletRoomNumberResolver(roomId =>
         restartedPool.getReservationForRoomHistory(roomId)?.roomNumber ?? null);
+    refundLifecycle.configureCurrentWalletReservationResolver(roomNumber =>
+        restartedPool.getWalletByRoomNumber(roomNumber));
     const reconciler = new MainnetHistoricalIncomingReceiptReconciler({
         incomingLedger: recoveredIncomingLedger, financialLedger: recoveredFinancialLedger,
         client, outgoingObserver, independentVerifier, walletPool: restartedPool, refundLifecycle,
@@ -220,10 +224,24 @@ test("late payment after release and wallet reassignment uses persisted historic
     assert.equal(refund.roomNumber, wallet.roomNumber);
     assert.equal(refund.sourceWalletAddress, wallet.address);
     assert.equal(refund.playerId, "olga");
-    assert.equal((await reconciler.recoverRoom(ROOM)).status, "HISTORY_CHECKED");
-    assert.equal(recoveredFinancialLedger.listRefunds(ROOM).length, 1, "replay creates no duplicate obligation");
+    assert.equal((await refundLifecycle.submitRefund(refund.obligationId)).outcome,
+        "WALLET_RESERVED_FOR_OTHER_ROOM");
+    assert.equal((await refundLifecycle.submitRefund(refund.obligationId)).outcome,
+        "WALLET_RESERVED_FOR_OTHER_ROOM", "retry remains blocked while the new room owns the wallet");
+    assert.equal(recoveredFinancialLedger.getRefund(refund.obligationId).state, "PENDING");
+    assert.equal(feeQuotes, 0);
+    assert.equal(outboundSends, 0);
     assert.equal(restartedPool.getReservationForRoom("new-room").walletId, wallet.walletId,
         "late recovery does not release or redirect the newer room reservation");
+    restartedPool.release({ roomId: "new-room", unresolvedObligations: 0, now: NOW + 1 });
+    assert.equal((await refundLifecycle.submitRefund(refund.obligationId)).outcome,
+        "WALLET_RESERVATION_RELEASED", "a released wallet is not treated as owned by the old room");
+    assert.equal(recoveredFinancialLedger.getRefund(refund.obligationId).state, "PENDING");
+    assert.equal(feeQuotes, 0);
+    assert.equal(outboundSends, 0);
+    assert.equal((await reconciler.recoverRoom(ROOM)).status, "HISTORY_CHECKED");
+    assert.equal(recoveredFinancialLedger.listRefunds(ROOM).length, 1, "replay creates no duplicate obligation");
+    assert.equal(restartedPool.getReservationForRoom("new-room"), null);
 });
 
 test("two late transactions are independently recorded/refunded and replay is idempotent after restart", async t => {

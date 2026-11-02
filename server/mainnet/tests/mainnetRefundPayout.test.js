@@ -77,6 +77,12 @@ function incomingStub(count) {
         listObservations: (roomId) => roomId === ROOM ? observations : [] };
 }
 
+function configureRefundSourceReservation(flow, { roomNumber = 3, reservedByRoomId = ROOM } = {}) {
+    flow.configureCurrentWalletReservationResolver(number => number === roomNumber ? ({
+        walletId: `mw-${roomNumber}`, roomNumber, address: SOURCE, network: "mainnet", reservedByRoomId
+    }) : null);
+}
+
 test("Mainnet refund preparation creates one, two, or three obligations and is idempotent", (t) => {
     for (const count of [1, 2, 3]) {
         const h = makeHarness(t);
@@ -109,6 +115,7 @@ test("Mainnet refund charges indexed network fee to payer's refund and recovers 
     const flow = new MainnetRefundLifecycle({ financialLedger: h.ledger,
         incomingLedger: incomingStub(1), adapter, outgoingObserver: observer,
         independentVerifier: refundVerifier, nowProvider: () => 1_800_000_001_000 });
+    configureRefundSourceReservation(flow);
     const submitted = await flow.submitRefund(refunds[0].obligationId);
     assert.equal(submitted.outcome, "SUBMITTED");
     const record = h.ledger.getRefund(refunds[0].obligationId);
@@ -133,6 +140,7 @@ test("Mainnet refund ambiguity is not resubmitted on recovery", async (t) => {
     const flow = new MainnetRefundLifecycle({ financialLedger: h.ledger,
         incomingLedger: incomingStub(1), adapter, outgoingObserver: observer,
         independentVerifier: refundVerifier });
+    configureRefundSourceReservation(flow);
     assert.equal((await flow.submitRefund(obligation.obligationId)).outcome, "SUBMISSION_UNKNOWN");
     assert.equal((await flow.submitRefund(obligation.obligationId)).outcome, "RECONCILE_ONLY");
     assert.equal(sends, 1);

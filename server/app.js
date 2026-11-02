@@ -1277,6 +1277,9 @@ class WheelWinApplication {
                 mainnetBootstrap.paymentRuntime.refundLifecycle.configureReservedWalletRoomNumberResolver(
                     roomId => mainnetBootstrap.walletPool.getReservationForRoomHistory(roomId)?.roomNumber ?? null
                 );
+                mainnetBootstrap.paymentRuntime.refundLifecycle.configureCurrentWalletReservationResolver(
+                    roomNumber => mainnetBootstrap.walletPool.getWalletByRoomNumber(roomNumber)
+                );
                 this._mainnetPage5StartedHandler = envelope => {
                     const roomId = envelope?.payload?.roomId;
                     if (typeof roomId === "string" && roomId) {

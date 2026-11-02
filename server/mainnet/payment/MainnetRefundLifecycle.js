@@ -31,6 +31,7 @@ export class MainnetRefundLifecycle {
         this._now = nowProvider;
         this._hasReachedPage5 = null;
         this._resolveReservedWalletRoomNumber = null;
+        this._resolveCurrentWalletReservation = null;
     }
 
     /** Connect the server-owned gameplay lifecycle without depending on client state. */
@@ -42,6 +43,11 @@ export class MainnetRefundLifecycle {
     configureReservedWalletRoomNumberResolver(resolver) {
         if (typeof resolver !== "function") throw new TypeError("Reserved wallet resolver must be a function");
         this._resolveReservedWalletRoomNumber = resolver;
+    }
+
+    configureCurrentWalletReservationResolver(resolver) {
+        if (typeof resolver !== "function") throw new TypeError("Current wallet reservation resolver must be a function");
+        this._resolveCurrentWalletReservation = resolver;
     }
 
     prepareClosedRoom({ roomId, roomNumber, closureReason, status, prePage5 = true } = {}) {
@@ -80,6 +86,9 @@ export class MainnetRefundLifecycle {
         const obligation = this._ledger.getRefund(obligationId);
         if (!obligation) throw new Error("MAINNET_REFUND_NOT_FOUND");
         if (obligation.state !== "PENDING") return Object.freeze({ obligationId, outcome: "RECONCILE_ONLY", state: obligation.state });
+        const reservationCheck = this._checkCurrentWalletReservation(obligation);
+        if (reservationCheck) return Object.freeze({ obligationId, outcome: reservationCheck,
+            state: obligation.state });
         const estimate = await this._adapter.estimateOutboundTransferFee({
             roomNumber: obligation.roomNumber, destination: obligation.refundDestination,
             amountNano: BigInt(obligation.amountAtomic), bounce: false
@@ -90,6 +99,9 @@ export class MainnetRefundLifecycle {
         const charge = gasCharge(estimate.totalNano);
         const transferAmountAtomic = safeNumber(BigInt(obligation.amountAtomic) - charge);
         const gasChargeAtomic = safeNumber(charge);
+        const finalReservationCheck = this._checkCurrentWalletReservation(obligation);
+        if (finalReservationCheck) return Object.freeze({ obligationId, outcome: finalReservationCheck,
+            state: obligation.state });
         this._ledger.updateRefund(obligationId, { state: "SUBMISSION_UNKNOWN",
             transferAmountAtomic, gasChargeAtomic, attemptedAtMs: this._now() });
         try {
@@ -105,6 +117,23 @@ export class MainnetRefundLifecycle {
             }
         } catch { /* A broadcast error is ambiguous; persist the hold and reconcile by history. */ }
         return Object.freeze({ obligationId, outcome: "SUBMISSION_UNKNOWN" });
+    }
+
+    _checkCurrentWalletReservation(obligation) {
+        if (!this._resolveCurrentWalletReservation) return "WALLET_RESERVATION_UNAVAILABLE";
+        let wallet;
+        try { wallet = this._resolveCurrentWalletReservation(obligation.roomNumber); }
+        catch { return "WALLET_RESERVATION_UNAVAILABLE"; }
+        if (!wallet || wallet.network !== "mainnet" || wallet.roomNumber !== obligation.roomNumber
+            || typeof wallet.walletId !== "string" || !wallet.walletId
+            || !sameAddress(wallet.address, obligation.sourceWalletAddress)) {
+            return "WALLET_RESERVATION_UNAVAILABLE";
+        }
+        if (wallet.reservedByRoomId !== obligation.roomId) {
+            return wallet.reservedByRoomId
+                ? "WALLET_RESERVED_FOR_OTHER_ROOM" : "WALLET_RESERVATION_RELEASED";
+        }
+        return null;
     }
 
     async reconcileRefund(obligationId) {
