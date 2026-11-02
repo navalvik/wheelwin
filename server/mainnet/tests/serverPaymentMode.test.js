@@ -75,7 +75,7 @@ test("server app selects Mainnet bootstrap before the Testnet runtime branch", (
     assert.match(app.slice(mainnetBranch, testnetBranch),
         /refundLifecycle\.configurePage5StateResolver\([\s\S]*?getLifecycle\(roomId\).*?phase === "OPEN_PAGE5"/);
     assert.match(app.slice(mainnetBranch, testnetBranch),
-        /configureReservedWalletRoomNumberResolver\([\s\S]*?walletPool\.getReservationForRoom\(roomId\).*?roomNumber/);
+        /configureReservedWalletRoomNumberResolver\([\s\S]*?walletPool\.getReservationForRoomHistory\(roomId\).*?roomNumber/);
     assert.match(app.slice(mainnetBranch, testnetBranch), /recordPage5Started\(roomId\)/);
     assert.match(app.slice(mainnetBranch, testnetBranch), /EVENT_TYPES\.GAME_START_BOOTSTRAP_READY/);
     assert.match(app.slice(mainnetBranch, testnetBranch),

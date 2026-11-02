@@ -17,6 +17,27 @@ export class MainnetWalletPoolRegistry extends WalletPoolRegistry {
         this._mainnetCatalog = config.walletCatalog;
     }
 
+    /**
+     * Resolve the wallet identity historically assigned to a room. Unlike
+     * getReservationForRoom(), this remains available after a safe release,
+     * but returns null when durable history cannot identify one wallet.
+     */
+    getReservationForRoomHistory(roomId) {
+        if (typeof roomId !== "string" || !roomId) return null;
+        const records = this._reservationHistory.filter(record => record.roomId === roomId);
+        const walletIds = [...new Set(records.map(record => record.walletId))];
+        const active = this.getReservationForRoom(roomId);
+        if (active && !walletIds.includes(active.walletId)) walletIds.push(active.walletId);
+        if (walletIds.length !== 1) return null;
+
+        const wallet = this._wallets.get(walletIds[0]);
+        if (!wallet || records.some(record => record.network !== "mainnet"
+            || record.address !== wallet.address || record.network !== wallet.network)) return null;
+        if (active && active.walletId !== wallet.walletId) return null;
+        return Object.freeze({ ...wallet.toRecord(), reservedByRoomId: roomId,
+            reservedAt: records.length ? Math.min(...records.map(record => record.reservedAt)) : active.reservedAt });
+    }
+
     /** Release a closed-room reservation using Mainnet's recorded blocking obligations. */
     releaseForMainnetOutcome({ roomId, financialLedger, now = Date.now() } = {}) {
         if (financialLedger?.network !== "mainnet" || financialLedger?.globalId !== -239

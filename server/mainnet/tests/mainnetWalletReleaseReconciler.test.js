@@ -106,6 +106,14 @@ test("destroyed room with no blocking obligations releases wallet once and prese
         transactionTime: NOW + 2 }).roomId, "later-room");
     assert.equal(h.pool.resolveReservationOwnerAt({ walletId: h.wallet.walletId,
         transactionTime: NOW - 5_000 }).roomId, "closed-empty");
+    assert.equal(h.pool.getReservationForRoomHistory("closed-empty").walletId, h.wallet.walletId);
+    assert.equal(h.pool.getReservationForRoomHistory("later-room").walletId, h.wallet.walletId);
+
+    h.pool.release({ roomId: "later-room", unresolvedObligations: 0, now: NOW + 3 });
+    const secondWallet = h.pool.getWalletByRoomNumber(2);
+    h.pool.reserve({ roomId: "later-room", network: "mainnet", walletId: secondWallet.walletId, now: NOW + 4 });
+    assert.equal(h.pool.getReservationForRoomHistory("later-room"), null,
+        "conflicting historical wallet identities fail closed");
 });
 
 test("an incomplete refund obligation blocks release until it is complete", async t => {

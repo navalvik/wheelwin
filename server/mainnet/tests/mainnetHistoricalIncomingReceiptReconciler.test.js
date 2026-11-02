@@ -8,6 +8,8 @@ import { MainnetFinancialLedger } from "../payment/MainnetFinancialLedger.js";
 import { MainnetIncomingPaymentLedger } from "../payment/MainnetIncomingPaymentLedger.js";
 import { MainnetHistoricalIncomingReceiptReconciler } from "../payment/MainnetHistoricalIncomingReceiptReconciler.js";
 import { MainnetRefundLifecycle } from "../payment/MainnetRefundLifecycle.js";
+import { MainnetWalletPoolRegistry } from "../wallet/MainnetWalletPoolRegistry.js";
+import { loadMainnetRuntimeConfig } from "../config/MainnetRuntimeConfig.js";
 import { createMainnetForensicFinancialSnapshot } from "../payment/MainnetForensicFinancialSnapshot.js";
 import { evaluateFinalForensicArchive, FINAL_ARCHIVE_CHAIN_SETTLEMENT_GRACE_MS } from "../../forensic/FinalForensicArchiveGate.js";
 
@@ -117,6 +119,111 @@ test("late confirmed incoming payment becomes durable receipt and closed-room re
     assert.equal(snapshot.paymentObservations.at(-1).source, "FINAL_FORENSIC_HISTORY_COVERAGE");
     assert.equal(finality(snapshot).ready, false,
         "an unexecuted refund obligation cannot be treated as financially complete");
+});
+
+test("late payment after release and wallet reassignment uses persisted historical identity after restart", async t => {
+    const root = mkdtempSync(join(tmpdir(), "wheelwin-mainnet-released-late-payment-"));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    const reservedAt = NOW - 10_000;
+    const intentAt = NOW - 9_000;
+    const closedAt = NOW - 8_000;
+    const transactionTime = NOW - 6_000;
+    const releasedAt = NOW - 4_000;
+    const reassignedAt = NOW - 3_000;
+    const walletCatalog = JSON.stringify(Array.from({ length: 64 }, (_, index) => ({
+        walletId: `wallet-${index + 1}`, roomNumber: index + 1,
+        address: `0:${String(index + 1).padStart(64, "0")}`, network: "mainnet"
+    })));
+    const config = loadMainnetRuntimeConfig({ TON_NETWORK: "mainnet",
+        MAINNET_TONCENTER_API_KEY: "offline-synthetic-key",
+        MAINNET_ROOM_WALLET_DATA_DIR: root, MAINNET_ROOM_WALLETS_JSON: walletCatalog });
+    const snapshotDir = join(root, "wallet-registry");
+    const originalPool = new MainnetWalletPoolRegistry({ config });
+    originalPool.initialize({ snapshotDir });
+    const wallet = originalPool.getWalletByRoomNumber(1);
+    originalPool.reserve({ roomId: ROOM, network: "mainnet", walletId: wallet.walletId, now: reservedAt });
+
+    const incomingLedger = new MainnetIncomingPaymentLedger({ config, nowProvider: () => NOW }).initialize();
+    incomingLedger.createRoomPaymentIntents({ roomId: ROOM,
+        wallet: { network: "mainnet", globalId: -239, walletId: wallet.walletId, address: wallet.address },
+        players: [{ playerId: "olga", paymentReference: "late_release_ref", expectedSender: PAYERS[0],
+            amountAtomic: "1000000000" },
+        { playerId: "bob", paymentReference: "late_release_bob", expectedSender: PAYERS[1], amountAtomic: "1000000000" },
+        { playerId: "lena", paymentReference: "late_release_lena", expectedSender: PAYERS[2], amountAtomic: "1000000000" }],
+        createdAt: intentAt, expiresAt: intentAt + 5_000 });
+    const financialLedger = new MainnetFinancialLedger({ config, nowProvider: () => closedAt }).initialize();
+    financialLedger.recordClosedRoom({ roomId: ROOM, roomNumber: wallet.roomNumber,
+        closureReason: "setup_expired", prePage5: true });
+
+    originalPool.persistSnapshot(snapshotDir);
+    const released = originalPool.releaseForMainnetOutcome({ roomId: ROOM,
+        financialLedger, now: releasedAt });
+    assert.equal(released.released, true);
+    originalPool.persistSnapshot(snapshotDir);
+    assert.equal(originalPool.getReservationForRoom(ROOM), null);
+
+    originalPool.reserve({ roomId: "new-room", network: "mainnet", walletId: wallet.walletId, now: reassignedAt });
+    originalPool.persistSnapshot(snapshotDir);
+    const restartedPool = new MainnetWalletPoolRegistry({ config });
+    restartedPool.initialize({ snapshotDir });
+    const recoveredIncomingLedger = new MainnetIncomingPaymentLedger({ config, nowProvider: () => NOW }).initialize();
+    const recoveredFinancialLedger = new MainnetFinancialLedger({ config, nowProvider: () => NOW }).initialize();
+    assert.equal(restartedPool.getReservationForRoom(ROOM), null);
+    assert.equal(restartedPool.getReservationForRoom("new-room").walletId, wallet.walletId);
+    assert.equal(restartedPool.resolveReservationOwnerAt({ walletId: wallet.walletId,
+        transactionTime }).roomId, ROOM);
+    assert.equal(restartedPool.getReservationForRoomHistory(ROOM).roomNumber, wallet.roomNumber);
+    assert.equal(restartedPool.getReservationForRoomHistory("unknown-room"), null,
+        "room identity is never inferred from a room number");
+
+    const incomingRecord = { transactionId: "late-after-release", providerTransactionId: "d".repeat(64),
+        network: "mainnet", globalId: -239, asset: "TON", amountAtomic: "1000000000",
+        sourceAddress: PAYERS[0], destinationAddress: wallet.address, accountId: wallet.address,
+        transactionTime, paymentReference: "late_release_ref", hasComment: true, malformedComment: false };
+    const client = { network: "mainnet", globalId: -239,
+        async listIncomingTransactions(query) {
+            assert.equal(query.account, wallet.address);
+            assert.equal(query.floorMs, intentAt);
+            return { records: [incomingRecord], resultWindowComplete: true };
+        } };
+    const outgoingObserver = {
+        async findOutgoingTransfer() { return { transactionId: SOURCE_TX_ID }; },
+        async verifyIndexedRecipientCredit(query) { return {
+            status: "MASTERCHAIN_INDEXED_RECIPIENT_CREDIT_OBSERVED", globalId: -239,
+            sourceFinality: "finalized", recipientFinality: "finalized",
+            sourceTransactionId: SOURCE_TX_ID, recipientTransactionId: incomingRecord.providerTransactionId,
+            messageHash: MESSAGE_HASH, sourceWalletAddress: query.sourceWalletAddress,
+            destinationAddress: query.destinationIdentity, amountAtomic: query.amountAtomic
+        }; }
+    };
+    const independentVerifier = { async verifyTransfer(input) { return {
+        status: "INDEPENDENT_INDEXED_CREDIT_OBSERVED", provider: "tonapi-mainnet",
+        network: "mainnet", globalId: -239, ...input
+    }; } };
+    const refundLifecycle = new MainnetRefundLifecycle({ financialLedger: recoveredFinancialLedger,
+        incomingLedger: recoveredIncomingLedger,
+        adapter: { async sendTransfer() { throw new Error("live send forbidden"); },
+            async estimateOutboundTransferFee() { throw new Error("live fee quote forbidden"); } },
+        outgoingObserver, independentVerifier, nowProvider: () => NOW });
+    refundLifecycle.configureReservedWalletRoomNumberResolver(roomId =>
+        restartedPool.getReservationForRoomHistory(roomId)?.roomNumber ?? null);
+    const reconciler = new MainnetHistoricalIncomingReceiptReconciler({
+        incomingLedger: recoveredIncomingLedger, financialLedger: recoveredFinancialLedger,
+        client, outgoingObserver, independentVerifier, walletPool: restartedPool, refundLifecycle,
+        nowProvider: () => NOW, maxCandidatesPerPass: 3 });
+
+    assert.equal((await reconciler.recoverRoom(ROOM)).status, "HISTORY_CHECKED");
+    const [receipt] = recoveredIncomingLedger.listReceipts(ROOM);
+    assert.equal(receipt.status, "CONFIRMED");
+    const [refund] = recoveredFinancialLedger.listRefunds(ROOM);
+    assert.equal(refund.state, "PENDING", "late refund is recorded but no transfer is sent");
+    assert.equal(refund.roomNumber, wallet.roomNumber);
+    assert.equal(refund.sourceWalletAddress, wallet.address);
+    assert.equal(refund.playerId, "olga");
+    assert.equal((await reconciler.recoverRoom(ROOM)).status, "HISTORY_CHECKED");
+    assert.equal(recoveredFinancialLedger.listRefunds(ROOM).length, 1, "replay creates no duplicate obligation");
+    assert.equal(restartedPool.getReservationForRoom("new-room").walletId, wallet.walletId,
+        "late recovery does not release or redirect the newer room reservation");
 });
 
 test("two late transactions are independently recorded/refunded and replay is idempotent after restart", async t => {

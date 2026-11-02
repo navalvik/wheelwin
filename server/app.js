@@ -1275,7 +1275,7 @@ class WheelWinApplication {
                         || this._gameStartAuthorization.getLifecycle(roomId)?.phase === "OPEN_PAGE5"
                 );
                 mainnetBootstrap.paymentRuntime.refundLifecycle.configureReservedWalletRoomNumberResolver(
-                    roomId => mainnetBootstrap.walletPool.getReservationForRoom(roomId)?.roomNumber ?? null
+                    roomId => mainnetBootstrap.walletPool.getReservationForRoomHistory(roomId)?.roomNumber ?? null
                 );
                 this._mainnetPage5StartedHandler = envelope => {
                     const roomId = envelope?.payload?.roomId;
