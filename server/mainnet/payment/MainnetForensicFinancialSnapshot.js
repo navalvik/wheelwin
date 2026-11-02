@@ -97,7 +97,8 @@ export function createMainnetForensicFinancialSnapshot({ roomId, incomingLedger,
         }
     }
 
-    const unresolvedReceipts = receipts.filter(receipt => receipt.status !== "CONFIRMED");
+    const unresolvedReceipts = receipts.filter(receipt =>
+        receipt.status !== "CONFIRMED" && receipt.status !== "EXTRA_PAYMENT");
     const closedRoom = outcome?.kind === "REFUND" ? {
         roomId,
         roomNumber: outcome.roomNumber,
