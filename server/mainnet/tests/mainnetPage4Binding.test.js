@@ -82,6 +82,24 @@ test("Page4 bridge prepares exactly three private Mainnet ledger intents once", 
     assert.ok(intents.every(item => item.amountAtomic === "1000000000"));
     assert.deepEqual(intents.map(item => item.expectedSender), PLAYER_IDS.map((_, index) =>
         `0:${String(index + 1).padStart(64, "0")}`));
+    const requestData = h.binding.getPaymentRequestData(h.room.roomId);
+    assert.equal(requestData.length, 3);
+    assert.deepEqual(requestData.map(({ playerId, paymentReference, destinationWalletAddress,
+        amountAtomic, asset, network, expiresAt }) => ({ playerId, paymentReference,
+        destinationWalletAddress, amountAtomic, asset, network, expiresAt })),
+    PLAYER_IDS.map(playerId => {
+        const intent = intents.find(item => item.playerId === playerId);
+        return { playerId, paymentReference: intent.paymentReference,
+            destinationWalletAddress: intent.destinationWalletAddress,
+            amountAtomic: intent.amountAtomic, asset: intent.asset,
+            network: "mainnet", expiresAt: intent.expiresAt };
+    }));
+    assert.ok(requestData.every(item =>
+        item.destinationWalletAddress === h.bootstrap.walletPool.getReservationForRoom(h.room.roomId).address));
+    assert.deepEqual(h.binding.getPaymentRequestData(h.room.roomId), requestData,
+        "reconnect preparation returns the same saved requirements");
+    assert.equal(h.bootstrap.paymentRuntime.incomingLedger.listRoomIntents(h.room.roomId).length, 3,
+        "read-only request formatting creates no new intents");
     assert.deepEqual(delivered, [], "Mainnet preparation must not emit payment instructions");
     assert.equal(h.bootstrap.walletPool.getReservedCount(), 1);
     assert.equal(h.bootstrap.paymentRuntime.liveOperationsEnabled, false);
@@ -172,6 +190,9 @@ test("Page4 preparation rejects client roster mismatch and reuses persisted rese
         nowProvider: () => 1_700_000_100_000
     });
     assert.equal(recoveredBinding.prepareRoomPaymentSession(h.room.roomId, requests).idempotent, true);
+    assert.deepEqual(recoveredBinding.getPaymentRequestData(h.room.roomId),
+        h.binding.getPaymentRequestData(h.room.roomId),
+    "restart returns the original saved PAYMENT_REQUEST requirements");
     assert.equal(restarted.walletPool.getReservedCount(), 1);
     assert.equal(restarted.paymentRuntime.incomingLedger.listRoomIntents(h.room.roomId).length, 3);
 });

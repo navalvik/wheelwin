@@ -126,6 +126,54 @@ export class MainnetPage4PaymentApplicationBinding {
             intentCount: intents.length, paymentStatus: ledger.getRoomPaymentStatus(roomId) });
     }
 
+    /**
+     * Read the saved Page4 requirements in the Testnet PAYMENT_REQUEST shape.
+     * This method never creates intents and is deliberately not consumed by
+     * the live Mainnet bridge while payment acceptance remains disabled.
+     */
+    getPaymentRequestData(roomId) {
+        const room = this._roomManager.getRoom(roomId);
+        if (!room || room.maxPlayers !== 3 || !Array.isArray(room.players)
+            || room.players.length !== 3 || new Set(room.players).size !== 3) {
+            throw new Error("MAINNET_PAGE4_ROOM_ROSTER_INVALID");
+        }
+        const intents = this.runtime.incomingLedger.listRoomIntents(roomId);
+        if (intents.length !== 3) throw new Error("MAINNET_PAGE4_INTENT_COUNT_INVALID");
+        const reservation = this._walletPool.getReservationForRoom(roomId);
+        if (!reservation || reservation.network !== "mainnet") {
+            throw new Error("MAINNET_PAGE4_WALLET_RESERVATION_REQUIRED");
+        }
+        const byPlayer = new Map();
+        for (const intent of intents) {
+            if (intent.roomId !== roomId || intent.network !== "mainnet" || intent.globalId !== -239
+                || intent.asset !== "TON" || !room.players.includes(intent.playerId)
+                || byPlayer.has(intent.playerId)
+                || intent.destinationWalletId !== reservation.walletId
+                || mainnetAddressIdentity(intent.destinationWalletAddress)
+                    !== mainnetAddressIdentity(reservation.address)
+                || !/^[1-9][0-9]*$/.test(intent.amountAtomic)
+                || !Number.isSafeInteger(intent.expiresAt)) {
+                throw new Error("MAINNET_PAGE4_SAVED_INTENT_CONFLICT");
+            }
+            byPlayer.set(intent.playerId, intent);
+        }
+        if (room.players.some(playerId => !byPlayer.has(playerId))) {
+            throw new Error("MAINNET_PAGE4_PAYMENT_ROSTER_MISMATCH");
+        }
+        return Object.freeze(room.players.map(playerId => {
+            const intent = byPlayer.get(playerId);
+            return Object.freeze({
+                playerId: intent.playerId,
+                paymentReference: intent.paymentReference,
+                destinationWalletAddress: intent.destinationWalletAddress,
+                amountAtomic: intent.amountAtomic,
+                asset: intent.asset,
+                network: intent.network,
+                expiresAt: intent.expiresAt
+            });
+        }));
+    }
+
     _persistWalletPool() {
         this._walletPool.persistSnapshot(join(this._dataDir, "wallet-registry"));
     }
