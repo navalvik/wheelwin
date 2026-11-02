@@ -38,7 +38,10 @@ import {
     LEDGER_ENTRY_KIND
 } from "../payment/ledger/index.js";
 import { createHash, createHmac } from "node:crypto";
-import { deriveTonAddressIdentity } from "../payment/incoming/TonAddressIdentity.js";
+import {
+    deriveTonAddressIdentity,
+    parseTonAddress
+} from "../payment/incoming/TonAddressIdentity.js";
 import { deriveTestnetRoomPaymentRequirements } from "../payment/runtime/deriveTestnetRoomPaymentRequirements.js";
 import { ActiveRoomObservationBudget } from "../payment/runtime/ActiveRoomObservationBudget.js";
 import { formatPage4WalletBindingLogs } from "../payment/walletAddressDiagnostics.js";
@@ -139,6 +142,12 @@ export class RoomLobbyBridge {
         // roomId → "testnet" | "mainnet". In-memory only; never part of the
         // Room model and never persisted. Released by room destruction paths.
         this._roomNetworkByRoom = new Map();
+
+        // Page3 stores the canonical account identity, which intentionally
+        // omits TON's friendly-address test-only bit. Remember the network
+        // validation that was applied to each submitted wallet so VERIFY
+        // cannot be confirmed from a direct socket event alone.
+        this._page3WalletNetworkByRoom = new Map();
 
         // R22 — pending MAINNET cross-runtime handoff continuation.
         // roomId → opaque handoffId of the record created in the SINGLE shared
@@ -610,6 +619,7 @@ export class RoomLobbyBridge {
 
         this._subscribe(EVENT_TYPES.ROOM_DESTROYED, (envelope) => {
             const roomId = envelope.payload?.roomId;
+            this._page3WalletNetworkByRoom.delete(roomId);
             this._recordNoFriendsFailure(roomId);
             this._noFriendsOptionsReadyByRoom.delete(roomId);
             this._noFriendsUserKeysByRoom.delete(roomId);
@@ -4589,10 +4599,42 @@ export class RoomLobbyBridge {
                 return;
             }
             try {
-                const payer = deriveTonAddressIdentity(rawProfile.wallet.trim());
+                const submittedWallet = rawProfile.wallet.trim();
+                const network = this._roomNetworkByRoom?.get(roomId)
+                    ?? (String(process.env.TON_NETWORK ?? "testnet").trim().toLowerCase() === "mainnet"
+                        ? "mainnet"
+                        : "testnet");
+                const parsedWallet = parseTonAddress(submittedWallet);
+
+                // Mainnet Page3 accepts only checksum-valid friendly addresses
+                // whose TON test-only flag is clear. Check before deriving the
+                // canonical identity, because derivation strips that flag.
+                if (network === "mainnet"
+                    && (parsedWallet.form !== "friendly"
+                        || parsedWallet.testOnly !== false
+                        || parsedWallet.workchain !== 0)) {
+                    throw new Error("wallet network mismatch");
+                }
+
+                const payer = deriveTonAddressIdentity(submittedWallet);
                 if (!payer.startsWith("0:")) throw new Error("invalid workchain");
                 this._playerManager.updateIdentity(playerId, { wallet: payer });
+
+                if (!(this._page3WalletNetworkByRoom instanceof Map)) {
+                    this._page3WalletNetworkByRoom = new Map();
+                }
+                let acceptedWallets = this._page3WalletNetworkByRoom.get(roomId);
+                if (!acceptedWallets) {
+                    acceptedWallets = new Map();
+                    this._page3WalletNetworkByRoom.set(roomId, acceptedWallets);
+                }
+                acceptedWallets.set(playerId, network);
             } catch {
+                const acceptedWallets = this._page3WalletNetworkByRoom?.get(roomId);
+                acceptedWallets?.delete(playerId);
+                if (acceptedWallets?.size === 0) {
+                    this._page3WalletNetworkByRoom.delete(roomId);
+                }
                 this._emitRoomError(socketId, LOBBY_ERROR_CODES.UNKNOWN_ERROR);
             }
             return;
@@ -5339,6 +5381,17 @@ export class RoomLobbyBridge {
         }
 
         const { playerId, roomId } = context;
+
+        const network = this._roomNetworkByRoom?.get(roomId)
+            ?? (String(process.env.TON_NETWORK ?? "testnet").trim().toLowerCase() === "mainnet"
+                ? "mainnet"
+                : "testnet");
+
+        if (network === "mainnet"
+            && this._page3WalletNetworkByRoom?.get(roomId)?.get(playerId) !== "mainnet") {
+            this._emitRoomError(socketId, LOBBY_ERROR_CODES.UNKNOWN_ERROR);
+            return;
+        }
 
         const room = this._roomManager.getRoom(roomId);
 

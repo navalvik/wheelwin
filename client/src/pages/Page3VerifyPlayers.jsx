@@ -15,6 +15,8 @@ import {
 } from "../game/session";
 
 import socket from "../socket/socket";
+import { isTestnetDisplay } from "../config/displayNetwork";
+import { isValidPage3WalletAddress } from "./page3WalletAddress";
 
 import "../styles/page3verify.css";
 
@@ -83,7 +85,14 @@ export default function Page3VerifyPlayers({ onNavigate }) {
 
     const [payerWalletAddress, setPayerWalletAddress] = useState(identity?.wallet ?? "");
 
-    const payerWalletValid = /^(?:0:[0-9a-fA-F]{64}|[A-Za-z0-9_-]{48})$/.test(payerWalletAddress.trim());
+    // Page3's network comes from the current deployed app origin, never from
+    // the wallet text or a client-selected value.
+    const mainnetPage3 = !isTestnetDisplay();
+
+    const payerWalletValid = isValidPage3WalletAddress(
+        payerWalletAddress,
+        mainnetPage3 ? "mainnet" : "testnet"
+    );
 
     const [waitingForContinue, setWaitingForContinue] = useState(identity?.verifyContinued === true);
 
@@ -452,10 +461,12 @@ export default function Page3VerifyPlayers({ onNavigate }) {
                             disabled={waitingForVerify || verifyCompleted}
                             maxLength={66}
                             aria-invalid={payerWalletAddress.length > 0 && !payerWalletValid}
-                            placeholder="0Q... or UQ..."
+                            placeholder={mainnetPage3 ? "EQ... or UQ..." : "0Q... or UQ..."}
                         />
                         {!payerWalletValid && (
-                            <p>Enter your own Testnet wallet address before VERIFY.</p>
+                            <p>{mainnetPage3
+                                ? "Enter your own Mainnet wallet address before VERIFY."
+                                : "Enter your own Testnet wallet address before VERIFY."}</p>
                         )}
                     </div>
 
