@@ -3350,11 +3350,12 @@ export class RoomLobbyBridge {
                     LOBBY_SERVER_EVENTS.PAYMENT_STAGE_READY,
                     {
                         roomId,
-                        paymentAcceptanceEnabled: LIVE_PAYMENT_ACCEPTANCE_ENABLED
+                        paymentAcceptanceEnabled: this._page4PaymentAcceptanceEnabled()
                     }
                 );
 
-                this._deliverPaymentStatusToSocket(roomId, playerId, socketId);
+                this._deliverPaymentStatusToSocket(roomId, playerId, socketId,
+                    { includePaymentRequest: true });
 
             }
 
@@ -5496,6 +5497,9 @@ export class RoomLobbyBridge {
 
         }
 
+        const mainnetPaymentMode = this._paymentApplicationBinding?.runtime?.network === "mainnet";
+        const paymentAcceptanceEnabled = this._page4PaymentAcceptanceEnabled();
+
         this._deliverToRoom(
             roomId,
             LOBBY_SERVER_EVENTS.SETUP_SESSION_SYNC,
@@ -5508,18 +5512,17 @@ export class RoomLobbyBridge {
             payload: {
                 roomId,
                 enteredAt: Date.now(),
-                paymentAcceptanceEnabled: LIVE_PAYMENT_ACCEPTANCE_ENABLED,
+                paymentAcceptanceEnabled,
                 paymentSessionPrepared: false,
-                paymentStatus: LIVE_PAYMENT_ACCEPTANCE_ENABLED
+                paymentStatus: paymentAcceptanceEnabled
                     ? "AWAITING_PAYMENT_SESSION"
                     : "PAYMENT_UNAVAILABLE"
             }
         });
 
         // Create intents before Page4 receives its first authoritative
-        // snapshot. Mainnet prepares durable ledger records while keeping live
-        // acceptance and all payment instructions disabled.
-        const mainnetPaymentMode = this._paymentApplicationBinding?.runtime?.network === "mainnet";
+        // snapshot. Mainnet persists the same server-derived intents; its own
+        // runtime flag controls whether instructions may be delivered.
         if (LIVE_PAYMENT_ACCEPTANCE_ENABLED || mainnetPaymentMode) {
             this._preparePaymentSessionIfEnabled(roomId, room);
         }
@@ -5529,7 +5532,7 @@ export class RoomLobbyBridge {
             LOBBY_SERVER_EVENTS.PAYMENT_STAGE_READY,
             {
                 roomId,
-                paymentAcceptanceEnabled: LIVE_PAYMENT_ACCEPTANCE_ENABLED
+                paymentAcceptanceEnabled
             }
         );
 
@@ -5550,7 +5553,7 @@ export class RoomLobbyBridge {
         // Payment rooms do not invoke GameStartAuthorization before Page4 has
         // settled all THREE real payments. Doing so rejects the not-yet-paid
         // room before any participant can pay.
-        if (LIVE_PAYMENT_ACCEPTANCE_ENABLED) return;
+        if (paymentAcceptanceEnabled) return;
 
         // Historical disabled-acceptance behavior remains fail-closed.
         this._eventBus.emit({
@@ -5566,7 +5569,14 @@ export class RoomLobbyBridge {
 
     }
 
-    _deliverPaymentStatusToSocket(roomId, playerId, socketId) {
+    _page4PaymentAcceptanceEnabled() {
+        const runtime = this._paymentApplicationBinding?.runtime;
+        return runtime?.network === "mainnet"
+            ? runtime.liveOperationsEnabled === true
+            : LIVE_PAYMENT_ACCEPTANCE_ENABLED;
+    }
+
+    _deliverPaymentStatusToSocket(roomId, playerId, socketId, { includePaymentRequest = false } = {}) {
 
         // Authoritative identity validation: the room must exist, the player
         // must own the seat, and the socket must be bound to that player. A
@@ -5591,6 +5601,7 @@ export class RoomLobbyBridge {
         const runtime = binding && binding.runtime ? binding.runtime : null;
 
         if (runtime?.network === "mainnet") {
+            const paymentAcceptanceEnabled = runtime.liveOperationsEnabled === true;
             const ledger = runtime.incomingLedger;
             let intents = [];
             let paymentStatus = null;
@@ -5627,13 +5638,16 @@ export class RoomLobbyBridge {
                 {
                     roomId,
                     playerId,
-                    status: "PAYMENT_UNAVAILABLE",
-                    paymentAcceptanceEnabled: false,
+                    status: !paymentAcceptanceEnabled || !playerIntent
+                        ? "PAYMENT_UNAVAILABLE"
+                        : playerIntent.state === "SETTLED" ? "SETTLED" : "AWAITING_PAYMENT",
+                    paymentAcceptanceEnabled,
                     network: "mainnet",
                     globalId: -239,
-                    reason: playerIntent
-                        ? "MAINNET_LIVE_OPERATIONS_DISABLED"
-                        : "mainnet_payment_state_unavailable",
+                    reason: paymentAcceptanceEnabled
+                        ? playerIntent ? null : "mainnet_payment_state_unavailable"
+                        : playerIntent ? "MAINNET_LIVE_OPERATIONS_DISABLED"
+                            : "mainnet_payment_state_unavailable",
                     playerPaymentStatus: playerIntent?.state === "SETTLED" ? "SETTLED" : "PENDING",
                     playerPaymentStatuses,
                     confirmedCount: Number.isInteger(paymentStatus?.confirmedCount)
@@ -5641,6 +5655,28 @@ export class RoomLobbyBridge {
                     requiredCount: 3
                 }
             );
+            if (paymentAcceptanceEnabled && includePaymentRequest && playerIntent
+                && typeof binding.getPaymentRequestData === "function") {
+                try {
+                    const payment = binding.getPaymentRequestData(roomId)
+                        .find(item => item.playerId === playerId);
+                    if (payment) {
+                        this._deliverToSocket(socketId, LOBBY_SERVER_EVENTS.PAYMENT_REQUEST, {
+                            roomId,
+                            playerId: payment.playerId,
+                            paymentReference: payment.paymentReference,
+                            destination: payment.destinationWalletAddress,
+                            amount: payment.amountAtomic,
+                            amountAtomic: payment.amountAtomic,
+                            asset: payment.asset,
+                            network: payment.network,
+                            expiresAt: payment.expiresAt ?? null
+                        });
+                    }
+                } catch {
+                    // A saved request read failure must not disclose partial or cross-room data.
+                }
+            }
             return;
         }
 
@@ -5796,7 +5832,7 @@ export class RoomLobbyBridge {
         if (!context || !context.playerId || !context.roomId) return;
 
         this._deliverPaymentStatusToSocket(
-            context.roomId, context.playerId, socketId
+            context.roomId, context.playerId, socketId, { includePaymentRequest: true }
         );
 
         // No global wallet scan. One seated player's Page4 request triggers

@@ -6,7 +6,7 @@ import { mainnetAddressIdentity } from "./MainnetAddress.js";
 export class MainnetPage4PaymentApplicationBinding {
     constructor({ runtime, walletPool, dataDir, roomManager, nowProvider = Date.now } = {}) {
         if (runtime?.network !== "mainnet" || runtime?.globalId !== -239
-            || runtime?.liveOperationsEnabled !== false
+            || typeof runtime?.liveOperationsEnabled !== "boolean"
             || typeof runtime?.incomingPayments?.createRoomPaymentIntents !== "function"
             || typeof runtime?.incomingLedger?.listRoomIntents !== "function"
             || typeof runtime?.incomingLedger?.getRoomPaymentStatus !== "function"
@@ -89,7 +89,9 @@ export class MainnetPage4PaymentApplicationBinding {
                     !== mainnetAddressIdentity(first.destinationWalletAddress)) {
                 throw new Error("MAINNET_PAGE4_WALLET_RESERVATION_CONFLICT");
             }
-            return Object.freeze({ prepared: true, idempotent: true, payments: Object.freeze([]),
+            const payments = this.runtime.liveOperationsEnabled === true
+                ? this.getPaymentRequestData(roomId) : [];
+            return Object.freeze({ prepared: true, idempotent: true, payments: Object.freeze(payments),
                 intentCount: 3, paymentStatus: ledger.getRoomPaymentStatus(roomId) });
         }
 
@@ -121,15 +123,16 @@ export class MainnetPage4PaymentApplicationBinding {
         });
         if (intents.length !== 3) throw new Error("MAINNET_PAGE4_INTENT_COUNT_INVALID");
 
-        // No PAYMENT_REQUEST payloads: live acceptance is deliberately off.
-        return Object.freeze({ prepared: true, idempotent: false, payments: Object.freeze([]),
+        const payments = this.runtime.liveOperationsEnabled === true
+            ? this.getPaymentRequestData(roomId) : [];
+        return Object.freeze({ prepared: true, idempotent: false, payments: Object.freeze(payments),
             intentCount: intents.length, paymentStatus: ledger.getRoomPaymentStatus(roomId) });
     }
 
     /**
      * Read the saved Page4 requirements in the Testnet PAYMENT_REQUEST shape.
-     * This method never creates intents and is deliberately not consumed by
-     * the live Mainnet bridge while payment acceptance remains disabled.
+     * This method never creates intents. The bridge consumes it only while
+     * Mainnet live operations are explicitly enabled.
      */
     getPaymentRequestData(roomId) {
         const room = this._roomManager.getRoom(roomId);
@@ -140,7 +143,8 @@ export class MainnetPage4PaymentApplicationBinding {
         const intents = this.runtime.incomingLedger.listRoomIntents(roomId);
         if (intents.length !== 3) throw new Error("MAINNET_PAGE4_INTENT_COUNT_INVALID");
         const reservation = this._walletPool.getReservationForRoom(roomId);
-        if (!reservation || reservation.network !== "mainnet") {
+        if (!reservation || reservation.network !== "mainnet"
+            || reservation.reservedByRoomId !== roomId) {
             throw new Error("MAINNET_PAGE4_WALLET_RESERVATION_REQUIRED");
         }
         const byPlayer = new Map();
