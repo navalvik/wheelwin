@@ -53,7 +53,8 @@ export class MainnetPaymentRuntime {
         });
         this.refundLifecycle = new MainnetRefundLifecycle({
             financialLedger: this.financialLedger, incomingLedger: this.incomingLedger,
-            adapter, outgoingObserver: this.outgoingObserver, nowProvider
+            adapter, outgoingObserver: this.outgoingObserver,
+            independentVerifier: this.independentVerifier, nowProvider
         });
         this.payoutLifecycle = new MainnetPayoutLifecycle({
             financialLedger: this.financialLedger, adapter, outgoingObserver: this.outgoingObserver,

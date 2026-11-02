@@ -83,6 +83,7 @@ function lifecycleFor(h, incomingLedger, page5Reached, reservedWalletRoomNumberR
         adapter: { async sendTransfer() { throw new Error("no transfer expected"); },
             async estimateOutboundTransferFee() { throw new Error("no fee quote expected"); } },
         outgoingObserver: { async findOutgoingTransfer() {}, async verifyIndexedRecipientCredit() {} },
+        independentVerifier: { async verifyTransfer() { return null; } },
         nowProvider: () => NOW
     });
     lifecycle.configurePage5StateResolver(() => page5Reached);

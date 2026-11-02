@@ -14,17 +14,20 @@ const safeNumber = (value) => {
 
 /** Mainnet counterpart of the Testnet refund lifecycle; submit/finality are explicit calls. */
 export class MainnetRefundLifecycle {
-    constructor({ financialLedger, incomingLedger, adapter, outgoingObserver, nowProvider = Date.now } = {}) {
+    constructor({ financialLedger, incomingLedger, adapter, outgoingObserver,
+        independentVerifier, nowProvider = Date.now } = {}) {
         if (financialLedger?.network !== "mainnet" || financialLedger?.globalId !== MAINNET_GLOBAL_ID
             || incomingLedger?.network !== "mainnet" || incomingLedger?.globalId !== MAINNET_GLOBAL_ID
             || typeof adapter?.sendTransfer !== "function" || typeof adapter?.estimateOutboundTransferFee !== "function"
             || typeof outgoingObserver?.findOutgoingTransfer !== "function"
             || typeof outgoingObserver?.verifyIndexedRecipientCredit !== "function"
+            || typeof independentVerifier?.verifyTransfer !== "function"
             || typeof nowProvider !== "function") throw new Error("MAINNET_REFUND_LIFECYCLE_CONFIG_INVALID");
         this._ledger = financialLedger;
         this._incoming = incomingLedger;
         this._adapter = adapter;
         this._observer = outgoingObserver;
+        this._independentVerifier = independentVerifier;
         this._now = nowProvider;
         this._hasReachedPage5 = null;
         this._resolveReservedWalletRoomNumber = null;
@@ -110,33 +113,118 @@ export class MainnetRefundLifecycle {
             return Object.freeze({ obligationId, outcome: "NOT_READY_FOR_RECONCILIATION" });
         }
         const amount = obligation.transferAmountAtomic ?? obligation.amountAtomic;
-        const outgoing = await this._observer.findOutgoingTransfer({
-            sourceWalletAddress: obligation.sourceWalletAddress,
-            destinationIdentity: obligation.refundDestination,
-            amountAtomic: amount,
-            minCreatedAtMs: obligation.createdAtMs
-        });
-        if (!outgoing?.transactionId || outgoing.ambiguous) return Object.freeze({ obligationId, outcome: "FINALITY_PENDING" });
-        const evidence = await this._observer.verifyIndexedRecipientCredit({
-            sourceWalletAddress: obligation.sourceWalletAddress,
-            destinationIdentity: obligation.refundDestination,
-            transactionId: outgoing.transactionId, amountAtomic: amount,
-            minCreatedAtMs: obligation.createdAtMs
-        });
-        if (evidence?.status !== "MASTERCHAIN_INDEXED_RECIPIENT_CREDIT_OBSERVED"
-            || evidence.globalId !== MAINNET_GLOBAL_ID || evidence.amountAtomic !== amount
-            || evidence.sourceTransactionId !== outgoing.transactionId
-            || mainnetAddressIdentity(evidence.destinationAddress) !== mainnetAddressIdentity(obligation.refundDestination)) {
-            return Object.freeze({ obligationId, outcome: "FINALITY_PENDING" });
+        try {
+            const intents = this._incoming.listRoomIntents(obligation.roomId);
+            const intent = intents.find(item => item.paymentReference === obligation.paymentIntentId);
+            const receipt = this._incoming.listReceipts(obligation.roomId).find(item =>
+                item.transactionId === obligation.incomingTransactionId
+                && item.paymentReference === obligation.paymentIntentId
+                && item.amountAtomic === String(obligation.amountAtomic)
+                && sameAddress(item.sourceAddress, obligation.refundDestination)
+                && sameAddress(item.destinationAddress, obligation.sourceWalletAddress));
+            const observation = this._incoming.listObservations(obligation.roomId).find(item =>
+                item.transactionId === obligation.incomingTransactionId);
+            const principalReceipt = receipt?.status === "CONFIRMED"
+                && intent?.confirmedTransactionId === obligation.incomingTransactionId;
+            const additionalReceipt = receipt?.status === "EXTRA_PAYMENT"
+                && receipt.reason === "PAYMENT_ALREADY_SETTLED"
+                && intent?.state === "SETTLED"
+                && intent.confirmedTransactionId !== obligation.incomingTransactionId;
+            const duplicateTransactionBinding = intents.some(item =>
+                item.confirmedTransactionId === obligation.incomingTransactionId
+                && item.paymentReference !== obligation.paymentIntentId);
+            if (obligation.network !== "mainnet" || obligation.globalId !== MAINNET_GLOBAL_ID
+                || !intent || !receipt || !observation || duplicateTransactionBinding
+                || receipt.network !== "mainnet" || receipt.globalId !== MAINNET_GLOBAL_ID
+                || receipt.roomId !== obligation.roomId || receipt.playerId !== obligation.playerId
+                || receipt.asset !== "TON"
+                || !((receipt.status === "CONFIRMED" && receipt.reason === null)
+                    || (receipt.status === "EXTRA_PAYMENT" && receipt.reason === "PAYMENT_ALREADY_SETTLED"))
+                || intent.state !== "SETTLED"
+                || intent.network !== "mainnet" || intent.globalId !== MAINNET_GLOBAL_ID
+                || intent.roomId !== obligation.roomId
+                || (!principalReceipt && !additionalReceipt)
+                || intent.playerId !== obligation.playerId
+                || intent.asset !== "TON"
+                || intent.amountAtomic !== String(obligation.amountAtomic)
+                || !sameAddress(intent.expectedSender, obligation.refundDestination)
+                || !sameAddress(intent.destinationWalletAddress, obligation.sourceWalletAddress)
+                || observation.network !== "mainnet" || observation.globalId !== MAINNET_GLOBAL_ID
+                || observation.roomId !== obligation.roomId || observation.asset !== "TON"
+                || observation.transactionId !== obligation.incomingTransactionId
+                || observation.amountAtomic !== String(obligation.amountAtomic)
+                || !sameAddress(observation.sourceAddress, obligation.refundDestination)
+                || !sameAddress(observation.destinationAddress, obligation.sourceWalletAddress)) {
+                return Object.freeze({ obligationId, outcome: "REFUND_SOURCE_UNVERIFIED" });
+            }
+
+            const query = { sourceWalletAddress: obligation.sourceWalletAddress,
+                destinationIdentity: obligation.refundDestination, amountAtomic: amount,
+                minCreatedAtMs: obligation.createdAtMs };
+            const outgoing = await this._observer.findOutgoingTransfer(query);
+            if (outgoing?.ambiguous === true) {
+                return Object.freeze({ obligationId, outcome: "REFUND_AMBIGUOUS_OUTGOING_HOLD" });
+            }
+            if (!outgoing?.transactionId
+                || (obligation.outgoingTransactionId
+                    && outgoing.transactionId !== obligation.outgoingTransactionId)
+                || outgoing.amountAtomic !== amount
+                || !sameAddress(outgoing.sourceAddress, obligation.sourceWalletAddress)
+                || !sameAddress(outgoing.destinationAddress, obligation.refundDestination)) {
+                return Object.freeze({ obligationId, outcome: "FINALITY_PENDING" });
+            }
+
+            const indexed = await this._observer.verifyIndexedRecipientCredit({
+                ...query, transactionId: outgoing.transactionId
+            });
+            if (indexed?.status !== "MASTERCHAIN_INDEXED_RECIPIENT_CREDIT_OBSERVED"
+                || indexed.globalId !== MAINNET_GLOBAL_ID
+                || indexed.sourceFinality !== "finalized" || indexed.recipientFinality !== "finalized"
+                || indexed.sourceTransactionId !== outgoing.transactionId
+                || typeof indexed.recipientTransactionId !== "string" || !indexed.recipientTransactionId
+                || typeof indexed.messageHash !== "string" || !indexed.messageHash
+                || indexed.amountAtomic !== amount
+                || !sameAddress(indexed.sourceWalletAddress, obligation.sourceWalletAddress)
+                || !sameAddress(indexed.destinationAddress, obligation.refundDestination)
+                || !validBlockRef(indexed.sourceBlockRef) || !validBlockRef(indexed.recipientBlockRef)) {
+                return Object.freeze({ obligationId, outcome: "FINALITY_PENDING" });
+            }
+
+            const verified = await this._independentVerifier.verifyTransfer({
+                sourceTransactionId: indexed.sourceTransactionId,
+                recipientTransactionId: indexed.recipientTransactionId,
+                messageHash: indexed.messageHash,
+                sourceWalletAddress: obligation.sourceWalletAddress,
+                destinationAddress: obligation.refundDestination,
+                amountAtomic: amount
+            });
+            if (verified?.status !== "INDEPENDENT_INDEXED_CREDIT_OBSERVED"
+                || verified.provider !== "tonapi-mainnet" || verified.network !== "mainnet"
+                || verified.globalId !== MAINNET_GLOBAL_ID
+                || verified.sourceTransactionId !== indexed.sourceTransactionId
+                || verified.recipientTransactionId !== indexed.recipientTransactionId
+                || verified.messageHash !== indexed.messageHash
+                || verified.amountAtomic !== amount
+                || !sameAddress(verified.sourceWalletAddress, obligation.sourceWalletAddress)
+                || !sameAddress(verified.destinationAddress, obligation.refundDestination)) {
+                return Object.freeze({ obligationId, outcome: "FINALITY_PENDING" });
+            }
+
+            const finalizedEvidence = { network: "mainnet", globalId: MAINNET_GLOBAL_ID,
+                transactionId: outgoing.transactionId, amountAtomic: amount,
+                destination: obligation.refundDestination, finalized: true, observedAtMs: this._now(),
+                independentProvider: "tonapi-mainnet", recipientTransactionId: indexed.recipientTransactionId,
+                messageHash: indexed.messageHash, sourceMcBlockSeqno: indexed.sourceMcBlockSeqno,
+                recipientMcBlockSeqno: indexed.recipientMcBlockSeqno,
+                sourceBlockRef: { ...indexed.sourceBlockRef }, recipientBlockRef: { ...indexed.recipientBlockRef } };
+            this._ledger.updateRefund(obligationId, { state: "COMPLETE",
+                outgoingTransactionId: outgoing.transactionId, finalizedEvidence });
+            return Object.freeze({ obligationId, outcome: "REFUND_COMPLETE_TWO_SOURCES",
+                transactionId: outgoing.transactionId });
+        } catch {
+            // Provider outages and malformed evidence leave the durable obligation pending.
+            return Object.freeze({ obligationId, outcome: "REFUND_RECONCILIATION_RETRY_LATER" });
         }
-        const finalizedEvidence = { network: "mainnet", globalId: MAINNET_GLOBAL_ID,
-            transactionId: outgoing.transactionId, amountAtomic: amount,
-            destination: obligation.refundDestination, finalized: true, observedAtMs: this._now(),
-            sourceMcBlockSeqno: evidence.sourceMcBlockSeqno,
-            recipientMcBlockSeqno: evidence.recipientMcBlockSeqno };
-        this._ledger.updateRefund(obligationId, { state: "COMPLETE",
-            outgoingTransactionId: outgoing.transactionId, finalizedEvidence });
-        return Object.freeze({ obligationId, outcome: "REFUND_COMPLETE", transactionId: outgoing.transactionId });
     }
 
     recover() {
@@ -152,4 +240,14 @@ export class MainnetRefundLifecycle {
         return Object.freeze(this._ledger.listRefunds().filter(x => x.state !== "COMPLETE")
             .map(x => Object.freeze({ obligationId: x.obligationId, state: x.state, outcome: "OBSERVATION_REQUIRED" })));
     }
+}
+
+function sameAddress(left, right) {
+    try { return mainnetAddressIdentity(left) === mainnetAddressIdentity(right); }
+    catch { return false; }
+}
+
+function validBlockRef(block) {
+    return block?.workchain === 0 && typeof block.shard === "string" && block.shard.length > 0
+        && Number.isSafeInteger(block.seqno) && block.seqno > 0;
 }

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { RefundLifecycleCoordinator } from "../../payment/refund/RefundLifecycleCoordinator.js";
+import { TestnetPendingRefundReconciler } from "../../payment/runtime/TestnetPendingRefundReconciler.js";
 import { IncomingReceiptAccounting } from "../../payment/incoming/IncomingReceiptAccounting.js";
 import { LEDGER_ENTRY_KIND } from "../../payment/ledger/LedgerConstants.js";
 import { loadMainnetRuntimeConfig } from "../config/MainnetRuntimeConfig.js";
@@ -17,6 +18,7 @@ const TESTNET_PAYER = i => `0:${String(i + 1).padStart(64, "0")}`;
 const MAINNET_PAYER = i => `0:${String(i + 101).padStart(64, "0")}`;
 const TESTNET_WALLET = `0:${"a".repeat(64)}`;
 const MAINNET_WALLET = `0:${"b".repeat(64)}`;
+const independentVerifier = { async verifyTransfer() { return null; } };
 
 function mainnetSetup(t, settledCount) {
     const dataDir = mkdtempSync(join(tmpdir(), "wheelwin-refund-parity-mainnet-"));
@@ -55,6 +57,7 @@ function mainnetSetup(t, settledCount) {
         adapter: { async sendTransfer() { throw new Error("offline test: no transfer"); },
             async estimateOutboundTransferFee() { throw new Error("offline test: no fee quote"); } },
         outgoingObserver: { async findOutgoingTransfer() {}, async verifyIndexedRecipientCredit() {} },
+        independentVerifier,
         nowProvider: () => NOW });
     lifecycle.configureReservedWalletRoomNumberResolver(() => 44);
     return { config, financial, incoming, lifecycle };
@@ -153,6 +156,7 @@ test("paired Testnet/Mainnet closures make the same 0/3 through 3/3 refund decis
             incomingLedger: mnRestartIncoming,
             adapter: { async sendTransfer() {}, async estimateOutboundTransferFee() {} },
             outgoingObserver: { async findOutgoingTransfer() {}, async verifyIndexedRecipientCredit() {} },
+            independentVerifier,
             nowProvider: () => NOW });
         mnRestart.configureReservedWalletRoomNumberResolver(() => 44);
         const recovery = mnRestart.recover();
@@ -235,6 +239,7 @@ test("Mainnet rejects receipt, observation, and intent disagreement before oblig
             incomingLedger: corruptedIncoming,
             adapter: { async sendTransfer() {}, async estimateOutboundTransferFee() {} },
             outgoingObserver: { async findOutgoingTransfer() {}, async verifyIndexedRecipientCredit() {} },
+            independentVerifier,
             nowProvider: () => NOW });
         assert.throws(() => lifecycle.prepareClosedRoom({ roomId: ROOM, roomNumber: 44,
             closureReason: "pre_page5_destroyed", status: "DESTROYED" }),
@@ -258,9 +263,87 @@ test("Testnet and Mainnet both reject a principal/receipt that conflicts with it
     const lifecycle = new MainnetRefundLifecycle({ financialLedger: financial, incomingLedger: incoming,
         adapter: { async sendTransfer() {}, async estimateOutboundTransferFee() {} },
         outgoingObserver: { async findOutgoingTransfer() {}, async verifyIndexedRecipientCredit() {} },
+        independentVerifier,
         nowProvider: () => NOW });
     assert.throws(() => lifecycle.prepareClosedRoom({ roomId: ROOM, roomNumber: 44,
         closureReason: "pre_page5_destroyed", status: "DESTROYED" }),
     /MAINNET_REFUND_PAYMENT_EVIDENCE_CONFLICT/);
     assert.equal(financial.listRefunds(ROOM).length, 0);
+});
+
+test("paired Testnet/Mainnet refund reconciliation completes only on matching dual-source evidence", async t => {
+    for (const independentAvailable of [true, false]) {
+        const mn = mainnetSetup(t, 1);
+        const obligation = closeMainnet(mn)[0];
+        mn.financial.updateRefund(obligation.obligationId, { state: "SUBMISSION_UNKNOWN",
+            transferAmountAtomic: obligation.amountAtomic - 1_200_000, gasChargeAtomic: 1_200_000 });
+        mn.financial.updateRefund(obligation.obligationId, { state: "SUBMITTED", outgoingTransactionId: "out-tx" });
+        const mainnetObserver = {
+            async findOutgoingTransfer(query) { return { transactionId: "out-tx",
+                sourceAddress: MAINNET_WALLET, destinationAddress: MAINNET_PAYER(0),
+                amountAtomic: query.amountAtomic }; },
+            async verifyIndexedRecipientCredit(query) { return {
+                status: "MASTERCHAIN_INDEXED_RECIPIENT_CREDIT_OBSERVED", globalId: -239,
+                sourceTransactionId: "out-tx", recipientTransactionId: "recipient-tx",
+                messageHash: "a".repeat(64), sourceWalletAddress: MAINNET_WALLET,
+                destinationAddress: MAINNET_PAYER(0), amountAtomic: query.amountAtomic,
+                sourceFinality: "finalized", recipientFinality: "finalized",
+                sourceBlockRef: { workchain: 0, shard: "8000000000000000", seqno: 21 },
+                recipientBlockRef: { workchain: 0, shard: "8000000000000000", seqno: 22 } }; }
+        };
+        const mainnetVerifier = { async verifyTransfer(input) {
+            if (!independentAvailable) return null;
+            return { status: "INDEPENDENT_INDEXED_CREDIT_OBSERVED", ...input,
+                provider: "tonapi-mainnet", network: "mainnet", globalId: -239, actualFeeAtomic: 1 };
+        } };
+        const mainnetLifecycle = new MainnetRefundLifecycle({ financialLedger: mn.financial,
+            incomingLedger: mn.incoming,
+            adapter: { async sendTransfer() { throw new Error("must stay read-only"); },
+                async estimateOutboundTransferFee() { throw new Error("must stay read-only"); } },
+            outgoingObserver: mainnetObserver, independentVerifier: mainnetVerifier, nowProvider: () => NOW });
+        await mainnetLifecycle.reconcileRefund(obligation.obligationId);
+
+        const testnetIntent = { paymentReference: "tn-refund-intent", transactionId: "tn-in-tx",
+            roomId: ROOM, playerId: "player-1", network: "testnet", state: "SETTLED",
+            expectedSender: TESTNET_PAYER(0), destinationWalletAddress: TESTNET_WALLET,
+            amountAtomic: 1_000_000_000 };
+        const testnetReceipt = { transactionId: "tn-in-tx", paymentIntentId: testnetIntent.paymentReference,
+            amountAtomic: 1_000_000_000, senderAddress: TESTNET_PAYER(0),
+            destinationWalletAddress: TESTNET_WALLET };
+        const testnetObligation = { obligationId: "tn-refund", state: "SUBMITTED", networkName: "TESTNET",
+            globalId: -3, roomId: ROOM, paymentIntentId: testnetIntent.paymentReference,
+            incomingTransactionId: "tn-in-tx", amountAtomic: 1_000_000_000,
+            transferAmountAtomic: 998_800_000, refundDestination: TESTNET_PAYER(0),
+            sourceWalletAddress: TESTNET_WALLET, createdAtMs: NOW, outgoingTransactionId: "tn-out-tx" };
+        const testnetState = { ...testnetObligation };
+        const refundStore = { listPending: () => [testnetState],
+            completeFromVerifiedHistory(_id, patch) { Object.assign(testnetState, patch, { state: "COMPLETE" }); } };
+        const testnetCalls = [];
+        const testnetObserver = {
+            async findOutgoingTransfer(query) { testnetCalls.push("find"); return { transactionId: "tn-out-tx" }; },
+            async verifyIndexedRecipientCredit(query) { testnetCalls.push("indexed"); return {
+                status: "MASTERCHAIN_INDEXED_RECIPIENT_CREDIT_OBSERVED", globalId: -3,
+                sourceTransactionId: "tn-out-tx", recipientTransactionId: "tn-recipient-tx",
+                messageHash: "b".repeat(64), amountAtomic: query.amountAtomic,
+                destinationAddress: TESTNET_PAYER(0),
+                sourceFinality: "finalized", recipientFinality: "finalized",
+                sourceBlockRef: { workchain: 0, shard: "8000000000000000", seqno: 31 } }; }
+        };
+        const testnetVerifier = { async verifyTransfer(input) {
+            testnetCalls.push("independent");
+            if (!independentAvailable) return null;
+            return { status: "INDEPENDENT_INDEXED_CREDIT_OBSERVED", ...input,
+                provider: "tonapi-testnet", amountAtomic: input.amountAtomic,
+                sourceWalletAddress: TESTNET_WALLET, destinationAddress: TESTNET_PAYER(0) };
+        } };
+        const testnet = new TestnetPendingRefundReconciler({
+            refundStore, intentStore: { listForRoom: () => [testnetIntent] },
+            receiptStore: { listForRoom: () => [testnetReceipt] }, toncenterObserver: testnetObserver,
+            independentVerifier: testnetVerifier, nowProvider: () => NOW
+        });
+        const testnetPass = await testnet.runPass();
+        assert.equal(mn.financial.getRefund(obligation.obligationId).state === "COMPLETE",
+            testnetState.state === "COMPLETE",
+            `same dual-source availability (${independentAvailable}) must make the same decision; ${JSON.stringify(testnetPass)}; calls=${testnetCalls.join(",")}`);
+    }
 });

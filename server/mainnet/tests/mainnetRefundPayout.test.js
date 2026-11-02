@@ -24,6 +24,18 @@ function payoutEvidence({ transactionId, destinationIdentity, amountAtomic }) {
 }
 const payoutVerifier = { verifyTransfer: async (input) => ({ status: "INDEPENDENT_INDEXED_CREDIT_OBSERVED",
     ...input, actualFeeAtomic: 1000, provider: "tonapi-mainnet", network: "mainnet", globalId: -239 }) };
+const refundVerifier = { verifyTransfer: async input => ({ status: "INDEPENDENT_INDEXED_CREDIT_OBSERVED",
+    ...input, actualFeeAtomic: 1000, provider: "tonapi-mainnet", network: "mainnet", globalId: -239 }) };
+function indexedRefundEvidence(query) {
+    return { status: "MASTERCHAIN_INDEXED_RECIPIENT_CREDIT_OBSERVED", globalId: -239,
+        sourceTransactionId: query.transactionId, recipientTransactionId: "b".repeat(64),
+        messageHash: MESSAGE_HASH, sourceWalletAddress: SOURCE,
+        destinationAddress: query.destinationIdentity, amountAtomic: query.amountAtomic,
+        sourceMcBlockSeqno: 21, recipientMcBlockSeqno: 22,
+        sourceFinality: "finalized", recipientFinality: "finalized",
+        sourceBlockRef: { workchain: 0, shard: "8000000000000000", seqno: 21 },
+        recipientBlockRef: { workchain: 0, shard: "8000000000000000", seqno: 22 } };
+}
 
 function makeHarness(t) {
     const dir = mkdtempSync(join(tmpdir(), "wheelwin-mainnet-financial-"));
@@ -89,16 +101,14 @@ test("Mainnet refund charges indexed network fee to payer's refund and recovers 
         sendTransfer: async (request) => { sent = request; return { ok: true, txHash: "refund-out-1" }; }
     };
     const observer = {
-        findOutgoingTransfer: async (query) => ({ transactionId: "refund-out-1", query }),
-        verifyIndexedRecipientCredit: async (query) => ({
-            status: "MASTERCHAIN_INDEXED_RECIPIENT_CREDIT_OBSERVED", globalId: -239,
-            sourceTransactionId: query.transactionId, amountAtomic: query.amountAtomic,
-            destinationAddress: query.destinationIdentity, sourceMcBlockSeqno: 21, recipientMcBlockSeqno: 22
-        })
+        findOutgoingTransfer: async (query) => ({ transactionId: "refund-out-1",
+            sourceAddress: query.sourceWalletAddress, destinationAddress: query.destinationIdentity,
+            amountAtomic: query.amountAtomic }),
+        verifyIndexedRecipientCredit: async query => indexedRefundEvidence(query)
     };
     const flow = new MainnetRefundLifecycle({ financialLedger: h.ledger,
         incomingLedger: incomingStub(1), adapter, outgoingObserver: observer,
-        nowProvider: () => 1_800_000_001_000 });
+        independentVerifier: refundVerifier, nowProvider: () => 1_800_000_001_000 });
     const submitted = await flow.submitRefund(refunds[0].obligationId);
     assert.equal(submitted.outcome, "SUBMITTED");
     const record = h.ledger.getRefund(refunds[0].obligationId);
@@ -106,8 +116,9 @@ test("Mainnet refund charges indexed network fee to payer's refund and recovers 
     assert.equal(sent.amountNano, BigInt(record.transferAmountAtomic));
     const restored = new MainnetFinancialLedger({ config: h.config }).initialize();
     const recovered = new MainnetRefundLifecycle({ financialLedger: restored,
-        incomingLedger: incomingStub(1), adapter, outgoingObserver: observer });
-    assert.equal((await recovered.reconcileRefund(record.obligationId)).outcome, "REFUND_COMPLETE");
+        incomingLedger: incomingStub(1), adapter, outgoingObserver: observer,
+        independentVerifier: refundVerifier });
+    assert.equal((await recovered.reconcileRefund(record.obligationId)).outcome, "REFUND_COMPLETE_TWO_SOURCES");
     assert.equal(restored.getRefund(record.obligationId).state, "COMPLETE");
 });
 
@@ -120,10 +131,90 @@ test("Mainnet refund ambiguity is not resubmitted on recovery", async (t) => {
         sendTransfer: async () => { sends++; throw new Error("mock timeout"); } };
     const observer = { findOutgoingTransfer: async () => null, verifyIndexedRecipientCredit: async () => null };
     const flow = new MainnetRefundLifecycle({ financialLedger: h.ledger,
-        incomingLedger: incomingStub(1), adapter, outgoingObserver: observer });
+        incomingLedger: incomingStub(1), adapter, outgoingObserver: observer,
+        independentVerifier: refundVerifier });
     assert.equal((await flow.submitRefund(obligation.obligationId)).outcome, "SUBMISSION_UNKNOWN");
     assert.equal((await flow.submitRefund(obligation.obligationId)).outcome, "RECONCILE_ONLY");
     assert.equal(sends, 1);
+});
+
+test("refund completes only when indexed Toncenter and TonAPI independently agree", async t => {
+    const scenarios = [
+        { name: "both sources agree", indexed: "valid", independent: "valid", expected: "REFUND_COMPLETE_TWO_SOURCES", complete: true },
+        { name: "Toncenter only", indexed: "valid", independent: null, expected: "FINALITY_PENDING", complete: false },
+        { name: "TonAPI only", indexed: null, independent: "valid", expected: "FINALITY_PENDING", complete: false },
+        { name: "address mismatch", indexed: "wrong-address", independent: "valid", expected: "FINALITY_PENDING", complete: false },
+        { name: "amount mismatch", indexed: "wrong-amount", independent: "valid", expected: "FINALITY_PENDING", complete: false },
+        { name: "transaction mismatch", indexed: "wrong-transaction", independent: "valid", expected: "FINALITY_PENDING", complete: false },
+        { name: "Toncenter destination mismatch", indexed: "indexed-wrong-address", independent: "valid", expected: "FINALITY_PENDING", complete: false },
+        { name: "Toncenter unfinalized credit", indexed: "unfinalized", independent: "valid", expected: "FINALITY_PENDING", complete: false },
+        { name: "TonAPI destination mismatch", indexed: "valid", independent: "wrong-address", expected: "FINALITY_PENDING", complete: false },
+        { name: "TonAPI amount mismatch", indexed: "valid", independent: "wrong-amount", expected: "FINALITY_PENDING", complete: false },
+        { name: "TonAPI transaction mismatch", indexed: "valid", independent: "wrong-transaction", expected: "FINALITY_PENDING", complete: false },
+        { name: "TonAPI message mismatch", indexed: "valid", independent: "wrong-message", expected: "FINALITY_PENDING", complete: false },
+        { name: "TonAPI network mismatch", indexed: "valid", independent: "wrong-network", expected: "FINALITY_PENDING", complete: false },
+        { name: "Toncenter rate limit", indexed: "throws", independent: "valid", expected: "REFUND_RECONCILIATION_RETRY_LATER", complete: false },
+        { name: "Toncenter credit lookup rate limit", indexed: "verify-throws", independent: "valid", expected: "REFUND_RECONCILIATION_RETRY_LATER", complete: false },
+        { name: "TonAPI unavailable", indexed: "valid", independent: "throws", expected: "REFUND_RECONCILIATION_RETRY_LATER", complete: false }
+    ];
+    for (const scenario of scenarios) {
+        const h = makeHarness(t);
+        const obligation = h.ledger.prepareRefunds({ roomId: ROOM, roomNumber: 3,
+            closureReason: "destroyed", incomingLedger: incomingStub(1) })[0];
+        h.ledger.updateRefund(obligation.obligationId, { state: "SUBMISSION_UNKNOWN",
+            transferAmountAtomic: obligation.amountAtomic - 1_200_000,
+            gasChargeAtomic: 1_200_000 });
+        h.ledger.updateRefund(obligation.obligationId, { state: "SUBMITTED",
+            outgoingTransactionId: "refund-out-1" });
+        const stored = h.ledger.getRefund(obligation.obligationId);
+        const amountAtomic = stored.transferAmountAtomic;
+        let sends = 0;
+        const indexedObserver = {
+            async findOutgoingTransfer(query) {
+                if (scenario.indexed === "throws") throw Object.assign(new Error("429"), { status: 429 });
+                return { transactionId: scenario.indexed === "wrong-transaction" ? "refund-other" : "refund-out-1",
+                    sourceAddress: SOURCE,
+                    destinationAddress: scenario.indexed === "wrong-address" ? OWNER : PAYER,
+                    amountAtomic: scenario.indexed === "wrong-amount" ? amountAtomic + 1 : amountAtomic };
+            },
+            async verifyIndexedRecipientCredit(query) {
+                if (scenario.indexed === "throws") throw Object.assign(new Error("429"), { status: 429 });
+                if (scenario.indexed === "verify-throws") throw Object.assign(new Error("429"), { status: 429 });
+                if (scenario.indexed === null) return null;
+                const evidence = indexedRefundEvidence(query);
+                if (scenario.indexed === "indexed-wrong-address") evidence.destinationAddress = OWNER;
+                if (scenario.indexed === "unfinalized") evidence.recipientFinality = "pending";
+                if (scenario.indexed === "wrong-transaction") evidence.sourceTransactionId = "refund-other";
+                return evidence;
+            }
+        };
+        const independent = { async verifyTransfer(input) {
+            if (scenario.independent === "throws") throw new Error("TonAPI unavailable");
+            if (scenario.independent === null) return null;
+            const result = { status: "INDEPENDENT_INDEXED_CREDIT_OBSERVED", ...input,
+                actualFeeAtomic: 500, provider: "tonapi-mainnet", network: "mainnet", globalId: -239 };
+            if (scenario.independent === "wrong-address") result.destinationAddress = OWNER;
+            if (scenario.independent === "wrong-amount") result.amountAtomic += 1;
+            if (scenario.independent === "wrong-transaction") result.recipientTransactionId = "c".repeat(64);
+            if (scenario.independent === "wrong-message") result.messageHash = "d".repeat(64);
+            if (scenario.independent === "wrong-network") result.globalId = -3;
+            return result;
+        } };
+        const flow = new MainnetRefundLifecycle({ financialLedger: h.ledger,
+            incomingLedger: incomingStub(1),
+            adapter: { async estimateOutboundTransferFee() { return { ok: true, totalNano: 1n }; },
+                async sendTransfer() { sends++; return { ok: true, txHash: "duplicate-send" }; } },
+            outgoingObserver: indexedObserver, independentVerifier: independent });
+        const result = await flow.reconcileRefund(obligation.obligationId);
+        assert.equal(result.outcome, scenario.expected, scenario.name);
+        assert.equal(h.ledger.getRefund(obligation.obligationId).state === "COMPLETE", scenario.complete,
+            `${scenario.name} completion state`);
+        if (scenario.complete) {
+            const replay = await flow.reconcileRefund(obligation.obligationId);
+            assert.equal(replay.outcome, "NOT_READY_FOR_RECONCILIATION");
+        }
+        assert.equal(sends, 0, `${scenario.name} must remain read-only`);
+    }
 });
 
 test("Mainnet payout policy preserves Testnet shares of 95%, 4.9%, and 0.1%", (t) => {
@@ -278,3 +369,5 @@ test("independent TonAPI verification is Mainnet-only and uses mocked GET reques
         recipientTransactionId: recipientTx, messageHash, sourceWalletAddress: SOURCE,
         destinationAddress: WINNER, amountAtomic: 95_000_000 }), null);
 });
+
+\n
