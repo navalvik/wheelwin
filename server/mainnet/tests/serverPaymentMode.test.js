@@ -88,6 +88,15 @@ test("server app selects Mainnet bootstrap before the Testnet runtime branch", (
         /_mainnetWinnerPayoutCoordinator\.recoverPendingResults\(\)/);
     assert.match(app.slice(mainnetBranch, testnetBranch), /hasPage5Started\(roomId\)/);
     assert.match(app.slice(mainnetBranch, testnetBranch),
+        /new MainnetPendingRefundReconciler\([\s\S]*?financialLedger:[\s\S]*?refundLifecycle:[\s\S]*?maxPerPass: 2/);
+    assert.match(app.slice(mainnetBranch, testnetBranch),
+        /refundLifecycle\.recover\(\)[\s\S]*?new MainnetPendingRefundReconciler\([\s\S]*?reconcileMainnetRefunds\(\)[\s\S]*?setInterval\(reconcileMainnetRefunds, 60_000\)/);
+    assert.ok(app.indexOf("new MainnetPendingRefundReconciler(")
+        < app.indexOf("const archivePaymentMode"),
+    "refund recovery wiring must not depend on R2 initialization");
+    assert.match(app, /clearInterval\(this\._mainnetRefundReconciliationTimer\)/);
+    assert.match(app, /this\._mainnetRefundReconciler\?\.stop\(\)/);
+    assert.match(app.slice(mainnetBranch, testnetBranch),
         /roomManager\.attachRefundLifecycle\(\s*mainnetBootstrap\.paymentRuntime\.refundLifecycle\s*\)/);
     assert.match(app.slice(mainnetBranch, testnetBranch), /_paymentRuntimeReady = true/);
     assert.match(app.slice(mainnetBranch, testnetBranch), /paidGameStart=disabled/);

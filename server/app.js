@@ -53,6 +53,7 @@ import { R2ForensicArchiveUploader } from "./forensic/R2ForensicArchiveUploader.
 import { resolveForensicArchiveConfig } from "./forensic/forensicArchiveConfig.js";
 import { resolveFinancialArchiveRuntimeBinding } from "./mainnet/payment/MainnetForensicFinancialSnapshot.js";
 import { listMainnetArchiveCandidates, selectMainnetArchiveBatch } from "./mainnet/payment/MainnetArchiveRecoveryQueue.js";
+import { MainnetPendingRefundReconciler } from "./mainnet/payment/MainnetPendingRefundReconciler.js";
 import { LOG_LEVELS } from "./logging/levels.js";
 import { MonitoringManager } from "./monitoring/MonitoringManager.js";
 import { FailurePolicyManager } from "./failure/FailurePolicyManager.js";
@@ -270,6 +271,8 @@ class WheelWinApplication {
         this._mainnetWinnerPayoutCoordinator = null;
         this._mainnetHistoryReconciler = null;
         this._mainnetForensicHistoryTimer = null;
+        this._mainnetRefundReconciler = null;
+        this._mainnetRefundReconciliationTimer = null;
         this._mainnetRuntimeReady = false;
         this._nativeRoomWalletAdapter = null;
         this._adminSweepAdapter = null;
@@ -1286,6 +1289,24 @@ class WheelWinApplication {
                             + ` | outcome=${item.outcome}`
                     );
                 }
+                this._mainnetRefundReconciler = new MainnetPendingRefundReconciler({
+                    financialLedger: mainnetBootstrap.paymentRuntime.financialLedger,
+                    refundLifecycle: mainnetBootstrap.paymentRuntime.refundLifecycle,
+                    maxPerPass: 2,
+                    logger: this._logger
+                });
+                const reconcileMainnetRefunds = () => {
+                    void this._mainnetRefundReconciler?.runPass()
+                        .catch(error => this._logger.warn?.(
+                            "MAINNET_REFUND_RECONCILIATION_PENDING | code="
+                                + (error?.code ?? "RECONCILIATION_FAILED")
+                        ));
+                };
+                // The persistent ledger was recovered above. Begin a bounded,
+                // read-only check at startup and continue independently of R2.
+                reconcileMainnetRefunds();
+                this._mainnetRefundReconciliationTimer = setInterval(reconcileMainnetRefunds, 60_000);
+                this._mainnetRefundReconciliationTimer.unref?.();
                 this._managers.roomManager.attachRefundLifecycle(
                     mainnetBootstrap.paymentRuntime.refundLifecycle
                 );
@@ -1547,6 +1568,13 @@ class WheelWinApplication {
             }
 
         } catch (error) {
+
+            if (this._mainnetRefundReconciliationTimer) {
+                clearInterval(this._mainnetRefundReconciliationTimer);
+                this._mainnetRefundReconciliationTimer = null;
+            }
+            this._mainnetRefundReconciler?.stop();
+            this._mainnetRefundReconciler = null;
 
             this._paymentRuntime = null;
             this._mainnetBootstrap = null;
@@ -2285,6 +2313,12 @@ class WheelWinApplication {
             clearInterval(this._mainnetForensicHistoryTimer);
             this._mainnetForensicHistoryTimer=null;
         }
+        if (this._mainnetRefundReconciliationTimer) {
+            clearInterval(this._mainnetRefundReconciliationTimer);
+            this._mainnetRefundReconciliationTimer = null;
+        }
+        this._mainnetRefundReconciler?.stop();
+        this._mainnetRefundReconciler = null;
 
         this._logger.info("");
         this._logger.info("Stopping WheelWin Server...");

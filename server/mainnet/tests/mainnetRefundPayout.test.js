@@ -369,5 +369,3 @@ test("independent TonAPI verification is Mainnet-only and uses mocked GET reques
         recipientTransactionId: recipientTx, messageHash, sourceWalletAddress: SOURCE,
         destinationAddress: WINNER, amountAtomic: 95_000_000 }), null);
 });
-
-\n
