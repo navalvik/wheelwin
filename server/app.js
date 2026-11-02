@@ -1323,18 +1323,6 @@ class WheelWinApplication {
                 this._mainnetRefundReconciliationTimer = setInterval(reconcileMainnetRefunds, 60_000);
                 this._mainnetRefundReconciliationTimer.unref?.();
                 this._mainnetPendingRefundExecutor = mainnetBootstrap.paymentRuntime.pendingRefundExecutor;
-                if (mainnetBootstrap.paymentRuntime.liveOperationsEnabled === true) {
-                    const executeMainnetPendingRefunds = () => {
-                        void this._mainnetPendingRefundExecutor?.runPass()
-                            .catch(error => this._logger.warn?.(
-                                "MAINNET_PENDING_REFUND_EXECUTION_RETRY_LATER | code="
-                                    + (error?.code ?? "SUBMISSION_FAILED")
-                            ));
-                    };
-                    executeMainnetPendingRefunds();
-                    this._mainnetRefundExecutionTimer = setInterval(executeMainnetPendingRefunds, 60_000);
-                    this._mainnetRefundExecutionTimer.unref?.();
-                }
                 this._managers.roomManager.attachRefundLifecycle(
                     mainnetBootstrap.paymentRuntime.refundLifecycle
                 );
@@ -1435,18 +1423,6 @@ class WheelWinApplication {
                 this._mainnetPayoutReconciliationTimer = setInterval(reconcileMainnetPayouts, 60_000);
                 this._mainnetPayoutReconciliationTimer.unref?.();
                 this._mainnetPendingPayoutExecutor = mainnetBootstrap.paymentRuntime.pendingPayoutExecutor;
-                if (mainnetBootstrap.paymentRuntime.liveOperationsEnabled === true) {
-                    const executeMainnetPendingPayouts = () => {
-                        void this._mainnetPendingPayoutExecutor?.runPass()
-                            .catch(error => this._logger.warn?.(
-                                "MAINNET_PENDING_PAYOUT_EXECUTION_RETRY_LATER | code="
-                                    + (error?.code ?? "SUBMISSION_FAILED")
-                            ));
-                    };
-                    executeMainnetPendingPayouts();
-                    this._mainnetPayoutExecutionTimer = setInterval(executeMainnetPendingPayouts, 60_000);
-                    this._mainnetPayoutExecutionTimer.unref?.();
-                }
                 this._mainnetGameResultReadyHandler = envelope => {
                     const gameId = envelope?.payload?.gameId;
                     void Promise.resolve()
@@ -1464,6 +1440,33 @@ class WheelWinApplication {
                     EVENT_TYPES.GAME_RESULT_READY,
                     this._mainnetGameResultReadyHandler
                 );
+
+                // Start outbound executors only after all synchronous Mainnet
+                // components, payment gates, and event handlers initialized.
+                // Any earlier initialization error is caught by the enclosing
+                // fail-closed block and cannot submit a financial operation.
+                if (mainnetBootstrap.paymentRuntime.liveOperationsEnabled === true) {
+                    const executeMainnetPendingRefunds = () => {
+                        void this._mainnetPendingRefundExecutor?.runPass()
+                            .catch(error => this._logger.warn?.(
+                                "MAINNET_PENDING_REFUND_EXECUTION_RETRY_LATER | code="
+                                    + (error?.code ?? "SUBMISSION_FAILED")
+                            ));
+                    };
+                    const executeMainnetPendingPayouts = () => {
+                        void this._mainnetPendingPayoutExecutor?.runPass()
+                            .catch(error => this._logger.warn?.(
+                                "MAINNET_PENDING_PAYOUT_EXECUTION_RETRY_LATER | code="
+                                    + (error?.code ?? "SUBMISSION_FAILED")
+                            ));
+                    };
+                    executeMainnetPendingRefunds();
+                    this._mainnetRefundExecutionTimer = setInterval(executeMainnetPendingRefunds, 60_000);
+                    this._mainnetRefundExecutionTimer.unref?.();
+                    executeMainnetPendingPayouts();
+                    this._mainnetPayoutExecutionTimer = setInterval(executeMainnetPendingPayouts, 60_000);
+                    this._mainnetPayoutExecutionTimer.unref?.();
+                }
 
                 this._logger.startupLine(
                     `MainnetPaymentRuntime (globalId=${mainnetBootstrap.config.globalId}`

@@ -11,7 +11,7 @@ export class MainnetWinnerPayoutCoordinator {
     constructor({ paymentRuntime, walletPool, roomManager, playerManager, contextResolver,
         winnerEngine, ownerWalletProvider = () => process.env.OWNER_WALLET_MAINNET } = {}) {
         if (paymentRuntime?.network !== "mainnet" || paymentRuntime?.globalId !== MAINNET_GLOBAL_ID
-            || paymentRuntime?.liveOperationsEnabled !== false
+            || typeof paymentRuntime?.liveOperationsEnabled !== "boolean"
             || paymentRuntime?.incomingLedger?.network !== "mainnet"
             || paymentRuntime?.incomingLedger?.globalId !== MAINNET_GLOBAL_ID
             || paymentRuntime?.financialLedger?.network !== "mainnet"

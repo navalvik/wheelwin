@@ -121,6 +121,22 @@ test("server app selects Mainnet bootstrap before the Testnet runtime branch", (
         /_mainnetPendingRefundExecutor\s*=\s*mainnetBootstrap\.paymentRuntime\.pendingRefundExecutor[\s\S]*?liveOperationsEnabled\s*===\s*true[\s\S]*?runPass\(\)[\s\S]*?setInterval\(executeMainnetPendingRefunds,\s*60_000\)/);
     assert.match(app.slice(mainnetBranch, app.indexOf("const archivePaymentMode")),
         /_mainnetPendingPayoutExecutor\s*=\s*mainnetBootstrap\.paymentRuntime\.pendingPayoutExecutor[\s\S]*?liveOperationsEnabled\s*===\s*true[\s\S]*?runPass\(\)[\s\S]*?setInterval\(executeMainnetPendingPayouts,\s*60_000\)/);
+    const coordinatorInitialization = app.indexOf(
+        "new MainnetWinnerPayoutCoordinator(", mainnetBranch
+    );
+    const resultHandlerRegistration = app.indexOf(
+        "EVENT_TYPES.GAME_RESULT_READY,", coordinatorInitialization
+    );
+    const refundExecutorStart = app.indexOf("executeMainnetPendingRefunds();", mainnetBranch);
+    const payoutExecutorStart = app.indexOf("executeMainnetPendingPayouts();", mainnetBranch);
+    assert.ok(coordinatorInitialization >= 0 && resultHandlerRegistration > coordinatorInitialization);
+    assert.ok(refundExecutorStart > resultHandlerRegistration,
+        "refund executor cannot run before coordinator and event-handler initialization succeeds");
+    assert.ok(payoutExecutorStart > resultHandlerRegistration,
+        "payout executor cannot run before coordinator and event-handler initialization succeeds");
+    assert.match(app.slice(resultHandlerRegistration, refundExecutorStart),
+        /liveOperationsEnabled\s*===\s*true/,
+    "live mode remains the sole condition for outbound executor startup");
     assert.match(app.slice(mainnetBranch, app.indexOf("const archivePaymentMode")),
         /reconcileMainnetHistoricalReceipts\(\)[\s\S]*?setInterval\(\s*reconcileMainnetHistoricalReceipts,\s*60_000\s*\)/);
     assert.doesNotMatch(app.slice(app.indexOf("const reconcileMainnetArchives"),

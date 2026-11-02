@@ -133,6 +133,44 @@ function payoutPlanFromTestnet(harness) {
     return harness.plans.values().next().value;
 }
 
+test("Mainnet winner coordinator accepts either live-operation state but still validates its runtime", t => {
+    const disabled = mainnetHarness(t);
+    assert.equal(disabled.paymentRuntime.liveOperationsEnabled, false);
+    assert.ok(disabled.coordinator instanceof MainnetWinnerPayoutCoordinator);
+
+    disabled.paymentRuntime.liveOperationsEnabled = true;
+    const enabled = new MainnetWinnerPayoutCoordinator({
+        paymentRuntime: disabled.paymentRuntime,
+        walletPool: disabled.walletPool,
+        roomManager: { getRoom: () => ({ players: PLAYERS }) },
+        playerManager: { getIdentity: playerId => ({ wallet: MAINNET_WALLETS[PLAYERS.indexOf(playerId)] }) },
+        contextResolver: { resolveRoomByGameId: () => ROOM },
+        winnerEngine: { getResult: () => ({ winnerPlayerId: "Lena" }) },
+        ownerWalletProvider: () => MAINNET_OWNER
+    });
+    assert.ok(enabled instanceof MainnetWinnerPayoutCoordinator);
+
+    assert.throws(() => new MainnetWinnerPayoutCoordinator({
+        paymentRuntime: { ...disabled.paymentRuntime, liveOperationsEnabled: "true" },
+        walletPool: disabled.walletPool,
+        roomManager: { getRoom: () => ({ players: PLAYERS }) },
+        playerManager: { getIdentity: () => ({ wallet: MAINNET_WALLETS[0] }) },
+        contextResolver: { resolveRoomByGameId: () => ROOM },
+        winnerEngine: { getResult: () => ({ winnerPlayerId: "Lena" }) },
+        ownerWalletProvider: () => MAINNET_OWNER
+    }), /MAINNET_WINNER_PAYOUT_COORDINATOR_CONFIG_INVALID/);
+    assert.throws(() => new MainnetWinnerPayoutCoordinator({
+        paymentRuntime: { ...disabled.paymentRuntime, globalId: -3 },
+        walletPool: disabled.walletPool,
+        roomManager: { getRoom: () => ({ players: PLAYERS }) },
+        playerManager: { getIdentity: () => ({ wallet: MAINNET_WALLETS[0] }) },
+        contextResolver: { resolveRoomByGameId: () => ROOM },
+        winnerEngine: { getResult: () => ({ winnerPlayerId: "Lena" }) },
+        ownerWalletProvider: () => MAINNET_OWNER
+    }), /MAINNET_WINNER_PAYOUT_COORDINATOR_CONFIG_INVALID/,
+    "Mainnet identity validation remains enforced when live operations are enabled");
+});
+
 test("paired Testnet/Mainnet 3/3 result creates one matching durable payout plan", async t => {
     const tn = testnetHarness();
     const mn = mainnetHarness(t);
