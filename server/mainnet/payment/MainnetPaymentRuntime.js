@@ -12,6 +12,7 @@ import { MainnetToncenterOutgoingTransferObserver } from "./MainnetToncenterOutg
 import { MainnetToncenterReadClient } from "./MainnetToncenterReadClient.js";
 import { MainnetGameStartPaymentGate } from "./MainnetGameStartPaymentGate.js";
 import { createMainnetForensicFinancialSnapshot } from "./MainnetForensicFinancialSnapshot.js";
+import { createMainnetWalletV4Transport } from "./MainnetWalletV4Transport.js";
 
 const DISABLED_ADAPTER = Object.freeze({
     async estimateOutboundTransferFee() { throw new Error("MAINNET_LIVE_FINANCIAL_OPERATIONS_DISABLED"); },
@@ -20,17 +21,31 @@ const DISABLED_ADAPTER = Object.freeze({
 
 /** Mainnet-only stores and lifecycle composition; live sends are disabled by default. */
 export class MainnetPaymentRuntime {
-    constructor({ config, client = null, fetchImpl = globalThis.fetch,
-        adapter = DISABLED_ADAPTER, nowProvider = Date.now,
+    constructor({ config, env = process.env, client = null, walletV4Client = null,
+        fetchImpl = globalThis.fetch, adapter = null, nowProvider = Date.now,
         independentVerifier = null, walletPool = null } = {}) {
         if (config?.network !== "mainnet" || config?.globalId !== -239
-            || typeof nowProvider !== "function" || typeof adapter?.sendTransfer !== "function"
-            || typeof adapter?.estimateOutboundTransferFee !== "function") {
+            || typeof nowProvider !== "function") {
             throw new Error("MAINNET_PAYMENT_RUNTIME_CONFIG_INVALID");
+        }
+        const liveOperationsRequested = env?.TON_NETWORK === "mainnet"
+            && env?.ROOM_WALLET_PAYMENTS_ENABLED === "true";
+        // An explicitly injected adapter is retained for offline harnesses.
+        // Production bootstraps do not inject one, so permission opt-in is the
+        // sole path to construction of the real Mainnet Wallet V4 transport.
+        const activeAdapter = liveOperationsRequested
+            ? (adapter ?? createMainnetWalletV4Transport({
+                config, env, client: walletV4Client
+            }))
+            : (adapter ?? DISABLED_ADAPTER);
+        if (typeof activeAdapter?.sendTransfer !== "function"
+            || typeof activeAdapter?.estimateOutboundTransferFee !== "function") {
+            throw new Error("MAINNET_PAYMENT_RUNTIME_ADAPTER_INVALID");
         }
         this.network = "mainnet";
         this.globalId = -239;
-        this.liveOperationsEnabled = false;
+        this.liveOperationsEnabled = liveOperationsRequested;
+        this.outgoingAdapter = activeAdapter;
         this.stateDirectories = Object.freeze({
             incoming: join(config.dataDir, "incoming-payment-ledger"),
             financial: join(config.dataDir, "financial-lifecycle"),
@@ -55,12 +70,12 @@ export class MainnetPaymentRuntime {
         });
         this.refundLifecycle = new MainnetRefundLifecycle({
             financialLedger: this.financialLedger, incomingLedger: this.incomingLedger,
-            adapter, outgoingObserver: this.outgoingObserver,
+            adapter: activeAdapter, outgoingObserver: this.outgoingObserver,
             independentVerifier: this.independentVerifier, nowProvider
         });
         this.pendingRefundExecutor = new MainnetPendingRefundExecutor({ paymentRuntime: this });
         this.payoutLifecycle = new MainnetPayoutLifecycle({
-            financialLedger: this.financialLedger, adapter, outgoingObserver: this.outgoingObserver,
+            financialLedger: this.financialLedger, adapter: activeAdapter, outgoingObserver: this.outgoingObserver,
             independentVerifier: this.independentVerifier, nowProvider
         });
         this.pendingPayoutExecutor = walletPool

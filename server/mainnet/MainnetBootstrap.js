@@ -5,7 +5,7 @@ import { MainnetWalletPoolRegistry } from "./wallet/MainnetWalletPoolRegistry.js
 
 /** Mainnet-only configuration, wallet pool and payment runtime bootstrap. */
 export function createMainnetBootstrap({ env = process.env, logger = null,
-    fetchImpl = globalThis.fetch, nowProvider = Date.now } = {}) {
+    fetchImpl = globalThis.fetch, walletV4Client = null, nowProvider = Date.now } = {}) {
     const config = loadMainnetRuntimeConfig(env);
     const walletPool = new MainnetWalletPoolRegistry({ config, logger });
     let paymentRuntime = null;
@@ -23,7 +23,9 @@ export function createMainnetBootstrap({ env = process.env, logger = null,
         initialize() {
             if (initialized) return walletPool;
             walletPool.initialize({ snapshotDir: join(config.dataDir, "wallet-registry") });
-            paymentRuntime = new MainnetPaymentRuntime({ config, fetchImpl, nowProvider, walletPool }).initialize();
+            paymentRuntime = new MainnetPaymentRuntime({
+                config, env, fetchImpl, walletV4Client, nowProvider, walletPool
+            }).initialize();
             initialized = true;
             return walletPool;
         }
