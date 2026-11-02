@@ -6,6 +6,7 @@ import test from "node:test";
 import { createMainnetBootstrap } from "../MainnetBootstrap.js";
 import { MainnetPendingPayoutExecutor } from "../payment/MainnetPendingPayoutExecutor.js";
 import {
+    formatMainnetRuntimeStartupLine,
     initializeMainnetServerRuntime,
     resolveServerPaymentMode
 } from "../ServerPaymentMode.js";
@@ -35,6 +36,19 @@ test("server payment mode accepts only explicit Testnet or Mainnet", () => {
         assert.throws(() => resolveServerPaymentMode({ TON_NETWORK }),
             /TON_NETWORK_MUST_BE_TESTNET_OR_MAINNET/);
     }
+});
+
+test("Mainnet startup diagnostic reflects the initialized live-operation state", () => {
+    const config = { globalId: -239, walletCount: 64 };
+    assert.equal(formatMainnetRuntimeStartupLine({ config,
+        paymentRuntime: { liveOperationsEnabled: false } }),
+    "MainnetPaymentRuntime (globalId=-239 | wallets=64 | storage=isolated | liveOperations=disabled | paidGameStart=disabled)");
+    assert.equal(formatMainnetRuntimeStartupLine({ config,
+        paymentRuntime: { liveOperationsEnabled: true } }),
+    "MainnetPaymentRuntime (globalId=-239 | wallets=64 | storage=isolated | liveOperations=enabled | paidGameStart=disabled)");
+    assert.throws(() => formatMainnetRuntimeStartupLine({ config,
+        paymentRuntime: { liveOperationsEnabled: undefined } }),
+    /MAINNET_PAYMENT_RUNTIME_STATE_INVALID/);
 });
 
 test("main server Mainnet initialization uses only the Mainnet bootstrap and remains read-only", (t) => {
@@ -72,6 +86,8 @@ test("server app selects Mainnet bootstrap before the Testnet runtime branch", (
     assert.ok(testnetRuntime > testnetBranch);
     assert.match(app.slice(mainnetBranch, testnetBranch),
         /new MainnetPage4PaymentApplicationBinding\(/);
+    assert.match(app.slice(mainnetBranch, testnetBranch),
+        /startupLine\(formatMainnetRuntimeStartupLine\(\{[\s\S]*?paymentRuntime: mainnetBootstrap\.paymentRuntime/);
     assert.match(app.slice(mainnetBranch, testnetBranch),
         /configurePaymentGate\(\s*mainnetBootstrap\.paymentRuntime\.gameStartPaymentGate\s*\)/);
     assert.match(app.slice(mainnetBranch, testnetBranch),
@@ -157,7 +173,8 @@ test("server app selects Mainnet bootstrap before the Testnet runtime branch", (
     assert.match(app.slice(mainnetBranch, testnetBranch),
         /roomManager\.attachRefundLifecycle\(\s*mainnetBootstrap\.paymentRuntime\.refundLifecycle\s*\)/);
     assert.match(app.slice(mainnetBranch, testnetBranch), /_paymentRuntimeReady = true/);
-    assert.match(app.slice(mainnetBranch, testnetBranch), /paidGameStart=disabled/);
+    assert.match(app.slice(mainnetBranch, testnetBranch),
+        /startupLine\(formatMainnetRuntimeStartupLine\(/);
     const initializationFailure = app.indexOf("} catch (error) {", testnetRuntime);
     assert.match(app.slice(initializationFailure, initializationFailure + 3000),
         /configurePaymentGate\?\.\(null\)/);

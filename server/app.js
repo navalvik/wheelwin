@@ -128,7 +128,11 @@ import {
 } from "./payment/runtime/PaymentRuntimeFactory.js";
 import { bindPaymentRuntimeToApplication } from "./payment/runtime/PaymentApplicationBinder.js";
 import { LIVE_PAYMENT_ACCEPTANCE_ENABLED } from "./payment/PaymentLifecycleAvailability.js";
-import { initializeMainnetServerRuntime, resolveServerPaymentMode } from "./mainnet/ServerPaymentMode.js";
+import {
+    formatMainnetRuntimeStartupLine,
+    initializeMainnetServerRuntime,
+    resolveServerPaymentMode
+} from "./mainnet/ServerPaymentMode.js";
 import { MainnetPage4PaymentApplicationBinding } from "./mainnet/payment/MainnetPage4PaymentApplicationBinding.js";
 import { MainnetWinnerPayoutCoordinator } from "./mainnet/payment/MainnetWinnerPayoutCoordinator.js";
 import { MainnetHistoricalIncomingReceiptReconciler } from "./mainnet/payment/MainnetHistoricalIncomingReceiptReconciler.js";
@@ -1468,12 +1472,10 @@ class WheelWinApplication {
                     this._mainnetPayoutExecutionTimer.unref?.();
                 }
 
-                this._logger.startupLine(
-                    `MainnetPaymentRuntime (globalId=${mainnetBootstrap.config.globalId}`
-                        + ` | wallets=${mainnetBootstrap.config.walletCount}`
-                        + " | storage=isolated | liveOperations=disabled"
-                        + " | paidGameStart=disabled)"
-                );
+                this._logger.startupLine(formatMainnetRuntimeStartupLine({
+                    config: mainnetBootstrap.config,
+                    paymentRuntime: mainnetBootstrap.paymentRuntime
+                }));
 
             } else {
 

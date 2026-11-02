@@ -9,6 +9,17 @@ export function resolveServerPaymentMode(env = process.env) {
     return network;
 }
 
+/** Format startup diagnostics from the initialized Mainnet runtime state. */
+export function formatMainnetRuntimeStartupLine({ config, paymentRuntime } = {}) {
+    if (typeof paymentRuntime?.liveOperationsEnabled !== "boolean") {
+        throw new Error("MAINNET_PAYMENT_RUNTIME_STATE_INVALID");
+    }
+    return `MainnetPaymentRuntime (globalId=${config?.globalId}`
+        + ` | wallets=${config?.walletCount}`
+        + ` | storage=isolated | liveOperations=${paymentRuntime.liveOperationsEnabled ? "enabled" : "disabled"}`
+        + " | paidGameStart=disabled)";
+}
+
 /** Initialize only the isolated Mainnet bootstrap selected by server config. */
 export function initializeMainnetServerRuntime({ env = process.env, logger = null,
     createBootstrap = createMainnetBootstrap, fetchImpl = globalThis.fetch,
