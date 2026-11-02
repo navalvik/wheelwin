@@ -132,6 +132,7 @@ import { initializeMainnetServerRuntime, resolveServerPaymentMode } from "./main
 import { MainnetPage4PaymentApplicationBinding } from "./mainnet/payment/MainnetPage4PaymentApplicationBinding.js";
 import { MainnetWinnerPayoutCoordinator } from "./mainnet/payment/MainnetWinnerPayoutCoordinator.js";
 import { MainnetHistoricalIncomingReceiptReconciler } from "./mainnet/payment/MainnetHistoricalIncomingReceiptReconciler.js";
+import { MainnetWalletReleaseReconciler } from "./mainnet/wallet/MainnetWalletReleaseReconciler.js";
 
 import { DeveloperConsoleProjectionService } from "./console/DeveloperConsoleProjectionService.js";
 import { registerDeveloperConsoleRoutes } from "./console/registerDeveloperConsoleRoutes.js";
@@ -273,6 +274,8 @@ class WheelWinApplication {
         this._mainnetHistoryReconciler = null;
         this._mainnetHistoryReconciliationTimer = null;
         this._mainnetForensicHistoryTimer = null;
+        this._mainnetWalletReleaseReconciler = null;
+        this._mainnetWalletReleaseTimer = null;
         this._mainnetRefundReconciler = null;
         this._mainnetRefundReconciliationTimer = null;
         this._mainnetPayoutReconciler = null;
@@ -1301,6 +1304,7 @@ class WheelWinApplication {
                 });
                 const reconcileMainnetRefunds = () => {
                     void this._mainnetRefundReconciler?.runPass()
+                        .then(() => this._mainnetWalletReleaseReconciler?.runPass())
                         .catch(error => this._logger.warn?.(
                             "MAINNET_REFUND_RECONCILIATION_PENDING | code="
                                 + (error?.code ?? "RECONCILIATION_FAILED")
@@ -1314,6 +1318,27 @@ class WheelWinApplication {
                 this._managers.roomManager.attachRefundLifecycle(
                     mainnetBootstrap.paymentRuntime.refundLifecycle
                 );
+
+                this._mainnetWalletReleaseReconciler = new MainnetWalletReleaseReconciler({
+                    walletPool: mainnetBootstrap.walletPool,
+                    financialLedger: mainnetBootstrap.paymentRuntime.financialLedger,
+                    roomManager: this._managers.roomManager,
+                    snapshotDir: join(mainnetBootstrap.config.dataDir, "wallet-registry"),
+                    maxPerPass: 3,
+                    logger: this._logger
+                });
+                const reconcileMainnetWalletReleases = () => {
+                    void this._mainnetWalletReleaseReconciler?.runPass()
+                        .catch(error => this._logger.warn?.(
+                            "MAINNET_WALLET_RELEASE_RECONCILIATION_PENDING | code="
+                                + (error?.code ?? "RECONCILIATION_FAILED")
+                        ));
+                };
+                // Load reservations from durable wallet state, then release
+                // only destroyed-room wallets with no financial blockers.
+                reconcileMainnetWalletReleases();
+                this._mainnetWalletReleaseTimer = setInterval(reconcileMainnetWalletReleases, 60_000);
+                this._mainnetWalletReleaseTimer.unref?.();
 
                 // Recover late incoming payments for destroyed Mainnet rooms
                 // independently of archive/R2 availability. This only reads
@@ -1329,6 +1354,7 @@ class WheelWinApplication {
                 });
                 const reconcileMainnetHistoricalReceipts = () => {
                     void this._mainnetHistoryReconciler?.runPass()
+                        .then(() => this._mainnetWalletReleaseReconciler?.runPass())
                         .catch(error => this._logger.warn?.(
                             "MAINNET_HISTORICAL_RECEIPT_RECOVERY_PENDING | code="
                                 + (error?.code ?? "RECONCILIATION_FAILED")
@@ -1377,6 +1403,7 @@ class WheelWinApplication {
                 });
                 const reconcileMainnetPayouts = () => {
                     void this._mainnetPayoutReconciler?.runPass()
+                        .then(() => this._mainnetWalletReleaseReconciler?.runPass())
                         .catch(error => this._logger.warn?.(
                             "MAINNET_PAYOUT_RECONCILIATION_PENDING | code="
                                 + (error?.code ?? "RECONCILIATION_FAILED")
@@ -2363,6 +2390,12 @@ class WheelWinApplication {
         }
         this._mainnetHistoryReconciler?.stop();
         this._mainnetHistoryReconciler = null;
+        if (this._mainnetWalletReleaseTimer) {
+            clearInterval(this._mainnetWalletReleaseTimer);
+            this._mainnetWalletReleaseTimer = null;
+        }
+        this._mainnetWalletReleaseReconciler?.stop();
+        this._mainnetWalletReleaseReconciler = null;
         if (this._mainnetRefundReconciliationTimer) {
             clearInterval(this._mainnetRefundReconciliationTimer);
             this._mainnetRefundReconciliationTimer = null;
