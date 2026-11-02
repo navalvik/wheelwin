@@ -91,16 +91,25 @@ test("server app selects Mainnet bootstrap before the Testnet runtime branch", (
         /new MainnetPendingRefundReconciler\([\s\S]*?financialLedger:[\s\S]*?refundLifecycle:[\s\S]*?maxPerPass: 2/);
     assert.match(app.slice(mainnetBranch, testnetBranch),
         /refundLifecycle\.recover\(\)[\s\S]*?new MainnetPendingRefundReconciler\([\s\S]*?reconcileMainnetRefunds\(\)[\s\S]*?setInterval\(reconcileMainnetRefunds, 60_000\)/);
+    assert.match(app.slice(mainnetBranch, testnetBranch),
+        /new MainnetPendingPayoutReconciler\([\s\S]*?financialLedger:[\s\S]*?payoutLifecycle:[\s\S]*?maxPerPass: 2/);
+    assert.match(app.slice(mainnetBranch, testnetBranch),
+        /_mainnetWinnerPayoutCoordinator\.recoverPendingResults\(\)[\s\S]*?new MainnetPendingPayoutReconciler\([\s\S]*?reconcileMainnetPayouts\(\)[\s\S]*?setInterval\(reconcileMainnetPayouts, 60_000\)/);
+    assert.ok(app.indexOf("new MainnetPendingPayoutReconciler(")
+        < app.indexOf("const archivePaymentMode"),
+    "payout recovery wiring must not depend on R2 initialization");
     assert.ok(app.indexOf("new MainnetPendingRefundReconciler(")
         < app.indexOf("const archivePaymentMode"),
     "refund recovery wiring must not depend on R2 initialization");
     assert.match(app, /clearInterval\(this\._mainnetRefundReconciliationTimer\)/);
     assert.match(app, /this\._mainnetRefundReconciler\?\.stop\(\)/);
+    assert.match(app, /clearInterval\(this\._mainnetPayoutReconciliationTimer\)/);
+    assert.match(app, /this\._mainnetPayoutReconciler\?\.stop\(\)/);
     assert.match(app.slice(mainnetBranch, testnetBranch),
         /roomManager\.attachRefundLifecycle\(\s*mainnetBootstrap\.paymentRuntime\.refundLifecycle\s*\)/);
     assert.match(app.slice(mainnetBranch, testnetBranch), /_paymentRuntimeReady = true/);
     assert.match(app.slice(mainnetBranch, testnetBranch), /paidGameStart=disabled/);
     const initializationFailure = app.indexOf("} catch (error) {", testnetRuntime);
-    assert.match(app.slice(initializationFailure, initializationFailure + 900),
+    assert.match(app.slice(initializationFailure, initializationFailure + 1500),
         /configurePaymentGate\?\.\(null\)/);
 });

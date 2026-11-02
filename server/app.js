@@ -54,6 +54,7 @@ import { resolveForensicArchiveConfig } from "./forensic/forensicArchiveConfig.j
 import { resolveFinancialArchiveRuntimeBinding } from "./mainnet/payment/MainnetForensicFinancialSnapshot.js";
 import { listMainnetArchiveCandidates, selectMainnetArchiveBatch } from "./mainnet/payment/MainnetArchiveRecoveryQueue.js";
 import { MainnetPendingRefundReconciler } from "./mainnet/payment/MainnetPendingRefundReconciler.js";
+import { MainnetPendingPayoutReconciler } from "./mainnet/payment/MainnetPendingPayoutReconciler.js";
 import { LOG_LEVELS } from "./logging/levels.js";
 import { MonitoringManager } from "./monitoring/MonitoringManager.js";
 import { FailurePolicyManager } from "./failure/FailurePolicyManager.js";
@@ -273,6 +274,8 @@ class WheelWinApplication {
         this._mainnetForensicHistoryTimer = null;
         this._mainnetRefundReconciler = null;
         this._mainnetRefundReconciliationTimer = null;
+        this._mainnetPayoutReconciler = null;
+        this._mainnetPayoutReconciliationTimer = null;
         this._mainnetRuntimeReady = false;
         this._nativeRoomWalletAdapter = null;
         this._adminSweepAdapter = null;
@@ -1340,6 +1343,24 @@ class WheelWinApplication {
                             + ` | ownerState=${payout.owner.state}`
                     );
                 }
+                this._mainnetPayoutReconciler = new MainnetPendingPayoutReconciler({
+                    financialLedger: mainnetBootstrap.paymentRuntime.financialLedger,
+                    payoutLifecycle: mainnetBootstrap.paymentRuntime.payoutLifecycle,
+                    maxPerPass: 2,
+                    logger: this._logger
+                });
+                const reconcileMainnetPayouts = () => {
+                    void this._mainnetPayoutReconciler?.runPass()
+                        .catch(error => this._logger.warn?.(
+                            "MAINNET_PAYOUT_RECONCILIATION_PENDING | code="
+                                + (error?.code ?? "RECONCILIATION_FAILED")
+                        ));
+                };
+                // Resume only previously attempted payout legs. The lifecycle
+                // method is read-only and this schedule is independent of R2.
+                reconcileMainnetPayouts();
+                this._mainnetPayoutReconciliationTimer = setInterval(reconcileMainnetPayouts, 60_000);
+                this._mainnetPayoutReconciliationTimer.unref?.();
                 this._mainnetGameResultReadyHandler = envelope => {
                     const gameId = envelope?.payload?.gameId;
                     void Promise.resolve()
@@ -1575,6 +1596,12 @@ class WheelWinApplication {
             }
             this._mainnetRefundReconciler?.stop();
             this._mainnetRefundReconciler = null;
+            if (this._mainnetPayoutReconciliationTimer) {
+                clearInterval(this._mainnetPayoutReconciliationTimer);
+                this._mainnetPayoutReconciliationTimer = null;
+            }
+            this._mainnetPayoutReconciler?.stop();
+            this._mainnetPayoutReconciler = null;
 
             this._paymentRuntime = null;
             this._mainnetBootstrap = null;
@@ -2319,6 +2346,12 @@ class WheelWinApplication {
         }
         this._mainnetRefundReconciler?.stop();
         this._mainnetRefundReconciler = null;
+        if (this._mainnetPayoutReconciliationTimer) {
+            clearInterval(this._mainnetPayoutReconciliationTimer);
+            this._mainnetPayoutReconciliationTimer = null;
+        }
+        this._mainnetPayoutReconciler?.stop();
+        this._mainnetPayoutReconciler = null;
 
         this._logger.info("");
         this._logger.info("Stopping WheelWin Server...");
