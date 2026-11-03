@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { MainnetFinancialLedger } from "../payment/MainnetFinancialLedger.js";
@@ -182,6 +182,7 @@ test("EXTRA_PAYMENT stays in the final report but is unresolved only when its st
             maxUploadAttempts: 1 },
         uploader,
         sessionHistoryArchive,
+        disklessUploads: true,
         financialSnapshotProvider: () => snapshot,
         finalityChecker: (financial, context) => evaluateFinalForensicArchive({
             snapshot: financial, sessionRecord: context.sessionRecord, nowMs: 100_000
@@ -216,7 +217,7 @@ test("R2 uploader applies separate exact object prefixes without contacting Clou
     writeFileSync(localZip, Buffer.from("synthetic ZIP bytes"));
     const keys = new Set();
 
-    async function upload(prefix) {
+    async function upload(prefix, objectName = "synthetic-room.zip", buffer = null) {
         const uploader = new R2ForensicArchiveUploader({ bucket: "wheelwin-forensic-archives", prefix,
             endpoint: "https://mock.invalid", accessKeyId: "synthetic", secretAccessKey: "synthetic" });
         uploader._client = { async send(command) {
@@ -224,27 +225,51 @@ test("R2 uploader applies separate exact object prefixes without contacting Clou
             assert.equal(Bucket, "wheelwin-forensic-archives");
             if (command.constructor.name === "HeadObjectCommand") {
                 if (!keys.has(Key)) throw Object.assign(new Error("not found"), { name: "NotFound" });
-                return { ETag: '"synthetic-etag"' };
+                return { ETag: '"synthetic-etag"',
+                    ContentLength:buffer ? buffer.length : Buffer.byteLength("synthetic ZIP bytes"),
+                    ContentType:"application/zip" };
             }
             if (command.constructor.name === "PutObjectCommand") {
-                assert.equal(Key, prefix ? `${prefix}/synthetic-room.zip` : "synthetic-room.zip");
-                for await (const _chunk of command.input.Body) { /* consume the mocked stream */ }
+                assert.equal(Key, prefix ? `${prefix}/${objectName}` : objectName);
+                assert.equal(command.input.ContentLength,
+                    buffer ? buffer.length : Buffer.byteLength("synthetic ZIP bytes"));
+                if (buffer) assert.deepEqual(command.input.Body,buffer);
+                else for await (const _chunk of command.input.Body) { /* consume the mocked stream */ }
                 keys.add(Key);
                 return { ETag: '"synthetic-etag"' };
             }
             throw new Error("unexpected mock R2 command");
         } };
-        const result = await uploader.uploadFile(localZip, "synthetic-room.zip", {
-            revision: "0123456789abcdef01234567", final: true
-        });
+        const options={revision:"0123456789abcdef01234567",final:true};
+        const result = buffer
+            ? await uploader.uploadBuffer(buffer,objectName,options)
+            : await uploader.uploadFile(localZip,objectName,options);
         return result.objectName;
     }
 
     assert.equal(await upload(TESTNET_PREFIX), "forensic-archives/synthetic-room.zip");
     assert.equal(await upload("mainnet"), "mainnet/synthetic-room.zip");
+    assert.equal(await upload("mainnet","memory-room.zip",Buffer.from("in-memory ZIP")),
+        "mainnet/memory-room.zip");
     assert.deepEqual([...keys].sort(), [
-        "forensic-archives/synthetic-room.zip", "mainnet/synthetic-room.zip"
+        "forensic-archives/synthetic-room.zip", "mainnet/memory-room.zip", "mainnet/synthetic-room.zip"
     ]);
+});
+
+test("R2 cleanup confirmation requires a non-empty ZIP object", async () => {
+    const uploader=new R2ForensicArchiveUploader({bucket:"wheelwin-forensic-archives",prefix:"mainnet",
+        endpoint:"https://mock.invalid",accessKeyId:"synthetic",secretAccessKey:"synthetic"});
+    uploader._client={async send(command){
+        const {Key}=command.input;
+        if(Key.endsWith("missing.zip")) throw Object.assign(new Error("missing"),{name:"NotFound"});
+        if(Key.endsWith("empty.zip")) return {ContentLength:0,ContentType:"application/zip"};
+        if(Key.endsWith("wrong-type.zip")) return {ContentLength:10,ContentType:"application/json"};
+        return {ContentLength:10,ContentType:"application/zip"};
+    }};
+    assert.equal(await uploader.hasCompleteObject("complete.zip"),true);
+    assert.equal(await uploader.hasCompleteObject("empty.zip"),false);
+    assert.equal(await uploader.hasCompleteObject("wrong-type.zip"),false);
+    assert.equal(await uploader.hasCompleteObject("missing.zip"),false);
 });
 
 test("Mainnet ledger-backed snapshots remain read-only", t => {
@@ -261,4 +286,70 @@ test("Mainnet ledger-backed snapshots remain read-only", t => {
     assert.equal(snapshot.outstandingObligations, 0);
     assert.deepEqual(ledger.listPayouts(), before);
     assert.equal(ledger.getOutcome(ROOM), null);
+});
+
+test("Mainnet ZIP is passed to mock R2 from memory and remains one-per-game", async t => {
+    const root=mkdtempSync(join(tmpdir(),"wheelwin-mainnet-memory-archive-"));
+    t.after(()=>rmSync(root,{recursive:true,force:true}));
+    const stagingDir=join(root,"staging"),sessionHistoryDir=join(root,"history"),diagnosticLogsDir=join(root,"logs");
+    for (const dir of [stagingDir,sessionHistoryDir,diagnosticLogsDir]) {
+        mkdirSync(dir,{recursive:true});
+    }
+    const financialSnapshot={schemaVersion:1,roomId:ROOM,gameId:"memory-game",network:"mainnet",
+        globalId:-239,outcome:{kind:"REFUND"},intents:[],receipts:[],unresolvedReceipts:[],
+        refunds:[],payouts:[],ledger:[],outstandingObligations:0};
+    const originalSnapshot=JSON.parse(JSON.stringify(financialSnapshot));
+    const sessionHistoryArchive={finalizeIfPending(){},listRecords:()=>({records:[{
+        roomId:ROOM,gameId:"memory-game",finishedAt:100,lifecycleResult:"ROOM_CLOSED"
+    }]}),listRecordFilePathsForRoom:()=>[]};
+    const realCollector=new ForensicArchiveCollector({sessionHistoryDir,diagnosticLogsDir,sessionHistoryArchive});
+    let generated=null;
+    const collector={async collectToBuffer(options){
+        generated=await realCollector.collectToBuffer(options);
+        return generated;
+    }};
+    const uploader=new MockForensicArchiveUploader();
+    const service=new ForensicArchiveService({
+        config:{enabled:true,required:true,bucket:"mock",prefix:"mainnet",stagingDir,
+            sessionHistoryDir,diagnosticLogsDir,maxUploadAttempts:1},
+        collector,uploader,disklessUploads:true,sessionHistoryArchive,
+        financialSnapshotProvider:()=>financialSnapshot,
+        finalityChecker:()=>({ready:true})
+    });
+    const candidate={roomId:ROOM,gameId:"memory-game",reason:"room_destroyed"};
+    const first=await service.ensureArchivedAndUploaded(candidate);
+    const second=await service.ensureArchivedAndUploaded(candidate);
+    assert.equal(first.uploaded,true);
+    assert.equal(first.archiveFilename,generated.archiveFilename);
+    assert.equal(second.uploaded,true);
+    assert.equal(uploader.uploads.length,1);
+    assert.deepEqual(uploader.uploads[0].bytes,generated.buffer);
+    assert.equal(uploader.uploads[0].bytes.subarray(0,2).toString(),"PK");
+    assert.equal(uploader.uploads[0].localPath,undefined,"no local ZIP path is passed to R2");
+    assert.equal(readdirSync(root,{recursive:true}).some(name=>String(name).endsWith(".zip")),false);
+    assert.deepEqual(financialSnapshot,originalSnapshot,"archive collection leaves finance records unchanged");
+});
+
+test("Mainnet ZIP upload failure leaves no local ZIP", async t => {
+    const root=mkdtempSync(join(tmpdir(),"wheelwin-mainnet-memory-failure-"));
+    t.after(()=>rmSync(root,{recursive:true,force:true}));
+    const stagingDir=join(root,"staging"),sessionHistoryDir=join(root,"history"),diagnosticLogsDir=join(root,"logs");
+    for (const dir of [stagingDir,sessionHistoryDir,diagnosticLogsDir]) {
+        mkdirSync(dir,{recursive:true});
+    }
+    const sessionHistoryArchive={listRecords:()=>({records:[{roomId:ROOM,gameId:"failed-game",finishedAt:100}]}),
+        listRecordFilePathsForRoom:()=>[]};
+    const uploader=new MockForensicArchiveUploader(); uploader.shouldFail=true;
+    const service=new ForensicArchiveService({
+        config:{enabled:true,required:true,bucket:"mock",prefix:"mainnet",stagingDir,
+            sessionHistoryDir,diagnosticLogsDir,maxUploadAttempts:1},
+        uploader,disklessUploads:true,sessionHistoryArchive,
+        financialSnapshotProvider:()=>({schemaVersion:1,roomId:ROOM,gameId:"failed-game",network:"mainnet",
+            globalId:-239,outcome:{kind:"REFUND"},intents:[],receipts:[],unresolvedReceipts:[],
+            refunds:[],payouts:[],ledger:[],outstandingObligations:0}),
+        finalityChecker:()=>({ready:true})
+    });
+    await assert.rejects(service.ensureArchivedAndUploaded({roomId:ROOM,gameId:"failed-game"}),/Mock R2 upload failure/);
+    assert.equal(readdirSync(root,{recursive:true}).some(name=>String(name).endsWith(".zip")),false);
+    assert.equal(uploader.uploads.length,0);
 });

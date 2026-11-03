@@ -59,6 +59,7 @@ test("PAYOUT recovery uses the shared finality gate and one idempotent ZIP", asy
         config: { enabled: true, required: true, bucket: "mock", prefix: "mainnet",
             stagingDir, sessionHistoryDir, diagnosticLogsDir, maxUploadAttempts: 1 },
         uploader,
+        disklessUploads: true,
         sessionHistoryArchive,
         financialSnapshotProvider: () => snapshot,
         finalityChecker: (financial, context) => evaluateFinalForensicArchive({
@@ -85,6 +86,7 @@ test("PAYOUT recovery uses the shared finality gate and one idempotent ZIP", asy
         config: { enabled: true, required: true, bucket: "mock", prefix: "mainnet",
             stagingDir, sessionHistoryDir, diagnosticLogsDir, maxUploadAttempts: 1 },
         uploader,
+        disklessUploads: true,
         sessionHistoryArchive,
         financialSnapshotProvider: () => snapshot,
         finalityChecker: (financial, context) => evaluateFinalForensicArchive({

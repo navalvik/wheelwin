@@ -173,7 +173,8 @@ test("R2 uploader uses atomic create-once writes and preserves an existing ZIP o
                     error.$metadata = { httpStatusCode:404 };
                     throw error;
                 }
-                return { ETag:"\"original-etag\"", VersionId:"original-version" };
+                return { ETag:"\"original-etag\"", VersionId:"original-version",
+                    ContentLength:Buffer.byteLength("synthetic forensic zip bytes"),ContentType:"application/zip" };
             }
             if (command.constructor.name === "PutObjectCommand") {
                 putCalls += 1;
@@ -217,7 +218,8 @@ test("R2 revision updates replace one key with If-Match and refuse stale concurr
                     const e = new Error("not found"); e.name="NotFound";
                     e.$metadata={httpStatusCode:404}; throw e;
                 }
-                return {ETag:existing.etag, Metadata:{wheelwinrevision:existing.revision}};
+                return {ETag:existing.etag, Metadata:{wheelwinrevision:existing.revision},
+                    ContentLength:existing.contentLength,ContentType:existing.contentType};
             }
             if (command.constructor.name === "PutObjectCommand") {
                 const existing = objects.get(key);
@@ -228,14 +230,16 @@ test("R2 revision updates replace one key with If-Match and refuse stale concurr
                     command.input.Body.resume();
                 });
                 if (concurrentConflict) {
-                    objects.set(key,{etag:'"other-writer"',revision:'cccccccccccccccccccccccc'});
+                    objects.set(key,{etag:'"other-writer"',revision:'cccccccccccccccccccccccc',
+                        contentLength:10,contentType:"application/zip"});
                     const e = new Error("precondition failed"); e.name="PreconditionFailed";
                     e.$metadata={httpStatusCode:412}; throw e;
                 }
                 if (existing && command.input.IfMatch !== existing.etag) throw Error("missing If-Match");
                 if (!existing && command.input.IfNoneMatch !== "*") throw Error("missing If-None-Match");
                 const etag='"revision-'+(puts.length)+'"';
-                objects.set(key,{etag,revision:command.input.Metadata?.wheelwinrevision});
+                objects.set(key,{etag,revision:command.input.Metadata?.wheelwinrevision,
+                    contentLength:command.input.ContentLength,contentType:command.input.ContentType});
                 return {ETag:etag};
             }
             throw Error("unexpected command");

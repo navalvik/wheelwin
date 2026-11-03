@@ -76,15 +76,39 @@ export class R2ForensicArchiveUploader {
      */
     async uploadFile(localPath, objectName, { revision = null, final = false } = {}) {
 
+        return this._uploadBody(() => createReadStream(localPath), statSync(localPath).size,
+            objectName, { revision, final });
+
+    }
+
+    async uploadBuffer(buffer, objectName, { revision = null, final = false } = {}) {
+        if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
+            throw new Error("R2 forensic archive buffer is empty or invalid");
+        }
+        return this._uploadBody(() => buffer, buffer.length, objectName, { revision, final });
+    }
+
+    async hasCompleteObject(objectName) {
+        if (!this.isConfigured() || !this._client) {
+            throw new Error("R2 forensic bucket is not configured");
+        }
+        const object = await this._headIfExists(this._objectKey(objectName));
+        return isCompleteZipObject(object);
+    }
+
+    _objectKey(objectName) {
+        return this._prefix ? `${this._prefix}/${objectName}` : objectName;
+    }
+
+    async _uploadBody(body, contentLength, objectName, { revision = null, final = false } = {}) {
+
         if (!this.isConfigured() || !this._client) {
 
             throw new Error("R2 forensic bucket is not configured");
 
         }
 
-        const destination = this._prefix
-            ? `${this._prefix}/${objectName}`
-            : objectName;
+        const destination = this._objectKey(objectName);
 
         this._logger?.info?.(
             `R2_UPLOAD_STARTED | bucket=${this._bucketName} | object=${destination}`
@@ -97,6 +121,9 @@ export class R2ForensicArchiveUploader {
             // opt in to revision-aware CAS updates of ONE stable R2 object key.
             if (existingObject && (revision === null
                 || existingObject.Metadata?.wheelwinrevision === revision)) {
+                if (!isCompleteZipObject(existingObject)) {
+                    throw new Error("R2_ARCHIVE_OBJECT_INCOMPLETE");
+                }
                 this._logger?.info?.(
                     `R2_UPLOAD_ALREADY_PRESENT | bucket=${this._bucketName} | object=${destination}`
                 );
@@ -121,7 +148,7 @@ export class R2ForensicArchiveUploader {
                 putResult = await this._client.send(new PutObjectCommand({
                     Bucket: this._bucketName,
                     Key: destination,
-                    Body: createReadStream(localPath),
+                    Body: body(),
                     // Stable room key, conditional create or compare-and-swap update.
                     // A stale writer must never silently overwrite newer evidence.
                     ...(final ? { IfNoneMatch: "*" } : existingObject
@@ -129,7 +156,7 @@ export class R2ForensicArchiveUploader {
                     ...(revision !== null ? { Metadata: { wheelwinrevision: revision } } : {}),
                     // R2 S3-compatible endpoint needs a fixed payload length for
                     // reliable streamed uploads (avoid ambiguous chunked bodies).
-                    ContentLength: statSync(localPath).size,
+                    ContentLength: contentLength,
                     ContentType: "application/zip",
                     CacheControl: "private, max-age=0, no-transform"
                 }));
@@ -138,6 +165,9 @@ export class R2ForensicArchiveUploader {
                     const racedObject = await this._headIfExists(destination);
                     if (racedObject && (revision === null
                         || racedObject.Metadata?.wheelwinrevision === revision)) {
+                        if (!isCompleteZipObject(racedObject)) {
+                            throw new Error("R2_ARCHIVE_OBJECT_INCOMPLETE");
+                        }
                         return { objectName:destination,
                             generation:racedObject.VersionId ?? racedObject.ETag ?? null,
                             etag:racedObject.ETag ?? null, alreadyPresent:true };
@@ -152,6 +182,9 @@ export class R2ForensicArchiveUploader {
                 Bucket: this._bucketName,
                 Key: destination
             }));
+            if (!isCompleteZipObject(head)) {
+                throw new Error("R2_ARCHIVE_OBJECT_INCOMPLETE");
+            }
 
             const etag = head?.ETag
                 ?? putResult?.ETag
@@ -202,6 +235,11 @@ function isPreconditionFailed(error) {
         || ["PreconditionFailed", "ConditionalRequestConflict"].includes(error?.name);
 }
 
+function isCompleteZipObject(object) {
+    return Boolean(object && Number(object.ContentLength) > 0
+        && String(object.ContentType ?? "").toLowerCase() === "application/zip");
+}
+
 /**
  * Test double — records uploads without contacting Cloudflare R2.
  */
@@ -241,6 +279,25 @@ export class MockForensicArchiveUploader {
         this.objects.set(objectName, { localPath, revision, etag });
         return { objectName, generation:"mock-generation", etag };
 
+    }
+
+    async uploadBuffer(buffer, objectName, { revision = null, final = false } = {}) {
+        if (this.shouldFail) throw new Error("Mock R2 upload failure");
+        if (!Buffer.isBuffer(buffer) || buffer.length === 0) throw new Error("Mock archive buffer is empty");
+        const previous = this.objects.get(objectName);
+        if (previous && revision !== null && previous.revision === revision) {
+            return { objectName, generation:"mock-generation", etag:previous.etag,
+                alreadyPresent:true };
+        }
+        if (final && previous) throw new Error("R2_FINAL_ARCHIVE_CONFLICT");
+        const etag = "mock-etag-" + (this.uploads.length + 1);
+        this.uploads.push({ objectName, revision, bytes:Buffer.from(buffer) });
+        this.objects.set(objectName, { revision, etag, bytes:Buffer.from(buffer) });
+        return { objectName, generation:"mock-generation", etag };
+    }
+
+    async hasCompleteObject(objectName) {
+        return Boolean(this.objects.get(objectName)?.bytes?.length);
     }
 
 }

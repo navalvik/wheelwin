@@ -8,6 +8,8 @@ import {
     renameSync,
     writeFileSync
 } from "node:fs";
+import { Writable } from "node:stream";
+import { finished } from "node:stream/promises";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 
@@ -97,6 +99,63 @@ export class ForensicArchiveCollector {
             files: fileManifest
         };
 
+    }
+
+    /**
+     * Build the same archive in memory for Mainnet so no ZIP reaches disk.
+     * Source artifacts are still read in place and the manifest has the same
+     * entries and hashes as collectToZip.
+     */
+    async collectToBuffer({
+        roomId,
+        gameId = null,
+        reason = "room_destroyed",
+        archiveFilename,
+        financialSnapshot
+    }) {
+        this._sessionHistoryArchive?.finalizeIfPending?.({ roomId, gameId, reason });
+        const entries = this._discoverArtifactEntries({ roomId, gameId, financialSnapshot });
+        if (entries.length === 0) {
+            throw new Error(`No forensic artifacts found | roomId=${roomId}`);
+        }
+
+        const fileManifest = [];
+        const chunks = [];
+        const output = new Writable({
+            write(chunk, encoding, callback) {
+                chunks.push(Buffer.from(chunk));
+                callback();
+            }
+        });
+        const archive = archiver("zip", { zlib: { level: 9 } });
+        const outputFinished = finished(output);
+        output.on("error", error => archive.destroy(error));
+        archive.on("error", error => output.destroy(error));
+        archive.pipe(output);
+
+        for (const entry of entries) {
+            const sha256 = entry.inlineContent != null
+                ? createHash("sha256").update(entry.inlineContent, "utf8").digest("hex")
+                : this._sha256File(entry.sourcePath);
+            fileManifest.push({
+                sourcePath: entry.inlineContent != null ? "[generated]" : entry.sourcePath,
+                zipPath: entry.zipPath,
+                sha256
+            });
+            if (entry.inlineContent != null) {
+                archive.append(entry.inlineContent, { name: entry.zipPath });
+            } else {
+                archive.file(entry.sourcePath, { name: entry.zipPath });
+            }
+        }
+
+        await archive.finalize();
+        await outputFinished;
+        return {
+            buffer: Buffer.concat(chunks),
+            archiveFilename,
+            files: fileManifest
+        };
     }
 
     _discoverArtifactEntries({ roomId, gameId, financialSnapshot }) {

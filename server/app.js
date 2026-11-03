@@ -2064,20 +2064,8 @@ class WheelWinApplication {
 
         this._logger.startupLine("SessionHistoryArchiveManager");
 
-        // Owner-directed purge: no forensic ZIP may remain on Railway.
-        // Delete archived ZIPs from the mounted volume BEFORE any recovery.
-        // Never delete room financial ledgers, JSON status, or Cloudflare R2 objects.
-        const purgeReport = purgeLocalForensicArchiveZips({
-            stagingDir: archiveConfig.stagingDir,
-            logger: this._logger
-        });
-        if (purgeReport.failed > 0) {
-            this._logger.warn?.(
-                `RAILWAY_FORENSIC_ZIP_PURGE_INCOMPLETE | failures=${purgeReport.failed}`
-            );
-        }
-        // Stream each future ZIP through a temporary local file, remove it
-        // regardless of upload outcome, and retain no game ZIP on Railway.
+        // Mainnet cleanup is deferred until the R2 uploader can verify each
+        // matching non-empty object. Testnet startup is not changed.
         try {
             const archiveUploader = new R2ForensicArchiveUploader({
                 logger: this._logger,
@@ -2088,6 +2076,19 @@ class WheelWinApplication {
                 secretAccessKey: archiveBinding.config.secretAccessKey,
                 accountId: archiveBinding.config.accountId
             });
+            if (archivePaymentMode === "mainnet") {
+                const purgeReport = await purgeLocalForensicArchiveZips({
+                    stagingDir: archiveConfig.stagingDir,
+                    verifyObject: objectName => archiveUploader.hasCompleteObject(objectName),
+                    logger: this._logger
+                });
+                if (purgeReport.failed > 0 || purgeReport.unconfirmed > 0) {
+                    this._logger.warn?.(
+                        `RAILWAY_FORENSIC_ZIP_PURGE_INCOMPLETE | failures=${purgeReport.failed}`
+                        + ` | unconfirmed=${purgeReport.unconfirmed}`
+                    );
+                }
+            }
             this._clientPage5DeviceReportStore = new ClientPage5DeviceReportStore({
                 stagingDir: archiveConfig.stagingDir,
                 logger: this._logger
@@ -2101,7 +2102,8 @@ class WheelWinApplication {
                     evaluateFinalForensicArchive({snapshot,sessionRecord}),
                 gameReportEngine: this._gameReportEngine,
                 uploader: archiveUploader,
-                sessionHistoryArchive: this._sessionHistoryArchive
+                sessionHistoryArchive: this._sessionHistoryArchive,
+                disklessUploads: archivePaymentMode === "mainnet"
             });
             this._roomLobbyBridge.configureForensicArchiveService(
                 this._forensicArchiveService

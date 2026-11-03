@@ -6,7 +6,8 @@ import {
     readdirSync,
     readFileSync,
     rmSync,
-    renameSync
+    renameSync,
+    unlinkSync
 } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { tmpdir } from "node:os";
@@ -43,7 +44,8 @@ export class ForensicArchiveService {
         finalityChecker = null,
         gameReportEngine = null,
         sessionHistoryArchive = null,
-        deviceReportStore = null
+        deviceReportStore = null,
+        disklessUploads = false
     }) {
 
         this._financialSnapshotProvider = financialSnapshotProvider;
@@ -52,6 +54,7 @@ export class ForensicArchiveService {
         this._config = config ?? resolveForensicArchiveConfig();
         this._sessionHistoryArchive = sessionHistoryArchive;
         this._deviceReportStore = deviceReportStore;
+        this._disklessUploads = disklessUploads === true;
         this._collector = collector ?? new ForensicArchiveCollector({
             sessionHistoryDir: this._config.sessionHistoryDir,
             diagnosticLogsDir: this._config.diagnosticLogsDir,
@@ -283,6 +286,9 @@ export class ForensicArchiveService {
                         objectName:upload.objectName, generation:upload.generation,
                         etag:upload.etag ?? null,
                         attempts:previousAttempts + attempt, uploadedAt:Date.now() });
+                    // The old local ZIP is removed only after the uploader
+                    // confirmed the corresponding R2 object.
+                    unlinkSync(stagedExistingZip);
                     return { uploaded:true, archiveFilename:existingStatus.archiveFilename };
                 } catch (error) {
                     writeStagingStatus(statusPath, { ...existingStatus, state:"failed", phase:"upload",
@@ -333,11 +339,13 @@ export class ForensicArchiveService {
                 reason
             });
 
-        // NO ZIP files are stored on Railway's persistent volume.
-        // Only a private, temporary file is used during the R2 upload.
+        // Mainnet builds the ZIP in memory. Testnet retains its existing
+        // temporary-file path until separately changed.
         mkdirSync(stagingRoomDir, { recursive: true });
-        const temporaryDir = mkdtempSync(join(tmpdir(), "wheelwin-r2-upload-"));
-        const zipPath = join(temporaryDir, archiveFilename);
+        const temporaryDir = this._disklessUploads
+            ? null : mkdtempSync(join(tmpdir(), "wheelwin-r2-upload-"));
+        const zipPath = temporaryDir ? join(temporaryDir, archiveFilename) : null;
+        let archiveBuffer = null;
         try {
 
         this._logInfo(
@@ -350,14 +358,20 @@ export class ForensicArchiveService {
 
         try {
 
-            manifest = await this._collector.collectToZip({
+            const collectionOptions = {
                 roomId,
                 gameId,
                 reason,
-                zipPath,
                 archiveFilename,
                 financialSnapshot: financialSnapshot ? { ...financialSnapshot, roomId, gameId } : null
-            });
+            };
+            if (this._disklessUploads) {
+                const collected = await this._collector.collectToBuffer(collectionOptions);
+                archiveBuffer = collected.buffer;
+                manifest = { archiveFilename, files: collected.files };
+            } else {
+                manifest = await this._collector.collectToZip({ ...collectionOptions, zipPath });
+            }
 
             this._logInfo(
                 `${LOG.CREATED} | roomId=${roomId} | gameId=${gameId ?? "null"}`
@@ -407,11 +421,10 @@ export class ForensicArchiveService {
 
             try {
 
-                const upload = await this._uploader.uploadFile(
-                    zipPath,
-                    archiveFilename,
-                    { revision, final: true }
-                );
+                const uploadOptions = { revision, final: true };
+                const upload = this._disklessUploads
+                    ? await this._uploader.uploadBuffer(archiveBuffer, archiveFilename, uploadOptions)
+                    : await this._uploader.uploadFile(zipPath, archiveFilename, uploadOptions);
 
                 writeStagingStatus(statusPath, {
                     state: "uploaded",
@@ -476,9 +489,9 @@ export class ForensicArchiveService {
         throw new Error("Forensic archive upload exhausted retries");
 
         } finally {
-            // Covers successful uploads, R2 failures and collection errors.
-            // The R2 object persists; no ZIP survives on local Railway disk.
-            rmSync(temporaryDir, { recursive: true, force: true });
+            // Covers Testnet uploads, R2 failures and collection errors.
+            // Mainnet never creates a temporary ZIP file.
+            if (temporaryDir) rmSync(temporaryDir, { recursive: true, force: true });
         }
 
     }
