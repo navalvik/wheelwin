@@ -122,6 +122,30 @@ function closeTestnet(h, closureReason = "pre_page5_destroyed") {
         closureReason, status: "DESTROYED" });
 }
 
+function recordAdditionalReceipt(h, overrides = {}) {
+    const intent = h.incoming.listRoomIntents(ROOM)[0];
+    const transactionId = overrides.transactionId ?? "mainnet-extra-unsettled-1";
+    const roomId = overrides.roomId ?? ROOM;
+    const receipt = {
+        network: "mainnet", globalId: -239, status: "EXTRA_PAYMENT",
+        reason: overrides.reason ?? "UNMATCHED_FINALIZED_RECEIPT", roomId, transactionId,
+        paymentReference: intent.paymentReference,
+        playerId: overrides.playerId ?? intent.playerId,
+        amountAtomic: overrides.amountAtomic ?? "750000000",
+        sourceAddress: overrides.sourceAddress ?? intent.expectedSender,
+        destinationAddress: overrides.destinationAddress ?? MAINNET_WALLET,
+        asset: "TON", transactionTime: NOW, updatedAt: NOW + 2
+    };
+    const observation = {
+        network: "mainnet", globalId: -239, roomId, transactionId,
+        payloadFingerprint: "f".repeat(64), sourceAddress: receipt.sourceAddress,
+        destinationAddress: receipt.destinationAddress, amountAtomic: receipt.amountAtomic,
+        asset: "TON", transactionTime: NOW, observedAt: NOW + 2
+    };
+    h.incoming.recordTransfer({ observation, receipt });
+    return receipt;
+}
+
 test("paired Testnet/Mainnet closures make the same 0/3 through 3/3 refund decisions", t => {
     for (const settledCount of [0, 1, 2, 3]) {
         const tn = testnetSetup(settledCount);
@@ -219,6 +243,63 @@ test("paired closed-room accounting refunds an additional finalized payment once
     assert.equal(mn.financial.listRefunds(ROOM).length, 2,
         "Mainnet prepares equivalent obligations from its settled and extra-payment receipts");
     assert.equal(closeMainnet(mn).length, 2, "Mainnet replay remains idempotent");
+});
+
+test("Mainnet refunds an identified additional receipt for a non-settled intent using its received amount", t => {
+    const mn = mainnetSetup(t, 0);
+    const intent = mn.incoming.listRoomIntents(ROOM)[0];
+    assert.equal(intent.state, "PENDING");
+    recordAdditionalReceipt(mn);
+
+    const created = closeMainnet(mn);
+    assert.equal(created.length, 1);
+    assert.equal(created[0].paymentIntentId, intent.paymentReference);
+    assert.equal(created[0].playerId, intent.playerId);
+    assert.equal(created[0].amountAtomic, 750_000_000);
+    assert.equal(created[0].refundDestination, intent.expectedSender);
+    assert.equal(created[0].sourceWalletAddress, intent.destinationWalletAddress);
+
+    const replay = closeMainnet(mn);
+    assert.equal(replay.length, 1);
+    assert.equal(replay[0].replay, true);
+    assert.equal(mn.financial.listRefunds(ROOM).length, 1,
+        "the same incoming transaction does not create another obligation");
+});
+
+test("Mainnet additional-payment refunds reject payer, player, and room-wallet mismatches", t => {
+    for (const overrides of [
+        { sourceAddress: MAINNET_PAYER(1) },
+        { playerId: "another-player" },
+        { destinationAddress: TESTNET_WALLET }
+    ]) {
+        const mn = mainnetSetup(t, 0);
+        recordAdditionalReceipt(mn, overrides);
+        assert.throws(() => closeMainnet(mn), /MAINNET_REFUND_PAYMENT_EVIDENCE_CONFLICT/);
+        assert.equal(mn.financial.listRefunds(ROOM).length, 0);
+    }
+
+    const crossRoom = mainnetSetup(t, 0);
+    recordAdditionalReceipt(crossRoom, { roomId: "another-room" });
+    assert.deepEqual(closeMainnet(crossRoom), []);
+    assert.equal(crossRoom.financial.listRefunds(ROOM).length, 0);
+});
+
+test("an existing Mainnet payout outcome still prevents additional-payment refunds", t => {
+    const mn = mainnetSetup(t, 0);
+    mn.financial.createPayout({
+        payoutId: "payout_refund_conflict",
+        roomId: ROOM,
+        roomNumber: 44,
+        sourceWalletAddress: MAINNET_WALLET,
+        principalAtomic: 1_000_000_000,
+        winner: { recipientId: "winner", address: `0:${"c".repeat(64)}` },
+        owner: { recipientId: "owner", address: `0:${"d".repeat(64)}` }
+    });
+    recordAdditionalReceipt(mn);
+
+    assert.deepEqual(closeMainnet(mn), []);
+    assert.equal(mn.financial.listRefunds(ROOM).length, 0);
+    assert.equal(mn.financial.hasPayoutOutcome(ROOM), true);
 });
 
 test("Mainnet rejects receipt, observation, and intent disagreement before obligation creation", t => {

@@ -243,10 +243,17 @@ test("winner is sent and confirmed before owner; both credits settle once", asyn
         roomNumber: 5, sourceWalletAddress: SOURCE, principalAtomic: 100_000_000,
         winner: { recipientId: "winner", address: WINNER }, owner: { recipientId: "owner", address: OWNER } });
     const sent = [];
-    const adapter = { sendTransfer: async (request) => {
-        sent.push(request);
-        return { ok: true, txHash: `out-${sent.length}` };
-    } };
+    const fundingChecks = [];
+    const adapter = {
+        canFundTransfer: async request => {
+            fundingChecks.push(request);
+            return { ok: true, roomNumber: request.roomNumber, address: SOURCE };
+        },
+        sendTransfer: async (request) => {
+            sent.push(request);
+            return { ok: true, txHash: `out-${sent.length}` };
+        }
+    };
     const observer = {
         findOutgoingTransfer: async ({ destinationIdentity }) => ({ transactionId: destinationIdentity === WINNER ? "out-1" : "out-2" }),
         verifyIndexedRecipientCredit: async ({ transactionId, destinationIdentity, amountAtomic }) => ({
@@ -256,8 +263,120 @@ test("winner is sent and confirmed before owner; both credits settle once", asyn
     const flow = new MainnetPayoutLifecycle({ financialLedger: h.ledger, adapter, outgoingObserver: observer, independentVerifier: payoutVerifier });
     assert.equal((await flow.submitPayout(payout.payoutId)).status, "PAYOUT_COMPLETE");
     assert.deepEqual(sent.map(x => x.amountNano), [95_000_000n, 4_900_000n]);
+    assert.deepEqual(sent.map(x => x.sourceReserveNano), [5_000_000n, 100_000n]);
+    assert.deepEqual(fundingChecks.map(x => x.sourceReserveNano), [5_000_000n, 100_000n]);
+    assert.deepEqual(fundingChecks.map(x => x.amountNano), [95_000_000n, 4_900_000n]);
     assert.equal((await flow.submitPayout(payout.payoutId)).status, "PAYOUT_COMPLETE");
     assert.equal(sent.length, 2);
+});
+
+test("source reserve preflight blocks a leg that cannot preserve the planned remainder", async t => {
+    const winnerHarness = makeHarness(t);
+    const winnerPayout = winnerHarness.ledger.createPayout({ payoutId: "payout_reserve_winner",
+        roomId: "reserve-winner-room", roomNumber: 5, sourceWalletAddress: SOURCE,
+        principalAtomic: 100_000_000,
+        winner: { recipientId: "winner", address: WINNER },
+        owner: { recipientId: "owner", address: OWNER } });
+    let winnerSends = 0;
+    const insufficientWinnerAdapter = {
+        async canFundTransfer(request) {
+            assert.equal(request.sourceReserveNano, 5_000_000n);
+            return { ok: false, roomNumber: request.roomNumber, address: SOURCE };
+        },
+        async sendTransfer() { winnerSends += 1; return { ok: true, txHash: "must-not-send" }; }
+    };
+    const noEvidence = { async findOutgoingTransfer() { return null; },
+        async verifyIndexedRecipientCredit() { return null; } };
+    const winnerFlow = new MainnetPayoutLifecycle({ financialLedger: winnerHarness.ledger,
+        adapter: insufficientWinnerAdapter, outgoingObserver: noEvidence, independentVerifier: payoutVerifier });
+    assert.equal((await winnerFlow.submitPayout(winnerPayout.payoutId)).status, "SOURCE_RESERVE_UNAVAILABLE");
+    assert.equal(winnerHarness.ledger.getPayout(winnerPayout.payoutId).winner.state, "PENDING");
+    assert.equal(winnerSends, 0);
+
+    const ownerHarness = makeHarness(t);
+    const ownerPayout = ownerHarness.ledger.createPayout({ payoutId: "payout_reserve_owner",
+        roomId: "reserve-owner-room", roomNumber: 5, sourceWalletAddress: SOURCE,
+        principalAtomic: 100_000_000,
+        winner: { recipientId: "winner", address: WINNER },
+        owner: { recipientId: "owner", address: OWNER } });
+    const sent = [];
+    const ownerAdapter = {
+        async canFundTransfer(request) {
+            const requiredNano = request.amountNano + request.sourceReserveNano;
+            const ok = request.sourceReserveNano === 5_000_000n;
+            const balanceNano = ok ? requiredNano : request.amountNano;
+            return { ok, roomNumber: request.roomNumber, address: SOURCE,
+                amountNano: request.amountNano, gasReserveNano: request.sourceReserveNano,
+                requiredNano, balanceNano, shortfallNano: ok ? 0n : requiredNano - balanceNano };
+        },
+        async sendTransfer(request) {
+            sent.push(request);
+            return { ok: true, txHash: "winner-reserve-ok" };
+        }
+    };
+    const winnerObserver = {
+        async findOutgoingTransfer({ destinationIdentity }) {
+            return destinationIdentity === WINNER ? { transactionId: "winner-reserve-ok" } : null;
+        },
+        async verifyIndexedRecipientCredit({ transactionId, destinationIdentity, amountAtomic }) {
+            return { ...payoutEvidence({ transactionId, destinationIdentity, amountAtomic }) };
+        }
+    };
+    const ownerFlow = new MainnetPayoutLifecycle({ financialLedger: ownerHarness.ledger,
+        adapter: ownerAdapter, outgoingObserver: winnerObserver, independentVerifier: payoutVerifier });
+    const ownerResult = await ownerFlow.submitPayout(ownerPayout.payoutId);
+    assert.equal(ownerResult.status, "OWNER_COMMISSION_UNPAID_INSUFFICIENT_GAS");
+    assert.deepEqual(sent.map(request => request.destination), [WINNER]);
+    assert.deepEqual(sent.map(request => request.sourceReserveNano), [5_000_000n]);
+    assert.equal(ownerHarness.ledger.getPayout(ownerPayout.payoutId).winner.state, "CONFIRMED");
+    assert.equal(ownerHarness.ledger.getPayout(ownerPayout.payoutId).owner.state, "UNPAID_INSUFFICIENT_GAS");
+    assert.equal(ownerHarness.ledger.getPayout(ownerPayout.payoutId).state, "PARTIAL_OWNER_UNPAID");
+    assert.equal(ownerHarness.ledger.countOpenObligations("reserve-owner-room"), 1,
+        "unpaid Owner obligation remains in financial history");
+    assert.equal(ownerHarness.ledger.countWalletBlockingObligations("reserve-owner-room"), 0);
+    const restartedLedger = new MainnetFinancialLedger({ config: ownerHarness.config }).initialize();
+    const restartedFlow = new MainnetPayoutLifecycle({ financialLedger: restartedLedger,
+        adapter: ownerAdapter, outgoingObserver: winnerObserver, independentVerifier: payoutVerifier });
+    assert.equal(restartedLedger.getPayout(ownerPayout.payoutId).winner.state, "CONFIRMED");
+    assert.equal(restartedLedger.getPayout(ownerPayout.payoutId).owner.state, "UNPAID_INSUFFICIENT_GAS");
+    assert.equal((await restartedFlow.submitPayout(ownerPayout.payoutId)).status,
+        "OWNER_COMMISSION_UNPAID_INSUFFICIENT_GAS");
+    assert.deepEqual(sent.map(request => request.destination), [WINNER],
+        "restart cannot repeat Winner or attempt Owner after the definitive unpaid state");
+});
+
+test("unknown Owner balance preflight remains pending and does not become unpaid", async t => {
+    const h = makeHarness(t);
+    const payout = h.ledger.createPayout({ payoutId: "payout_owner_preflight_unknown", roomId: "owner-preflight-unknown",
+        roomNumber: 5, sourceWalletAddress: SOURCE, principalAtomic: 100_000_000,
+        winner: { recipientId: "winner", address: WINNER }, owner: { recipientId: "owner", address: OWNER } });
+    const sent = [];
+    const adapter = {
+        async canFundTransfer(request) {
+            if (request.amountNano === BigInt(payout.winner.amountAtomic)) {
+                return { ok: true, roomNumber: request.roomNumber, address: SOURCE };
+            }
+            throw new Error("balance RPC unavailable");
+        },
+        async sendTransfer(request) { sent.push(request.destination); return { ok: true, txHash: "winner-preflight-unknown" }; }
+    };
+    const observer = {
+        async findOutgoingTransfer({ destinationIdentity }) {
+            return destinationIdentity === WINNER ? { transactionId: "winner-preflight-unknown" } : null;
+        },
+        async verifyIndexedRecipientCredit({ transactionId, destinationIdentity, amountAtomic }) {
+            return { ...payoutEvidence({ transactionId, destinationIdentity, amountAtomic }) };
+        }
+    };
+    const flow = new MainnetPayoutLifecycle({ financialLedger: h.ledger, adapter,
+        outgoingObserver: observer, independentVerifier: payoutVerifier });
+    const result = await flow.submitPayout(payout.payoutId);
+    assert.equal(result.status, "SOURCE_RESERVE_UNAVAILABLE");
+    assert.equal(result.role, "owner");
+    assert.equal(h.ledger.getPayout(payout.payoutId).winner.state, "CONFIRMED");
+    assert.equal(h.ledger.getPayout(payout.payoutId).owner.state, "PENDING");
+    assert.equal(h.ledger.countWalletBlockingObligations("owner-preflight-unknown"), 1);
+    assert.deepEqual(sent, [WINNER], "unknown balance does not authorize Owner send or unpaid classification");
 });
 
 test("confirmed winner with owner gas shortage records unpaid commission without wallet-blocking debt", async (t) => {
@@ -266,11 +385,14 @@ test("confirmed winner with owner gas shortage records unpaid commission without
         roomNumber: 5, sourceWalletAddress: SOURCE, principalAtomic: 100_000_000,
         winner: { recipientId: "winner", address: WINNER }, owner: { recipientId: "owner", address: OWNER } });
     const sent = [];
-    const adapter = { sendTransfer: async (request) => {
-        sent.push(request);
-        if (request.destination === OWNER) { const error = new Error("insufficient gas"); error.code = "INSUFFICIENT_GAS"; throw error; }
-        return { ok: true, txHash: "winner-tx" };
-    } };
+    const adapter = {
+        async canFundTransfer(request) { return { ok: true, roomNumber: request.roomNumber, address: SOURCE }; },
+        sendTransfer: async (request) => {
+            sent.push(request);
+            if (request.destination === OWNER) { const error = new Error("insufficient gas"); error.code = "INSUFFICIENT_GAS"; throw error; }
+            return { ok: true, txHash: "winner-tx" };
+        }
+    };
     const observer = { findOutgoingTransfer: async () => ({ transactionId: "winner-tx" }),
         verifyIndexedRecipientCredit: async ({ transactionId, destinationIdentity, amountAtomic }) => ({
             ...payoutEvidence({ transactionId, destinationIdentity, amountAtomic })
@@ -290,7 +412,9 @@ test("owner commission may be retried explicitly after gas returns", async (t) =
         roomNumber: 5, sourceWalletAddress: SOURCE, principalAtomic: 100_000_000,
         winner: { recipientId: "winner", address: WINNER }, owner: { recipientId: "owner", address: OWNER } });
     let ownerFails = true;
-    const adapter = { sendTransfer: async ({ destination }) => {
+    const adapter = { async canFundTransfer(request) {
+        return { ok: true, roomNumber: request.roomNumber, address: SOURCE };
+    }, sendTransfer: async ({ destination }) => {
         if (destination === OWNER && ownerFails) { const error = new Error(); error.code = "INSUFFICIENT_GAS"; throw error; }
         return { ok: true, txHash: destination === WINNER ? "winner-tx" : "owner-tx" };
     } };
@@ -310,7 +434,9 @@ test("restart reconciliation confirms persisted payout legs without another broa
         roomNumber: 5, sourceWalletAddress: SOURCE, principalAtomic: 100_000_000,
         winner: { recipientId: "winner", address: WINNER }, owner: { recipientId: "owner", address: OWNER } });
     let sends = 0;
-    const adapter = { sendTransfer: async () => { sends++; return { ok: true, txHash: "restart-winner" }; } };
+    const adapter = { async canFundTransfer(request) {
+        return { ok: true, roomNumber: request.roomNumber, address: SOURCE };
+    }, sendTransfer: async () => { sends++; return { ok: true, txHash: "restart-winner" }; } };
     const pendingObserver = { findOutgoingTransfer: async () => null, verifyIndexedRecipientCredit: async () => null };
     const flow = new MainnetPayoutLifecycle({ financialLedger: h.ledger, adapter, outgoingObserver: pendingObserver, independentVerifier: payoutVerifier });
     assert.equal((await flow.submitPayout(payout.payoutId)).status, "WINNER_CONFIRMATION_PENDING");

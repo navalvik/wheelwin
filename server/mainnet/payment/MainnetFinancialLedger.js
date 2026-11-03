@@ -138,18 +138,18 @@ export class MainnetFinancialLedger {
             const duplicateTransactionBinding = intents.some(item => item.confirmedTransactionId === receipt.transactionId
                 && item.paymentReference !== receipt.paymentReference);
             const principalPayment = receipt.status === "CONFIRMED"
-                && intent?.confirmedTransactionId === receipt.transactionId;
-            const additionalConfirmedPayment = receipt.status === "EXTRA_PAYMENT"
-                && receipt.reason === "PAYMENT_ALREADY_SETTLED"
                 && intent?.state === "SETTLED"
-                && intent.confirmedTransactionId !== receipt.transactionId;
+                && intent.confirmedTransactionId === receipt.transactionId;
+            const additionalPayment = receipt.status === "EXTRA_PAYMENT"
+                && intent?.confirmedTransactionId !== receipt.transactionId;
             if (!intent || !observation || duplicateTransactionBinding
                 || receipt.network !== "mainnet" || receipt.globalId !== MAINNET_GLOBAL_ID
                 || receipt.roomId !== roomId || receipt.asset !== "TON"
                 || intent.network !== "mainnet" || intent.globalId !== MAINNET_GLOBAL_ID
-                || intent.roomId !== roomId || intent.state !== "SETTLED"
-                || (!principalPayment && !additionalConfirmedPayment)
-                || intent.playerId !== receipt.playerId || intent.amountAtomic !== receipt.amountAtomic
+                || intent.roomId !== roomId
+                || (!principalPayment && !additionalPayment)
+                || intent.playerId !== receipt.playerId
+                || (principalPayment && intent.amountAtomic !== receipt.amountAtomic)
                 || intent.asset !== receipt.asset
                 || observation.network !== "mainnet" || observation.globalId !== MAINNET_GLOBAL_ID
                 || observation.roomId !== roomId || observation.asset !== "TON"
@@ -174,7 +174,7 @@ export class MainnetFinancialLedger {
                     || prior.paymentIntentId !== intent.paymentReference
                     || prior.incomingTransactionId !== receipt.transactionId
                     || prior.network !== "mainnet" || prior.globalId !== MAINNET_GLOBAL_ID
-                    || prior.amountAtomic !== Number(BigInt(intent.amountAtomic))
+                    || prior.amountAtomic !== Number(BigInt(receipt.amountAtomic))
                     || prior.denomination !== intent.asset
                     || prior.payerAddress !== intent.expectedSender
                     || prior.refundDestination !== intent.expectedSender
@@ -185,7 +185,7 @@ export class MainnetFinancialLedger {
                 made.push(Object.freeze({ ...prior, replay: true }));
                 continue;
             }
-            const amountAtomic = Number(BigInt(intent.amountAtomic));
+            const amountAtomic = Number(BigInt(receipt.amountAtomic));
             if (!Number.isSafeInteger(amountAtomic) || amountAtomic <= 0) throw new Error("MAINNET_REFUND_AMOUNT_OVERFLOW");
             const obligation = { obligationId: id, idempotencyKey,
                 network: "mainnet", globalId: MAINNET_GLOBAL_ID, roomId, roomNumber, playerId: intent.playerId,
@@ -313,7 +313,9 @@ export class MainnetFinancialLedger {
             throw new Error("MAINNET_PAYOUT_LEG_IDENTITY_OR_STATE_INVALID");
         }
         const allowed = {
-            PENDING: ["SUBMISSION_UNKNOWN"],
+            PENDING: role === "owner"
+                ? ["SUBMISSION_UNKNOWN", "UNPAID_INSUFFICIENT_GAS"]
+                : ["SUBMISSION_UNKNOWN"],
             SUBMISSION_UNKNOWN: ["SUBMITTED", "CONFIRMED", "UNPAID_INSUFFICIENT_GAS"],
             SUBMITTED: ["CONFIRMED"],
             UNPAID_INSUFFICIENT_GAS: ["PENDING"],

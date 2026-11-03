@@ -150,8 +150,8 @@ test("UNPAID_INSUFFICIENT_GAS owner fee does not block reuse after winner is con
     h.reserve("owner-gas-room");
     const payout = createPayout(h.ledger, "owner-gas-room");
     confirmLeg(h.ledger, payout.payoutId, "winner");
-    h.ledger.updatePayoutLeg(payout.payoutId, "owner", { state: "SUBMISSION_UNKNOWN" });
     h.ledger.updatePayoutLeg(payout.payoutId, "owner", { state: "UNPAID_INSUFFICIENT_GAS" });
+    assert.equal(h.ledger.getPayout(payout.payoutId).state, "PARTIAL_OWNER_UNPAID");
     assert.equal(h.ledger.countWalletBlockingObligations("owner-gas-room"), 0);
     assert.equal((await h.reconciler().runPass()).released, 1);
     assert.equal(h.pool.getReservationForRoom("owner-gas-room"), null);

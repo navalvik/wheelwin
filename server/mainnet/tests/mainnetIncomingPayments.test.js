@@ -4,8 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { loadMainnetRuntimeConfig } from "../config/MainnetRuntimeConfig.js";
+import { MainnetFinancialLedger } from "../payment/MainnetFinancialLedger.js";
 import { MainnetIncomingPaymentLedger } from "../payment/MainnetIncomingPaymentLedger.js";
 import { MainnetIncomingPaymentService } from "../payment/MainnetIncomingPaymentService.js";
+import { MainnetRefundLifecycle } from "../payment/MainnetRefundLifecycle.js";
 import { MainnetToncenterReadClient, MainnetToncenterError } from "../payment/MainnetToncenterReadClient.js";
 
 const NOW_MS = 1_700_000_200_000;
@@ -72,10 +74,19 @@ function harness(t, { transactions = [], headGlobalId = -239, headSeqno = 805,
     };
     const client = new MainnetToncenterReadClient({ config, fetchImpl });
     const ledger = new MainnetIncomingPaymentLedger({ config, nowProvider: () => NOW_MS + 1_000 }).initialize();
+    const financialLedger = new MainnetFinancialLedger({ config, nowProvider: () => NOW_MS + 1_000 }).initialize();
     const service = new MainnetIncomingPaymentService({
         config, client, ledger, nowProvider: () => NOW_MS + 1_000, minimumMasterchainDepth: 1
     });
-    return { config, client, ledger, service, calls, dataDir };
+    const refundLifecycle = new MainnetRefundLifecycle({
+        financialLedger, incomingLedger: ledger,
+        adapter: { async sendTransfer() { throw new Error("offline test: no transfer"); },
+            async estimateOutboundTransferFee() { throw new Error("offline test: no fee quote"); } },
+        outgoingObserver: { async findOutgoingTransfer() {}, async verifyIndexedRecipientCredit() {} },
+        independentVerifier: { async verifyTransfer() { return null; } }, nowProvider: () => NOW_MS + 1_000
+    });
+    refundLifecycle.configureReservedWalletRoomNumberResolver(() => 1);
+    return { config, client, ledger, financialLedger, service, refundLifecycle, calls, dataDir };
 }
 
 test("Mainnet account precheck is a fixed Toncenter Mainnet GET with no Testnet fallback", async (t) => {
@@ -135,6 +146,8 @@ test("wrong sender is recorded unresolved and never credited", async (t) => {
     assert.equal(result.confirmed, 0);
     assert.equal(h.ledger.listReceipts(ROOM)[0].reason, "SENDER_MISMATCH");
     assert.equal(h.ledger.getRoomPaymentStatus(ROOM).status, "0/3");
+    assert.deepEqual(h.refundLifecycle.prepareClosedRoom({ roomId: ROOM, roomNumber: 1,
+        closureReason: "pre_page5_destroyed", status: "DESTROYED", prePage5: true }), []);
 });
 
 test("wrong recipient is ignored even when Toncenter returns the row", async (t) => {
@@ -145,12 +158,15 @@ test("wrong recipient is ignored even when Toncenter returns the row", async (t)
     assert.equal(h.ledger.listReceipts(ROOM).length, 0);
 });
 
-test("wrong exact amount remains unresolved", async (t) => {
+test("finalized amount mismatch is retained as an uncredited receipt without settling the intent", async (t) => {
     const h = harness(t, { transactions: [tx({ amount: "1001" })] });
     registerThree(h.service);
     const result = await h.service.observeRoom(ROOM);
     assert.equal(result.confirmed, 0);
+    assert.equal(result.extra, 1);
+    assert.equal(h.ledger.listReceipts(ROOM)[0].status, "EXTRA_PAYMENT");
     assert.equal(h.ledger.listReceipts(ROOM)[0].reason, "AMOUNT_MISMATCH");
+    assert.equal(h.ledger.getRoomPaymentStatus(ROOM).status, "0/3");
 });
 
 test("transaction outside the registered intent window cannot settle", async (t) => {
@@ -187,6 +203,23 @@ test("memo-less transfer matching multiple intents is left ambiguous", async (t)
     assert.equal(result.confirmed, 0);
     assert.equal(h.ledger.listReceipts(ROOM)[0].status, "AMBIGUOUS");
     assert.equal(h.ledger.listReceipts(ROOM)[0].reason, "MULTIPLE_INTENTS_MATCH");
+    assert.deepEqual(h.refundLifecycle.prepareClosedRoom({ roomId: ROOM, roomNumber: 1,
+        closureReason: "pre_page5_destroyed", status: "DESTROYED", prePage5: true }), []);
+});
+
+test("a settled exact-reference payment is not refund-attributed when the sender has multiple owners", async (t) => {
+    const h = harness(t, { transactions: [tx({ comment: "WW1:pay_a" }),
+        tx({ hash: "tx-extra-ambiguous-owner", comment: "WW1:pay_a" })] });
+    registerThree(h.service, { senders: [SENDERS[0], SENDERS[0], SENDERS[2]], amounts: ["1000", "2000", "3000"] });
+    const result = await h.service.observeRoom(ROOM);
+    assert.equal(result.confirmed, 1, "existing exact-reference settlement behavior is preserved");
+    assert.equal(result.extra, 0);
+    assert.equal(h.ledger.getRoomPaymentStatus(ROOM).status, "1/3");
+    assert.equal(h.ledger.getReceipt(h.ledger.listReceipts(ROOM)[1].transactionId).status, "AMBIGUOUS");
+    const refunds = h.refundLifecycle.prepareClosedRoom({ roomId: ROOM, roomNumber: 1,
+        closureReason: "pre_page5_destroyed", status: "DESTROYED", prePage5: true });
+    assert.equal(refunds.length, 1, "only the confirmed principal is refundable");
+    assert.equal(refunds[0].incomingTransactionId, h.ledger.listReceipts(ROOM)[0].transactionId);
 });
 
 test("duplicate transaction rows are counted once", async (t) => {
@@ -227,6 +260,77 @@ test("an additional finalized transfer from an already-paid player is recorded w
     assert.equal(result.extra, 1);
     assert.equal(h.ledger.getRoomPaymentStatus(ROOM).status, "1/3");
     assert.equal(h.ledger.listReceipts(ROOM).filter((receipt) => receipt.status === "EXTRA_PAYMENT").length, 1);
+});
+
+test("identified unmatched receipt follows normal ingestion into one refund and survives restart", async (t) => {
+    const unexpectedReference = tx({ hash: "tx-uncredited", amount: "1500", comment: "WW1:unknown_ref" });
+    const h = harness(t, { transactions: [unexpectedReference] });
+    registerThree(h.service);
+
+    const observed = await h.service.observeRoom(ROOM);
+    assert.equal(observed.confirmed, 0);
+    assert.equal(observed.extra, 1);
+    assert.equal(observed.paymentStatus.status, "0/3");
+    const receipt = h.ledger.listReceipts(ROOM)[0];
+    assert.equal(receipt.status, "EXTRA_PAYMENT");
+    assert.equal(receipt.playerId, "player-1");
+    assert.equal(receipt.paymentReference, "pay_a");
+    assert.equal(receipt.amountAtomic, "1500");
+
+    const closed = h.refundLifecycle.prepareClosedRoom({ roomId: ROOM, roomNumber: 1,
+        closureReason: "pre_page5_destroyed", status: "DESTROYED", prePage5: true });
+    assert.equal(closed.length, 1);
+    assert.equal(closed[0].incomingTransactionId, receipt.transactionId);
+    assert.equal(closed[0].amountAtomic, 1500);
+    assert.equal(h.ledger.getRoomPaymentStatus(ROOM).status, "0/3");
+
+    const duplicateScan = await h.service.observeRoom(ROOM);
+    assert.equal(duplicateScan.duplicates, 1);
+    assert.equal(h.ledger.listReceipts(ROOM).length, 1);
+
+    const incomingRestart = new MainnetIncomingPaymentLedger({
+        config: h.config, nowProvider: () => NOW_MS + 2_000
+    }).initialize();
+    const financialRestart = new MainnetFinancialLedger({
+        config: h.config, nowProvider: () => NOW_MS + 2_000
+    }).initialize();
+    const refundRestart = new MainnetRefundLifecycle({
+        financialLedger: financialRestart, incomingLedger: incomingRestart,
+        adapter: { async sendTransfer() { throw new Error("offline test: no transfer"); },
+            async estimateOutboundTransferFee() { throw new Error("offline test: no fee quote"); } },
+        outgoingObserver: { async findOutgoingTransfer() {}, async verifyIndexedRecipientCredit() {} },
+        independentVerifier: { async verifyTransfer() { return null; } }, nowProvider: () => NOW_MS + 2_000
+    });
+    refundRestart.configureReservedWalletRoomNumberResolver(() => 1);
+    const replay = refundRestart.prepareClosedRoom({ roomId: ROOM, roomNumber: 1,
+        closureReason: "pre_page5_destroyed", status: "DESTROYED", prePage5: true });
+    assert.equal(replay.length, 1);
+    assert.equal(replay[0].replay, true);
+    assert.equal(financialRestart.listRefunds(ROOM).length, 1);
+    assert.equal(incomingRestart.getRoomPaymentStatus(ROOM).status, "0/3");
+});
+
+test("identified additional payment is only refunded once and never credits a PENDING intent", async (t) => {
+    const rows = [tx({ hash: "tx-main", amount: "1000", comment: "WW1:pay_a" }),
+        tx({ hash: "tx-extra-pending", amount: "1001", comment: "WW1:pay_a" })];
+    const h = harness(t, { transactions: rows });
+    registerThree(h.service);
+
+    const observed = await h.service.observeRoom(ROOM);
+    assert.equal(observed.confirmed, 1);
+    assert.equal(observed.extra, 1);
+    assert.equal(observed.paymentStatus.status, "1/3");
+    const refunds = h.refundLifecycle.prepareClosedRoom({ roomId: ROOM, roomNumber: 1,
+        closureReason: "pre_page5_destroyed", status: "DESTROYED", prePage5: true });
+    assert.equal(refunds.length, 2, "the original principal and extra receipt are both refundable on closure");
+    assert.equal(refunds.find(item => item.incomingTransactionId === h.ledger.listReceipts(ROOM)
+        .find(receipt => receipt.status === "EXTRA_PAYMENT").transactionId).amountAtomic, 1001);
+    assert.equal(h.ledger.getRoomPaymentStatus(ROOM).status, "1/3");
+    const replay = await h.service.observeRoom(ROOM);
+    assert.equal(replay.duplicates, 2);
+    assert.equal(h.refundLifecycle.prepareClosedRoom({ roomId: ROOM, roomNumber: 1,
+        closureReason: "pre_page5_destroyed", status: "DESTROYED", prePage5: true }).length, 2);
+    assert.equal(h.financialLedger.listRefunds(ROOM).length, 2);
 });
 
 test("unknown sender is retained as unresolved and not attributed", async (t) => {

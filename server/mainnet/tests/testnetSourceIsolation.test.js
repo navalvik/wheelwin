@@ -23,7 +23,18 @@ const allowedSharedIntegrationFiles = new Set([
     "client/src/payment/buildRoomWalletTonConnectRequest.test.js",
     "client/src/payment/mainnetPaymentRequest.js",
     "client/src/payment/mainnetPaymentRequest.test.js",
-    "server/tests/page3WalletNetworkValidation.test.js"
+    "server/tests/page3WalletNetworkValidation.test.js",
+    // Task 58.1 network-specific Finance display and its exact focused helper/test.
+    "client/src/console/panels/FinancePanel.jsx",
+    "client/src/console/panels/financeBalance.js",
+    "client/src/console/panels/financeBalance.test.js",
+    // Mainnet-specific console balance endpoint wiring and its focused contract test.
+    "server/console/registerDeveloperConsoleRoutes.js",
+    "server/console/registerDeveloperConsoleRoutes.finance.test.js",
+    // Companion regression for the already-allowlisted Page4 network integration.
+    "client/src/tests/mainnetPage4PaymentSession.test.js",
+    // CI-only source audit workflow; it does not exempt any source path from the audit.
+    ".github/workflows/mainnet-source-parity.yml"
 ]);
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const canonicalCheckoutBytes = (bytes) => {
@@ -59,6 +70,18 @@ test("all files present at Testnet baseline retain identical canonical SHA-256",
         offset = bodyStart + size + 1;
     }
     const mismatches = [];
+    const protectedFinancialAlgorithms = [
+        "server/payment/ledger/RoomLedger.js",
+        "server/payment/ledger/RoomPayoutCalculator.js",
+        "server/payment/ledger/PayoutAllocationConfig.js",
+        "server/payment/incoming/IncomingReceiptAccounting.js",
+        "server/payment/refund/RefundLifecycleCoordinator.js"
+    ];
+    for (const file of protectedFinancialAlgorithms) {
+        assert.ok(entries.some(entry => entry.path === file), `protected Testnet algorithm must be tracked: ${file}`);
+        assert.equal(allowedSharedIntegrationFiles.has(file), false,
+            `protected Testnet algorithm must remain SHA-checked: ${file}`);
+    }
     for (const { path: file, blob } of entries) {
         const original = baselineBytes.get(blob);
         let current;

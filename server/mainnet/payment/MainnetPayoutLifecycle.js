@@ -26,6 +26,8 @@ export class MainnetPayoutLifecycle {
             const sent = await this._submitLeg(payout, "winner");
             payout = this._ledger.getPayout(payoutId);
             if (sent === "INSUFFICIENT_GAS") return Object.freeze({ payoutId, status: "WINNER_SUBMISSION_FAILED_GAS" });
+            if (sent === "SOURCE_RESERVE_UNAVAILABLE") return Object.freeze({ payoutId,
+                status: "SOURCE_RESERVE_UNAVAILABLE", role: "winner" });
         }
         if (payout.winner.state !== "CONFIRMED") {
             const confirmed = await this._confirmLeg(payout, "winner");
@@ -41,6 +43,8 @@ export class MainnetPayoutLifecycle {
             const result = await this._submitLeg(payout, "owner");
             if (result === "INSUFFICIENT_GAS") return Object.freeze({ payoutId,
                 status: "OWNER_COMMISSION_UNPAID_INSUFFICIENT_GAS" });
+            if (result === "SOURCE_RESERVE_UNAVAILABLE") return Object.freeze({ payoutId,
+                status: "SOURCE_RESERVE_UNAVAILABLE", role: "owner" });
         }
         payout = this._ledger.getPayout(payoutId);
         if (payout.owner.state === "CONFIRMED") return Object.freeze({ payoutId, status: "PAYOUT_COMPLETE" });
@@ -51,12 +55,42 @@ export class MainnetPayoutLifecycle {
     async _submitLeg(payout, role) {
         const leg = payout[role];
         const idempotencyKey = `${payout.payoutId}:${role.toUpperCase()}`;
+        const sourceReserveNano = role === "winner"
+            ? BigInt(payout.allocation.ownerAtomic) + BigInt(payout.allocation.reserveAtomic)
+            : BigInt(payout.allocation.reserveAtomic);
+        const amountNano = BigInt(leg.amountAtomic);
+        if (typeof this._adapter.canFundTransfer !== "function") return "SOURCE_RESERVE_UNAVAILABLE";
+        try {
+            const funding = await this._adapter.canFundTransfer({ roomNumber: payout.roomNumber,
+                amountNano, sourceReserveNano });
+            if (funding?.roomNumber !== payout.roomNumber
+                || mainnetAddressIdentity(funding.address) !== mainnetAddressIdentity(payout.sourceWalletAddress)) {
+                return "SOURCE_RESERVE_UNAVAILABLE";
+            }
+            if (funding.ok === false) {
+                if (role !== "owner") return "SOURCE_RESERVE_UNAVAILABLE";
+                const requiredNano = amountNano + sourceReserveNano;
+                if (funding.amountNano !== amountNano || funding.gasReserveNano !== sourceReserveNano
+                    || typeof funding.balanceNano !== "bigint" || funding.balanceNano < amountNano
+                    || funding.requiredNano !== requiredNano
+                    || funding.shortfallNano !== requiredNano - funding.balanceNano) {
+                    return "SOURCE_RESERVE_UNAVAILABLE";
+                }
+                this._ledger.updatePayoutLeg(payout.payoutId, role, {
+                    state: "UNPAID_INSUFFICIENT_GAS", lastError: "INSUFFICIENT_GAS", attemptedAtMs: this._now()
+                });
+                return "INSUFFICIENT_GAS";
+            }
+            if (funding.ok !== true) return "SOURCE_RESERVE_UNAVAILABLE";
+        } catch {
+            return "SOURCE_RESERVE_UNAVAILABLE";
+        }
         this._ledger.updatePayoutLeg(payout.payoutId, role, { state: "SUBMISSION_UNKNOWN", attemptedAtMs: this._now() });
         try {
             const result = await this._adapter.sendTransfer({
                 roomNumber: payout.roomNumber, destination: leg.address,
-                amountNano: BigInt(leg.amountAtomic), bounce: false,
-                idempotencyKey
+                amountNano, bounce: false,
+                sourceReserveNano, idempotencyKey
             });
             if (result?.ok === true && typeof result.txHash === "string" && result.txHash) {
                 this._ledger.updatePayoutLeg(payout.payoutId, role, {

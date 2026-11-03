@@ -154,11 +154,10 @@ export class MainnetRefundLifecycle {
             const observation = this._incoming.listObservations(obligation.roomId).find(item =>
                 item.transactionId === obligation.incomingTransactionId);
             const principalReceipt = receipt?.status === "CONFIRMED"
+                && intent?.state === "SETTLED"
                 && intent?.confirmedTransactionId === obligation.incomingTransactionId;
             const additionalReceipt = receipt?.status === "EXTRA_PAYMENT"
-                && receipt.reason === "PAYMENT_ALREADY_SETTLED"
-                && intent?.state === "SETTLED"
-                && intent.confirmedTransactionId !== obligation.incomingTransactionId;
+                && intent?.confirmedTransactionId !== obligation.incomingTransactionId;
             const duplicateTransactionBinding = intents.some(item =>
                 item.confirmedTransactionId === obligation.incomingTransactionId
                 && item.paymentReference !== obligation.paymentIntentId);
@@ -168,14 +167,13 @@ export class MainnetRefundLifecycle {
                 || receipt.roomId !== obligation.roomId || receipt.playerId !== obligation.playerId
                 || receipt.asset !== "TON"
                 || !((receipt.status === "CONFIRMED" && receipt.reason === null)
-                    || (receipt.status === "EXTRA_PAYMENT" && receipt.reason === "PAYMENT_ALREADY_SETTLED"))
-                || intent.state !== "SETTLED"
+                    || receipt.status === "EXTRA_PAYMENT")
                 || intent.network !== "mainnet" || intent.globalId !== MAINNET_GLOBAL_ID
                 || intent.roomId !== obligation.roomId
                 || (!principalReceipt && !additionalReceipt)
                 || intent.playerId !== obligation.playerId
                 || intent.asset !== "TON"
-                || intent.amountAtomic !== String(obligation.amountAtomic)
+                || (principalReceipt && intent.amountAtomic !== String(obligation.amountAtomic))
                 || !sameAddress(intent.expectedSender, obligation.refundDestination)
                 || !sameAddress(intent.destinationWalletAddress, obligation.sourceWalletAddress)
                 || observation.network !== "mainnet" || observation.globalId !== MAINNET_GLOBAL_ID

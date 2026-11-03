@@ -107,7 +107,9 @@ export class MainnetIncomingPaymentService {
             }
 
             const match = this._resolveMatch(roomId, intents, record);
-            if (!match.intent) {
+            const receiptOwner = this._resolveReceiptOwner(roomId, intents, record);
+            const candidateIntent = match.intent ?? receiptOwner;
+            if (!candidateIntent) {
                 const receipt = this._receipt(record, roomId, match.status, match.reason, null);
                 const result = this._ledger.recordTransfer({ observation, receipt });
                 if (result.duplicate) counts.duplicates += 1;
@@ -115,7 +117,7 @@ export class MainnetIncomingPaymentService {
                 continue;
             }
 
-            const currentIntent = this._ledger.getIntent(match.intent.paymentReference);
+            const currentIntent = this._ledger.getIntent(candidateIntent.paymentReference);
             if (!currentIntent) throw new Error("MAINNET_MATCHED_INTENT_DISAPPEARED");
 
             if (chainHead === null) {
@@ -139,9 +141,18 @@ export class MainnetIncomingPaymentService {
                 continue;
             }
 
-            if (currentIntent.state === "SETTLED") {
-                const receipt = this._receipt(record, roomId, "EXTRA_PAYMENT", "PAYMENT_ALREADY_SETTLED",
-                    currentIntent);
+            if (!match.intent || currentIntent.state === "SETTLED") {
+                if (!receiptOwner || receiptOwner.paymentReference !== currentIntent.paymentReference) {
+                    const receipt = this._receipt(record, roomId, "AMBIGUOUS", "PAYER_OWNERSHIP_NOT_UNIQUE", null);
+                    const result = this._ledger.recordTransfer({ observation, receipt });
+                    if (result.duplicate) counts.duplicates += 1;
+                    else { counts.observed += 1; counts.unresolved += 1; }
+                    continue;
+                }
+                const reason = currentIntent.state === "SETTLED"
+                    ? "PAYMENT_ALREADY_SETTLED" : match.reason ?? "UNMATCHED_FINALIZED_RECEIPT";
+                const receipt = this._receipt(record, roomId, "EXTRA_PAYMENT", reason, currentIntent,
+                    chainHead.seqno);
                 const result = this._ledger.recordTransfer({ observation, receipt });
                 if (result.duplicate) counts.duplicates += 1;
                 else { counts.observed += 1; counts.extra += 1; }
@@ -163,6 +174,17 @@ export class MainnetIncomingPaymentService {
             ...counts,
             paymentStatus: this.getRoomPaymentStatus(roomId)
         });
+    }
+
+    /** Testnet's receipt owner rule: one registered payer for this room wallet. */
+    _resolveReceiptOwner(roomId, intents, record) {
+        if (record.network !== "mainnet" || record.globalId !== MAINNET_GLOBAL_ID || record.asset !== "TON") return null;
+        const owners = intents.filter((intent) => intent.roomId === roomId
+            && intent.network === "mainnet" && intent.globalId === MAINNET_GLOBAL_ID
+            && intent.asset === "TON"
+            && sameAddress(intent.expectedSender, record.sourceAddress)
+            && sameAddress(intent.destinationWalletAddress, record.destinationAddress));
+        return owners.length === 1 ? owners[0] : null;
     }
 
     _resolveMatch(roomId, intents, record) {

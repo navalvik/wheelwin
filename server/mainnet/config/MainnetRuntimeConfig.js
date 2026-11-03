@@ -1,6 +1,7 @@
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { Address } from "@ton/core";
 import { deriveTonAddressIdentity } from "../../payment/incoming/TonAddressIdentity.js";
+import { resolveDefaultRoomWalletPaymentDataDir } from "../../payment/runtime/PaymentRuntimeFactory.js";
 
 export const MAINNET_GLOBAL_ID = -239;
 export const MAINNET_TONCENTER_BASE_URL = "https://toncenter.com";
@@ -27,6 +28,60 @@ function requireValue(env, key) {
 function pathContains(parent, child) {
     const rel = relative(parent, child);
     return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
+}
+
+const MAINNET_STORAGE_DIRS = Object.freeze([
+    "incoming-payment-ledger",
+    "financial-lifecycle",
+    "outgoing-seqno",
+    "gameplay-recovery",
+    "wallet-registry"
+]);
+
+const TESTNET_STORAGE_DIRS = Object.freeze([
+    "financial-outcomes",
+    "payment-intents",
+    "incoming-receipts",
+    "payment-forensics",
+    "payment-core",
+    "ledger/entries",
+    "manifests",
+    "refunds/refund-obligations",
+    "refunds/closed-refund-rooms",
+    "outbound-sequences",
+    "native-refund-broadcast-claims",
+    "testnet-native-payout-attempts"
+]);
+
+function resolveTestnetDataDir(env) {
+    try {
+        return resolve(resolveDefaultRoomWalletPaymentDataDir(env));
+    } catch (error) {
+        if (error?.message === "Persistent room-wallet volume is required on Railway") {
+            throw new MainnetRuntimeConfigError("MAINNET_TESTNET_DATA_DIR_UNRESOLVABLE");
+        }
+        throw error;
+    }
+}
+
+function assertStorageRootsIsolated(mainnetDataDir, testnetDataDir) {
+    // Equal roots are forbidden even though each network normally uses
+    // namespaced children: a future store could otherwise silently collide.
+    if (pathContains(mainnetDataDir, testnetDataDir)
+        && pathContains(testnetDataDir, mainnetDataDir)) {
+        throw new MainnetRuntimeConfigError("MAINNET_DATA_DIR_MUST_BE_ISOLATED");
+    }
+
+    const testnetNetworkDir = resolve(testnetDataDir, "testnet");
+    const mainnetStores = MAINNET_STORAGE_DIRS.map((name) => resolve(mainnetDataDir, name));
+    const testnetStores = TESTNET_STORAGE_DIRS.map((name) => resolve(testnetNetworkDir, name));
+    for (const mainnetStore of mainnetStores) {
+        for (const testnetStore of testnetStores) {
+            if (pathContains(mainnetStore, testnetStore) || pathContains(testnetStore, mainnetStore)) {
+                throw new MainnetRuntimeConfigError("MAINNET_DATA_DIR_MUST_BE_ISOLATED");
+            }
+        }
+    }
 }
 
 function parseWalletCatalog(raw) {
@@ -108,16 +163,8 @@ export function loadMainnetRuntimeConfig(env = process.env) {
         throw new MainnetRuntimeConfigError("MAINNET_DATA_DIR_MUST_BE_ABSOLUTE");
     }
     const dataDir = resolve(dataDirRaw);
-    const testnetDataDirRaw = typeof env.ROOM_WALLET_DATA_DIR === "string"
-        ? env.ROOM_WALLET_DATA_DIR.trim() : "";
-    if (testnetDataDirRaw) {
-        const testnetDir = resolve(testnetDataDirRaw);
-        const a = dataDir.toLowerCase();
-        const b = testnetDir.toLowerCase();
-        if (pathContains(a, b) || pathContains(b, a)) {
-            throw new MainnetRuntimeConfigError("MAINNET_DATA_DIR_MUST_BE_ISOLATED");
-        }
-    }
+    const testnetDataDir = resolveTestnetDataDir(env);
+    assertStorageRootsIsolated(dataDir, testnetDataDir);
 
     const walletCatalog = parseWalletCatalog(requireValue(env, "MAINNET_ROOM_WALLETS_JSON"));
     if (new Set(walletCatalog.map((wallet) => wallet.roomNumber)).size !== MAINNET_WALLET_COUNT) {

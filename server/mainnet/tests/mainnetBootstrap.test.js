@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import { Address } from "@ton/core";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve, sep } from "node:path";
 import test from "node:test";
+import { resolveDefaultRoomWalletPaymentDataDir } from "../../payment/runtime/PaymentRuntimeFactory.js";
 import {
     loadMainnetRuntimeConfig,
     MAINNET_GLOBAL_ID,
@@ -74,12 +75,60 @@ test("Mainnet catalog requires exactly 64 unique, explicitly tagged valid wallet
         /MAINNET_WALLET_ADDRESS_INVALID/);
 });
 
-test("Mainnet durable directory cannot overlap the configured Testnet directory", () => {
-    const testnetDir = join(tmpdir(), "wheelwin-isolated-storage");
+test("Mainnet storage root cannot equal Testnet default when its override is absent", () => {
+    const testnetDefault = resolve(resolveDefaultRoomWalletPaymentDataDir({}));
     assert.throws(() => loadMainnetRuntimeConfig(env({
-        MAINNET_ROOM_WALLET_DATA_DIR: join(testnetDir, "mainnet"),
+        MAINNET_ROOM_WALLET_DATA_DIR: testnetDefault,
+        ROOM_WALLET_DATA_DIR: undefined,
+        RAILWAY_VOLUME_MOUNT_PATH: undefined,
+        RAILWAY_ENVIRONMENT_ID: undefined
+    })), /MAINNET_DATA_DIR_MUST_BE_ISOLATED/);
+
+    const mountedDefaultEnv = { RAILWAY_VOLUME_MOUNT_PATH: join(tmpdir(), "wheelwin-testnet-volume") };
+    const mountedTestnetDefault = resolve(resolveDefaultRoomWalletPaymentDataDir(mountedDefaultEnv));
+    assert.throws(() => loadMainnetRuntimeConfig(env({
+        ...mountedDefaultEnv,
+        MAINNET_ROOM_WALLET_DATA_DIR: mountedTestnetDefault,
+        ROOM_WALLET_DATA_DIR: undefined
+    })), /MAINNET_DATA_DIR_MUST_BE_ISOLATED/);
+});
+
+test("Mainnet storage root cannot equal an explicitly configured Testnet root", () => {
+    const testnetDir = join(tmpdir(), "wheelwin-explicit-testnet-storage");
+    assert.throws(() => loadMainnetRuntimeConfig(env({
+        MAINNET_ROOM_WALLET_DATA_DIR: testnetDir,
         ROOM_WALLET_DATA_DIR: testnetDir
     })), /MAINNET_DATA_DIR_MUST_BE_ISOLATED/);
+});
+
+test("normalized equivalent Mainnet and Testnet roots are rejected", () => {
+    const testnetDir = join(tmpdir(), "wheelwin-normalized-testnet-storage");
+    assert.throws(() => loadMainnetRuntimeConfig(env({
+        MAINNET_ROOM_WALLET_DATA_DIR: `${testnetDir}${sep}alias${sep}..`,
+        ROOM_WALLET_DATA_DIR: testnetDir
+    })), /MAINNET_DATA_DIR_MUST_BE_ISOLATED/);
+});
+
+test("only nested roots whose concrete Mainnet and Testnet stores overlap are rejected", () => {
+    const testnetDir = join(tmpdir(), "wheelwin-nested-testnet-storage");
+    assert.throws(() => loadMainnetRuntimeConfig(env({
+        MAINNET_ROOM_WALLET_DATA_DIR: join(testnetDir, "testnet", "payment-core"),
+        ROOM_WALLET_DATA_DIR: testnetDir
+    })), /MAINNET_DATA_DIR_MUST_BE_ISOLATED/);
+
+    const nestedButSeparate = loadMainnetRuntimeConfig(env({
+        MAINNET_ROOM_WALLET_DATA_DIR: join(testnetDir, "isolated-mainnet"),
+        ROOM_WALLET_DATA_DIR: testnetDir
+    }));
+    assert.equal(nestedButSeparate.dataDir, resolve(testnetDir, "isolated-mainnet"));
+});
+
+test("separate Mainnet and Testnet storage roots remain valid", () => {
+    const config = loadMainnetRuntimeConfig(env({
+        MAINNET_ROOM_WALLET_DATA_DIR: join(tmpdir(), "wheelwin-mainnet-separate-storage"),
+        ROOM_WALLET_DATA_DIR: join(tmpdir(), "wheelwin-testnet-separate-storage")
+    }));
+    assert.equal(config.network, "mainnet");
 });
 
 test("Mainnet config strips no secrets silently and rejects secret-bearing catalogs", () => {

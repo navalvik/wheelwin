@@ -338,6 +338,9 @@ test("runtime executor resumes persisted payout and pays owner only after winner
             .filter(row => row.account === account).slice(offset, offset + limit) }) };
     };
     const adapter = {
+        async canFundTransfer(request) {
+            return { ok: true, roomNumber: request.roomNumber, address: reservation.address };
+        },
         async estimateOutboundTransferFee() { throw new Error("payout does not estimate refund fees"); },
         async sendTransfer(request) {
             sent.push(request.destination);
@@ -417,7 +420,6 @@ test("executor excludes UNPAID_INSUFFICIENT_GAS and never sends while operations
         owner: { recipientId: "owner", address: OWNER } });
     firstRuntime.financialLedger.updatePayoutLeg(payout.payoutId, "winner", { state: "SUBMISSION_UNKNOWN" });
     firstRuntime.financialLedger.updatePayoutLeg(payout.payoutId, "winner", { state: "CONFIRMED" });
-    firstRuntime.financialLedger.updatePayoutLeg(payout.payoutId, "owner", { state: "SUBMISSION_UNKNOWN" });
     firstRuntime.financialLedger.updatePayoutLeg(payout.payoutId, "owner", { state: "UNPAID_INSUFFICIENT_GAS" });
 
     const restarted = new MainnetPaymentRuntime({ config, walletPool, adapter, nowProvider: () => NOW + 1 });

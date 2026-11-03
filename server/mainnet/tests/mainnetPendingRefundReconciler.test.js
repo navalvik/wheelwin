@@ -209,6 +209,108 @@ test("restart resumes a persisted attempted refund and completes it only from mo
     assert.equal(sends, 0);
 });
 
+test("restart reconciliation accepts an uncredited PENDING-intent receipt and retries evidence without resubmitting", async t => {
+    const { config } = makeLedger(t);
+    let evidenceStage = 0;
+    let sends = 0;
+    const indexedTx = { hash: OUT_TX, account: ROOM_WALLET,
+        now: Math.floor((NOW + 30_000) / 1000),
+        description: { aborted: false, action: { success: true } },
+        mc_block_seqno: 10, block_ref: { workchain: 0, shard: "8000000000000000", seqno: 10 },
+        emulated: false, finality: 2,
+        out_msgs: [{ hash: MESSAGE, source: ROOM_WALLET, destination: PAYER,
+            value: "1498000000", bounced: false }] };
+    const recipientTx = { hash: RECIPIENT_TX, account: PAYER,
+        now: Math.floor((NOW + 31_000) / 1000),
+        description: { aborted: false, action: { success: true } },
+        mc_block_seqno: 11, block_ref: { workchain: 0, shard: "8000000000000000", seqno: 11 },
+        emulated: false, finality: 2,
+        in_msg: { hash: MESSAGE, source: ROOM_WALLET, destination: PAYER,
+            value: "1498000000", bounced: false } };
+    const fetchImpl = async requestUrl => {
+        const url = new URL(String(requestUrl));
+        if (url.pathname.endsWith("/masterchainInfo")) {
+            return { status: 200, json: async () => ({ last: { global_id: -239, seqno: 20 } }) };
+        }
+        const account = url.searchParams.get("account");
+        const transactions = account === ROOM_WALLET
+            ? evidenceStage >= 1 ? [indexedTx] : []
+            : evidenceStage >= 2 ? [recipientTx] : [];
+        return { status: 200, json: async () => ({ transactions }) };
+    };
+    const adapter = {
+        async estimateOutboundTransferFee() { return { ok: true, totalNano: 1_000_000n }; },
+        async sendTransfer() { sends += 1; throw new Error("mock timeout after possible broadcast"); }
+    };
+    const independentVerifier = { async verifyTransfer(input) {
+        return { status: "INDEPENDENT_INDEXED_CREDIT_OBSERVED", ...input,
+            provider: "tonapi-mainnet", network: "mainnet", globalId: -239 };
+    } };
+    const firstRuntime = new MainnetPaymentRuntime({ config, fetchImpl, adapter,
+        independentVerifier, nowProvider: () => NOW });
+    firstRuntime.refundLifecycle.configureReservedWalletRoomNumberResolver(() => 4);
+    firstRuntime.refundLifecycle.configureCurrentWalletReservationResolver(number => number === 4 ? ({
+        walletId: "mainnet-wallet-4", roomNumber: 4, address: ROOM_WALLET,
+        network: "mainnet", reservedByRoomId: ROOM
+    }) : null);
+    const players = Array.from({ length: 3 }, (_, index) => ({
+        playerId: `player-${index + 1}`, paymentReference: `uncredited-${index + 1}`,
+        expectedSender: index === 0 ? PAYER : `0:${String(index + 20).padStart(64, "0")}`,
+        amountAtomic: "1000000000"
+    }));
+    firstRuntime.incomingLedger.createRoomPaymentIntents({ roomId: ROOM,
+        wallet: { walletId: "mainnet-wallet-4", address: ROOM_WALLET, network: "mainnet", globalId: -239 },
+        players, createdAt: NOW - 60_000, expiresAt: NOW + 10_000 });
+    const intent = firstRuntime.incomingLedger.listRoomIntents(ROOM)[0];
+    firstRuntime.incomingLedger.recordTransfer({
+        observation: { network: "mainnet", globalId: -239, roomId: ROOM,
+            transactionId: "uncredited-incoming", payloadFingerprint: "f".repeat(64),
+            sourceAddress: PAYER, destinationAddress: ROOM_WALLET, amountAtomic: "1500000000",
+            asset: "TON", transactionTime: NOW - 30_000, observedAt: NOW - 29_000 },
+        receipt: { network: "mainnet", globalId: -239, status: "EXTRA_PAYMENT", reason: "AMOUNT_MISMATCH",
+            roomId: ROOM, transactionId: "uncredited-incoming", paymentReference: intent.paymentReference,
+            playerId: intent.playerId, amountAtomic: "1500000000", sourceAddress: PAYER,
+            destinationAddress: ROOM_WALLET, asset: "TON", transactionTime: NOW - 30_000,
+            updatedAt: NOW - 29_000 }
+    });
+    const obligation = firstRuntime.refundLifecycle.prepareClosedRoom({ roomId: ROOM, roomNumber: 4,
+        closureReason: "pre_page5_destroyed", status: "DESTROYED" })[0];
+    assert.equal(intent.state, "PENDING");
+    assert.equal(obligation.amountAtomic, 1_500_000_000);
+    const submission = await firstRuntime.refundLifecycle.submitRefund(obligation.obligationId);
+    assert.equal(submission.outcome, "SUBMISSION_UNKNOWN");
+    assert.equal(sends, 1);
+
+    const restartedRuntime = new MainnetPaymentRuntime({ config, fetchImpl, adapter,
+        independentVerifier, nowProvider: () => NOW + 60_000 });
+    restartedRuntime.refundLifecycle.configureReservedWalletRoomNumberResolver(() => 4);
+    restartedRuntime.refundLifecycle.configurePage5StateResolver(() => false);
+    restartedRuntime.refundLifecycle.configureCurrentWalletReservationResolver(number => number === 4 ? ({
+        walletId: "mainnet-wallet-4", roomNumber: 4, address: ROOM_WALLET,
+        network: "mainnet", reservedByRoomId: ROOM
+    }) : null);
+    restartedRuntime.refundLifecycle.recover();
+    const worker = new MainnetPendingRefundReconciler({ financialLedger: restartedRuntime.financialLedger,
+        refundLifecycle: restartedRuntime.refundLifecycle, maxPerPass: 2 });
+
+    const firstCheck = await worker.runPass();
+    assert.equal(firstCheck.results[0].outcome, "FINALITY_PENDING");
+    assert.equal(restartedRuntime.financialLedger.getRefund(obligation.obligationId).state, "SUBMISSION_UNKNOWN");
+    assert.equal(sends, 1);
+
+    evidenceStage = 1;
+    const secondCheck = await worker.runPass();
+    assert.equal(secondCheck.results[0].outcome, "FINALITY_PENDING");
+    assert.equal(restartedRuntime.financialLedger.getRefund(obligation.obligationId).state, "SUBMISSION_UNKNOWN");
+
+    evidenceStage = 2;
+    const thirdCheck = await worker.runPass();
+    assert.equal(thirdCheck.results[0].outcome, "REFUND_COMPLETE_TWO_SOURCES");
+    assert.equal(restartedRuntime.financialLedger.getRefund(obligation.obligationId).state, "COMPLETE");
+    assert.equal((await worker.runPass()).status, "NO_SUBMITTED_REFUNDS");
+    assert.equal(sends, 1, "reconciliation never submits another independent refund transfer");
+});
+
 test("executor submits bounded PENDING batches sequentially and advances cyclically", async () => {
     const obligations = ["a", "b", "c", "d", "e"].map(obligationId => ({
         obligationId, state: "PENDING", network: "mainnet", globalId: -239
