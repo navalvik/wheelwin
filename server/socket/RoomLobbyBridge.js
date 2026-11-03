@@ -5718,7 +5718,9 @@ export class RoomLobbyBridge {
                             roomId,
                             playerId: payment.playerId,
                             paymentReference: payment.paymentReference,
+                            payerAddress: playerIntent.expectedSender,
                             destination: payment.destinationWalletAddress,
+                            destinationWalletAddress: payment.destinationWalletAddress,
                             amount: payment.amountAtomic,
                             amountAtomic: payment.amountAtomic,
                             asset: payment.asset,
@@ -6206,7 +6208,11 @@ export class RoomLobbyBridge {
                     roomId,
                     playerId: payment.playerId,
                     paymentReference: payment.paymentReference,
+                    payerAddress: binding.runtime?.incomingLedger?.listRoomIntents?.(roomId)
+                        ?.find(intent => intent.playerId === payment.playerId)?.expectedSender
+                        ?? payment.payerAddress,
                     destination: payment.destinationWalletAddress,
+                    destinationWalletAddress: payment.destinationWalletAddress,
                     amount: payment.amountAtomic,
                     amountAtomic: payment.amountAtomic,
                     asset: payment.asset,

@@ -3,6 +3,7 @@ import QRCode from "qrcode";
 import { buildRoomWalletTransferUri } from "../payment/buildRoomWalletTransferUri.js";
 import { useTonConnectUI, useTonWallet } from "@tonconnect/ui-react";
 import { buildRoomWalletTonConnectRequest, payerMatchesConnectedWallet } from "../payment/buildRoomWalletTonConnectRequest.js";
+import { normalizeMainnetPaymentRequest } from "../payment/mainnetPaymentRequest.js";
 import {
     createPaymentStatusRequest,
     hasSubmissionAcknowledgement,
@@ -44,6 +45,7 @@ import "../styles/page4payment.css";
  */
 const PAYMENT_STATUS_EVENT = INCOMING_SOCKET_EVENTS.ENTRY_PAYMENT_SESSION_UPDATED;
 const PAYMENT_STATUS_REQUEST = OUTGOING_SOCKET_EVENTS.PAYMENT_STATUS_REQUEST;
+const PAYMENT_REQUEST_EVENT = "PAYMENT_REQUEST";
 
 export default function Page4Payment() {
     const { identity } = usePlayerIdentity();
@@ -59,6 +61,7 @@ export default function Page4Payment() {
     const [transferQr, setTransferQr] = useState(null);
     const [showTransferQr, setShowTransferQr] = useState(false);
     const paymentReferenceRef = useRef(null);
+    const paymentAcceptanceRef = useRef(false);
     const mainnetMode = payment.network === "mainnet";
     const networkLabel = mainnetMode ? "MAINNET"
         : payment.network === "testnet" ? "TESTNET" : "NETWORK";
@@ -95,6 +98,14 @@ export default function Page4Payment() {
         payment.destinationWalletAddress, payment.payerAddress, payment.amountAtomic,
         payment.expiresAt, payment.network, payment.asset, mainnetMode]);
 
+    useEffect(() => {
+        if (!mainnetMode || !Number.isSafeInteger(payment.expiresAt)) return undefined;
+        const timeout = setTimeout(() => {
+            setPayment((current) => ({ ...current, status: "PAYMENT_EXPIRED" }));
+        }, Math.max(0, payment.expiresAt - Date.now()));
+        return () => clearTimeout(timeout);
+    }, [mainnetMode, payment.expiresAt]);
+
     // Only request the authoritative payment state once per identity cycle.
     // Resetting the flag when the identity changes lets a later identity
     // readiness (identity becomes ready after the component initially mounts)
@@ -117,6 +128,7 @@ export default function Page4Payment() {
                 || typeof payload.status !== "string") {
                 return;
             }
+            paymentAcceptanceRef.current = payload.paymentAcceptanceEnabled === true;
             const nextPaymentReference = payload.paymentReference ?? null;
             if (paymentReferenceRef.current !== nextPaymentReference) {
                 setTransferQr(null);
@@ -125,6 +137,39 @@ export default function Page4Payment() {
             setPayment(payload);
             paymentReferenceRef.current = nextPaymentReference;
             setSentToWallet(submissionAttemptIsActive(localStorage, payload.paymentReference));
+        }
+
+        function handlePaymentRequest(payload) {
+            if (payload?.roomId !== roomId || payload?.playerId !== playerId) return;
+            const request = normalizeMainnetPaymentRequest(payload, {
+                roomId,
+                playerId,
+                paymentAcceptanceEnabled: paymentAcceptanceRef.current
+            });
+            if (!request) {
+                setPayment((current) => ({
+                    ...current,
+                    status: "PAYMENT_UNAVAILABLE",
+                    paymentReference: null,
+                    payerAddress: null,
+                    destinationWalletAddress: null,
+                    amountAtomic: null,
+                    expiresAt: null
+                }));
+                paymentReferenceRef.current = null;
+                setTransferQr(null);
+                setShowTransferQr(false);
+                return;
+            }
+            if (paymentReferenceRef.current !== request.paymentReference) {
+                setSentToWallet(submissionAttemptIsActive(localStorage, request.paymentReference));
+            }
+            setPayment((current) => ({
+                ...current,
+                ...request,
+                playerPaymentStatuses: current.playerPaymentStatuses ?? []
+            }));
+            paymentReferenceRef.current = request.paymentReference;
         }
 
         const requestStatus = () => {
@@ -136,6 +181,7 @@ export default function Page4Payment() {
         };
         socket.on('connect', requestStatus);
         socket.on(PAYMENT_STATUS_EVENT, handlePaymentStatus);
+        socket.on(PAYMENT_REQUEST_EVENT, handlePaymentRequest);
 
         // Re-request the authoritative payment state so a status event that
         // was emitted before this page subscribed is re-delivered now.
@@ -147,6 +193,7 @@ export default function Page4Payment() {
         return () => {
             socket.off('connect', requestStatus);
             socket.off(PAYMENT_STATUS_EVENT, handlePaymentStatus);
+            socket.off(PAYMENT_REQUEST_EVENT, handlePaymentRequest);
         };
     }, [roomId, playerId]);
 
@@ -174,8 +221,19 @@ export default function Page4Payment() {
         payment.status, payment.expiresAt, payment.paymentReference, mainnetMode]);
 
     const walletMatches = payerMatchesConnectedWallet(payment.payerAddress, connectedWallet, payment.network);
-    const payable = !mainnetMode && payment.paymentAcceptanceEnabled === true
-        && status === "AWAITING_PAYMENT";
+    const mainnetRequestValid = mainnetMode
+        && payment.paymentAcceptanceEnabled === true
+        && status === "AWAITING_PAYMENT"
+        && Number.isSafeInteger(payment.amountAtomic)
+        && payment.amountAtomic > 0
+        && typeof payment.paymentReference === "string"
+        && Number.isSafeInteger(payment.expiresAt)
+        && Date.now() < payment.expiresAt
+        && typeof payment.destinationWalletAddress === "string"
+        && typeof payment.payerAddress === "string";
+    const payable = payment.paymentAcceptanceEnabled === true
+        && status === "AWAITING_PAYMENT"
+        && (mainnetMode ? mainnetRequestValid : true);
 
     const localPlayerId = resolveLocalPlayerId(
         playerId ?? null,
@@ -283,7 +341,30 @@ export default function Page4Payment() {
                         ))}
                     </div>
 
-                    {payment.paymentAcceptanceEnabled && !mainnetMode ? (
+                    {mainnetMode && payment.paymentAcceptanceEnabled && payment.paymentReference ? (
+                        <>
+                            <div className="page4Payment__summary">
+                                PAY (AMOUNT) TON: {amount ?? "—"} TON
+                                {payment.destinationWalletAddress ? ` - ${payment.destinationWalletAddress}` : ""}
+                            </div>
+                            <p className="page4Payment__waiting">
+                                {status === "SETTLED" ? "PAYMENT RECEIVED — WAITING FOR OTHER PLAYERS" : "WAITING FOR PAYMENT CONFIRMATION"}
+                            </p>
+                            {payable && <button className="page4Payment__confirm" type="button"
+                                disabled={sending || sentToWallet || !connectedWallet || !walletMatches}
+                                onClick={handleWalletConfirmation}>
+                                {sending ? "OPENING WALLET…" : sentToWallet ? "PAYMENT SENT — WAITING FOR CONFIRMATION"
+                                    : !connectedWallet ? "CONNECT MAINNET WALLET"
+                                        : !walletMatches ? "SELECT MAINNET WALLET" : "PAY WITH TON CONNECT"}
+                            </button>}
+                            {connectedWallet && !walletMatches && payable && (
+                                <p className="page4Payment__error" role="alert">
+                                    Select the Mainnet wallet entered on Page3 before confirming.
+                                </p>
+                            )}
+                            {paymentError && <p className="page4Payment__error" role="alert">{paymentError}</p>}
+                        </>
+                    ) : payment.paymentAcceptanceEnabled && !mainnetMode ? (
                         <>
                             <div className="page4Payment__summary">
                                 PAY (AMOUNT) {assetLabel}: {amount ?? "—"} {assetLabel}

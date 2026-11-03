@@ -173,7 +173,10 @@ test("mock-enabled PAYMENT_REQUEST delivery preserves per-player routing and rec
             roomId: h.room.roomId,
             playerId: request.playerId,
             paymentReference: request.paymentReference,
+            payerAddress: h.bootstrap.paymentRuntime.incomingLedger
+                .listRoomIntents(h.room.roomId).find(intent => intent.playerId === request.playerId).expectedSender,
             destination: request.destinationWalletAddress,
+            destinationWalletAddress: request.destinationWalletAddress,
             amount: request.amountAtomic,
             amountAtomic: request.amountAtomic,
             asset: request.asset,

@@ -3,7 +3,9 @@ import { Address, Cell } from "@ton/core";
 
 import {
     buildRoomWalletTonConnectRequest,
-    TON_TESTNET_CHAIN
+    TON_TESTNET_CHAIN,
+    TON_MAINNET_CHAIN,
+    payerMatchesConnectedWallet
 } from "./buildRoomWalletTonConnectRequest.js";
 
 const payer = new Address(0, Buffer.alloc(32, 1)).toString();
@@ -48,6 +50,38 @@ assert.throws(() => buildRoomWalletTonConnectRequest({
     asset: "TON",
     amountAtomic: 0,
     paymentReference: "test-ref_1",
+    expiresAt: now + 600_000,
+    destinationWalletAddress: destination,
+    payerAddress: payer
+}, now), /No active authoritative TON payment request/);
+
+const mainnetRequest = buildRoomWalletTonConnectRequest({
+    paymentAcceptanceEnabled: true,
+    status: "AWAITING_PAYMENT",
+    network: "mainnet",
+    asset: "TON",
+    amountAtomic: 2_500_000_000,
+    paymentReference: "mainnet-ref-1",
+    expiresAt: now + 600_000,
+    destinationWalletAddress: destination,
+    payerAddress: payer
+}, now);
+assert.equal(mainnetRequest.network, TON_MAINNET_CHAIN);
+assert.equal(mainnetRequest.messages[0].amount, "2500000000");
+assert.equal(Address.parseFriendly(mainnetRequest.messages[0].address).isTestOnly, false);
+assert.equal(payerMatchesConnectedWallet(payer, {
+    account: { address: payer, chain: TON_MAINNET_CHAIN }
+}, "mainnet"), true);
+assert.equal(payerMatchesConnectedWallet(payer, {
+    account: { address: payer, chain: TON_TESTNET_CHAIN }
+}, "mainnet"), false);
+assert.throws(() => buildRoomWalletTonConnectRequest({
+    paymentAcceptanceEnabled: false,
+    status: "AWAITING_PAYMENT",
+    network: "mainnet",
+    asset: "TON",
+    amountAtomic: 2_500_000_000,
+    paymentReference: "mainnet-ref-1",
     expiresAt: now + 600_000,
     destinationWalletAddress: destination,
     payerAddress: payer

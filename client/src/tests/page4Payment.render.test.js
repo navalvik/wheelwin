@@ -57,10 +57,16 @@ try {
         "Page4 does not expose the old raw payment details and separate actions");
 
     const pageSource = readFileSync(resolve(clientRoot, "src/pages/Page4Payment.jsx"), "utf8");
-    assert.match(pageSource, /const payable = !mainnetMode && payment\.paymentAcceptanceEnabled === true/,
-        "Mainnet cannot enable the TonConnect transfer flow");
+    assert.match(pageSource, /const mainnetRequestValid = mainnetMode[\s\S]*Date\.now\(\) < payment\.expiresAt/,
+        "Mainnet needs a valid, unexpired server payment request before enabling payment");
+    assert.match(pageSource, /const payable = payment\.paymentAcceptanceEnabled === true[\s\S]*mainnetRequestValid/,
+        "both networks require server payment acceptance and Mainnet requires its request");
+    assert.match(pageSource, /socket\.on\(PAYMENT_REQUEST_EVENT, handlePaymentRequest\)/,
+        "Page4 receives the personalized server payment request");
+    assert.match(pageSource, /PAY WITH TON CONNECT/,
+        "Mainnet exposes the existing TonConnect payment action when eligible");
     assert.match(pageSource, /payment\.paymentAcceptanceEnabled && !mainnetMode/,
-        "Mainnet never renders transfer QR or wallet instructions");
+        "Testnet retains its existing QR and wallet instructions");
     assert.match(pageSource, /Mainnet payments are unavailable\. Do not send TON\./,
         "Page4 clearly says Mainnet payments are unavailable");
     assert.match(pageSource, /Payments are unavailable\. Do not send GRAM to any room wallet\./,
