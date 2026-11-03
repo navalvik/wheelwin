@@ -6201,24 +6201,27 @@ export class RoomLobbyBridge {
             if (!socketId) {
                 continue;
             }
+            const paymentRequest = {
+                roomId,
+                playerId: payment.playerId,
+                paymentReference: payment.paymentReference,
+                destination: payment.destinationWalletAddress,
+                amount: payment.amountAtomic,
+                amountAtomic: payment.amountAtomic,
+                asset: payment.asset,
+                network: payment.network,
+                expiresAt: payment.expiresAt ?? null
+            };
+            if (payment.network === "mainnet") {
+                paymentRequest.payerAddress = binding.runtime?.incomingLedger?.listRoomIntents?.(roomId)
+                    ?.find(intent => intent.playerId === payment.playerId)?.expectedSender
+                    ?? payment.payerAddress;
+                paymentRequest.destinationWalletAddress = payment.destinationWalletAddress;
+            }
             this._deliverToSocket(
                 socketId,
                 LOBBY_SERVER_EVENTS.PAYMENT_REQUEST,
-                {
-                    roomId,
-                    playerId: payment.playerId,
-                    paymentReference: payment.paymentReference,
-                    payerAddress: binding.runtime?.incomingLedger?.listRoomIntents?.(roomId)
-                        ?.find(intent => intent.playerId === payment.playerId)?.expectedSender
-                        ?? payment.payerAddress,
-                    destination: payment.destinationWalletAddress,
-                    destinationWalletAddress: payment.destinationWalletAddress,
-                    amount: payment.amountAtomic,
-                    amountAtomic: payment.amountAtomic,
-                    asset: payment.asset,
-                    network: payment.network,
-                    expiresAt: payment.expiresAt ?? null
-                }
+                paymentRequest
             );
         }
     }

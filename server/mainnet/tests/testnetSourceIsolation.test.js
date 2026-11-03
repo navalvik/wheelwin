@@ -100,7 +100,7 @@ test("Testnet payment runtime setup remains byte-for-byte unchanged inside app.j
     assert.equal(extract(currentApp, true), extract(baselineApp, false));
 });
 
-test("Testnet payment status delivery and requirement derivation remain unchanged", () => {
+test("Testnet and Mainnet PAYMENT_REQUEST payloads remain network-specific", async () => {
     const baselineBridge = execFileSync("git", ["show", `${baseline}:server/socket/RoomLobbyBridge.js`], {
         cwd: repoRoot,
         encoding: "utf8"
@@ -118,12 +118,92 @@ test("Testnet payment status delivery and requirement derivation remain unchange
     assert.equal(extract(currentBridge, statusStart, statusEnd),
         extract(baselineBridge, statusStart, statusEnd));
 
-    const prepareStart = "        const uniquePlayers = new Set(room.players);";
-    const prepareEnd = "\n    }\n\n";
-    assert.equal(extract(currentBridge, prepareStart, prepareEnd),
-        extract(baselineBridge, prepareStart, prepareEnd));
-
     const currentPage4 = readFileSync(resolve(repoRoot, "client/src/pages/Page4Payment.jsx"), "utf8");
-    assert.match(currentPage4, /const payable = !mainnetMode && payment\.paymentAcceptanceEnabled === true/);
-    assert.match(currentPage4, /Payments are unavailable\. Do not send GRAM to any room wallet\./);
+    assert.match(currentPage4, /payment\.paymentAcceptanceEnabled && !mainnetMode/);
+    assert.match(currentPage4, /uri = buildRoomWalletTransferUri\(\{/);
+
+    const oldNetwork = process.env.TON_NETWORK;
+    const oldAcceptance = process.env.ROOM_WALLET_PAYMENTS_ENABLED;
+    process.env.TON_NETWORK = "testnet";
+    process.env.ROOM_WALLET_PAYMENTS_ENABLED = "true";
+    try {
+        const [{ RoomLobbyBridge }, { LOBBY_SERVER_EVENTS }] = await Promise.all([
+            import("../../socket/RoomLobbyBridge.js"),
+            import("../../socket/lobbyProtocol.js")
+        ]);
+        const players = ["seat-a", "seat-b", "seat-c"];
+        const roomId = "network-contract-room";
+        const room = { roomId, players };
+        const destinationWalletAddress = `0:${"f".repeat(64)}`;
+        const identities = new Map(players.map((playerId, index) => [playerId, {
+            playerId,
+            wallet: `0:${String(index + 1).padStart(64, "0")}`,
+            baseStake: 1,
+            sectorCount: 1
+        }]));
+        const deliverForNetwork = (network) => {
+            const delivered = [];
+            const runtime = {
+                network,
+                paymentService: {
+                    listPaymentIntentsForRoom: () => [],
+                    getWalletForRoom: () => null
+                },
+                incomingLedger: {
+                    listRoomIntents: () => players.map((playerId, index) => ({
+                        playerId,
+                        expectedSender: `0:${String(index + 1).padStart(64, "0")}`
+                    }))
+                }
+            };
+            const bridge = Object.create(RoomLobbyBridge.prototype);
+            bridge._roomManager = { getRoom: id => id === roomId ? room : null };
+            bridge._playerManager = { getIdentity: playerId => identities.get(playerId) };
+            bridge._paymentApplicationBinding = {
+                runtime,
+                prepareRoomPaymentSession: (_roomId, requirements) => ({
+                    payments: requirements.map((requirement, index) => ({
+                        ...requirement,
+                        paymentReference: `WW_${network}_${index + 1}`,
+                        destinationWalletAddress,
+                        asset: "TON",
+                        network,
+                        expiresAt: 1_900_000_000_000
+                    }))
+                })
+            };
+            bridge._playerToSocket = new Map(players.map((playerId, index) => [playerId, `socket-${index}`]));
+            bridge._logger = { info() {}, warn() {} };
+            bridge._deliverToSocket = (...args) => delivered.push(args);
+            bridge._preparePaymentSessionIfEnabled(roomId, room);
+            return delivered.filter(([, event]) => event === LOBBY_SERVER_EVENTS.PAYMENT_REQUEST);
+        };
+
+        const testnetRequests = deliverForNetwork("testnet");
+        assert.equal(testnetRequests.length, 3);
+        for (const [, , payload] of testnetRequests) {
+            assert.deepEqual(Object.keys(payload).sort(), [
+                "amount", "amountAtomic", "asset", "destination", "expiresAt",
+                "network", "paymentReference", "playerId", "roomId"
+            ]);
+            assert.equal(payload.network, "testnet");
+        }
+
+        const mainnetRequests = deliverForNetwork("mainnet");
+        assert.equal(mainnetRequests.length, 3);
+        for (const [, , payload] of mainnetRequests) {
+            assert.deepEqual(Object.keys(payload).sort(), [
+                "amount", "amountAtomic", "asset", "destination", "destinationWalletAddress",
+                "expiresAt", "network", "payerAddress", "paymentReference", "playerId", "roomId"
+            ]);
+            assert.equal(payload.network, "mainnet");
+            assert.match(payload.payerAddress, /^0:/);
+            assert.equal(payload.destinationWalletAddress, destinationWalletAddress);
+        }
+    } finally {
+        if (oldNetwork === undefined) delete process.env.TON_NETWORK;
+        else process.env.TON_NETWORK = oldNetwork;
+        if (oldAcceptance === undefined) delete process.env.ROOM_WALLET_PAYMENTS_ENABLED;
+        else process.env.ROOM_WALLET_PAYMENTS_ENABLED = oldAcceptance;
+    }
 });
