@@ -18,7 +18,9 @@ export function registerDeveloperConsoleRoutes(
         sessionHistoryArchive = null,
         runtimeConfigurationService = null,
         audioRegistryService = null,
-        walletQuarantineService = null
+        walletQuarantineService = null,
+        env = process.env,
+        fetchImpl = globalThis.fetch
     } = {}
 ) {
 
@@ -47,12 +49,12 @@ export function registerDeveloperConsoleRoutes(
             return;
         }
 
-        const configuredNetwork = String(process.env.TON_NETWORK ?? "")
+        const configuredNetwork = String(env.TON_NETWORK ?? "")
             .trim().toLowerCase();
         const networkWalletKey = `OWNER_WALLET_${network.toUpperCase()}`;
-        const configuredWallet = String(process.env[networkWalletKey] ?? "").trim();
+        const configuredWallet = String(env[networkWalletKey] ?? "").trim();
         const activeNetworkWallet = network === configuredNetwork
-            ? String(process.env.OWNER_WALLET ?? "").trim()
+            ? String(env.OWNER_WALLET ?? "").trim()
             : "";
         const ownerWallet = configuredWallet || activeNetworkWallet;
 
@@ -78,8 +80,8 @@ export function registerDeveloperConsoleRoutes(
         }
 
         const apiKey = network === "mainnet"
-            ? (process.env.TONCENTER_MAINNET_API_KEY ?? process.env.TON_API_KEY ?? "")
-            : (process.env.TONCENTER_TESTNET_API_KEY ?? process.env.TON_API_KEY ?? "");
+            ? String(env.MAINNET_TONCENTER_API_KEY ?? "")
+            : (env.TONCENTER_TESTNET_API_KEY ?? env.TON_API_KEY ?? "");
         const endpoint = network === "mainnet"
             ? "https://toncenter.com/api/v2/getAddressInformation"
             : "https://testnet.toncenter.com/api/v2/getAddressInformation";
@@ -91,7 +93,7 @@ export function registerDeveloperConsoleRoutes(
         try {
             const headers = { Accept: "application/json" };
             if (apiKey) headers["X-API-Key"] = apiKey;
-            const response = await fetch(url, { headers, signal: controller.signal });
+            const response = await fetchImpl(url, { headers, signal: controller.signal });
             const body = await response.json().catch(() => null);
             if (!response.ok || body?.ok === false || !body?.result) {
                 const detail = String(body?.error ?? `HTTP ${response.status}`).slice(0, 160);

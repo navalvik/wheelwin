@@ -3,16 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useDeveloperAuth } from "../DeveloperAuthProvider";
 import { fetchWalletBalances } from "../developerAuthApi";
 import PanelShell from "./shared/PanelShell";
-
-const REFRESH_INTERVAL_MS = 10_000;
-
-function formatGram(nanoValue) {
-    if (nanoValue == null || !/^\d+$/.test(String(nanoValue))) return "—";
-    const nano = BigInt(nanoValue);
-    const whole = nano / 1_000_000_000n;
-    const fraction = String(nano % 1_000_000_000n).padStart(9, "0");
-    return `${whole}.${fraction} GRAM`;
-}
+import { FINANCE_REFRESH_INTERVAL_MS, formatFinanceBalance } from "./financeBalance.js";
 
 function formatUpdatedAt(value) {
     if (!value) return "—";
@@ -45,7 +36,7 @@ export default function FinancePanel({ network }) {
     useEffect(() => {
         if (!accessToken) return undefined;
         load();
-        const intervalId = window.setInterval(load, REFRESH_INTERVAL_MS);
+        const intervalId = window.setInterval(load, FINANCE_REFRESH_INTERVAL_MS);
         return () => {
             window.clearInterval(intervalId);
         };
@@ -78,7 +69,7 @@ export default function FinancePanel({ network }) {
             <div className="devConsole__kvRow">
                 <span className="devConsole__kvKey">Balance</span>
                 <span className="devConsole__kvValue">
-                    {configured ? formatGram(snapshot.balanceNano) : "—"}
+                    {configured ? formatFinanceBalance(snapshot.balanceNano, network) : "—"}
                 </span>
             </div>
             <div className="devConsole__kvRow">
