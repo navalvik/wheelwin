@@ -34,7 +34,7 @@ function createHarness(t, { liveOperationsEnabled = true } = {}) {
         MAINNET_ROOM_WALLETS_JSON: JSON.stringify(walletCatalog),
         MAINNET_ROOM_WALLET_DATA_DIR: dataDir
     });
-    let runtime = new MainnetPaymentRuntime({ config });
+    let runtime = new MainnetPaymentRuntime({ config, nowProvider: () => 50_000 });
     runtime.liveOperationsEnabled = liveOperationsEnabled;
     const reservations = runtime.walletPool;
     const wallet = { walletId: "mn-1", network: "mainnet", globalId: -239,
@@ -154,7 +154,7 @@ function createHarness(t, { liveOperationsEnabled = true } = {}) {
         bridge, authorization, config, dataDir, deliveries, emitted,
         get runtime() { return runtime; },
         restartRuntime() {
-            runtime = new MainnetPaymentRuntime({ config });
+            runtime = new MainnetPaymentRuntime({ config, nowProvider: () => 50_000 });
             runtime.liveOperationsEnabled = liveOperationsEnabled;
             bridge._paymentApplicationBinding.runtime = runtime;
             authorization.configurePaymentGate(runtime.gameStartPaymentGate);

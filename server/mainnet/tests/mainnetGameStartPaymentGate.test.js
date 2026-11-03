@@ -22,7 +22,7 @@ function runtime(t) {
         MAINNET_TONCENTER_API_KEY: "offline-key",
         MAINNET_ROOM_WALLETS_JSON: JSON.stringify(walletCatalog),
         MAINNET_ROOM_WALLET_DATA_DIR: dataDir });
-    return { dataDir, config, payment: new MainnetPaymentRuntime({ config }) };
+    return { dataDir, config, payment: new MainnetPaymentRuntime({ config, nowProvider: () => 50_000 }) };
 }
 
 function register(payment) {
@@ -61,7 +61,7 @@ test("Mainnet game-start gate rejects invalid rosters and 0/3, 1/3, 2/3; accepts
         assert.equal(result.status, `${count}/3`);
         assert.equal(result.page5Enabled, false);
         if (count === 3) {
-            const recovered = new MainnetPaymentRuntime({ config: h.config });
+            const recovered = new MainnetPaymentRuntime({ config: h.config, nowProvider: () => 50_000 });
             assert.equal(recovered.gameStartPaymentGate.getGameStartGateStatus("room-gate", PLAYERS).eligible, true);
             assert.equal(recovered.gameStartPaymentGate.getGameStartGateStatus("room-gate", PLAYERS).status, "3/3");
         }
@@ -72,7 +72,7 @@ test("Mainnet game-start gate reads persisted ledger state and never uses Testne
     const h = runtime(t);
     register(h.payment);
     const expected = h.payment.gameStartPaymentGate.getGameStartGateStatus("room-gate", PLAYERS);
-    const restarted = new MainnetPaymentRuntime({ config: h.config });
+    const restarted = new MainnetPaymentRuntime({ config: h.config, nowProvider: () => 50_000 });
     assert.deepEqual(restarted.gameStartPaymentGate.getGameStartGateStatus("room-gate", PLAYERS), expected);
     assert.equal(restarted.gameStartPaymentGate.network, "mainnet");
     assert.equal(restarted.gameStartPaymentGate.globalId, -239);

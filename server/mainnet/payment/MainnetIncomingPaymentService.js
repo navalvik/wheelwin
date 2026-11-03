@@ -3,6 +3,9 @@ import { MAINNET_GLOBAL_ID } from "../config/MainnetRuntimeConfig.js";
 import { mainnetAddressIdentity } from "./MainnetAddress.js";
 import { MainnetIncomingPaymentLedger } from "./MainnetIncomingPaymentLedger.js";
 import { MainnetToncenterReadClient } from "./MainnetToncenterReadClient.js";
+import { IncomingTransfer } from "../../payment/incoming/IncomingTransfer.js";
+import { deriveIncomingTransactionId } from "../../payment/incoming/IncomingTransferIdentity.js";
+import { matchIncomingTransferToIntent } from "../../payment/incoming/IncomingTransferMatcher.js";
 
 function fingerprint(record) {
     const stable = {
@@ -182,7 +185,49 @@ export class MainnetIncomingPaymentService {
             candidates = intents;
         }
 
-        const exact = candidates.filter((intent) => this._matches(intent, roomId, record));
+        const transfer = new IncomingTransfer({
+            network: "mainnet",
+            transactionId: deriveIncomingTransactionId({
+                network: "mainnet",
+                providerId: "toncenter-mainnet",
+                accountId: record.accountId,
+                transactionId: record.providerTransactionId
+            }),
+            providerTransactionIdentity: {
+                providerId: "toncenter-mainnet",
+                accountId: record.accountId,
+                transactionId: record.providerTransactionId
+            },
+            destinationWalletAddress: record.destinationAddress,
+            senderAddress: record.sourceAddress,
+            amountAtomic: record.amountAtomic,
+            asset: record.asset,
+            transactionTime: record.transactionTime,
+            paymentReference: record.paymentReference,
+            paymentComment: record.hasComment ? "present" : null,
+            observedAt: this._now()
+        });
+        const exact = candidates.filter((intent) => {
+            if (intent.roomId !== roomId
+                || record.transactionTime < intent.createdAt
+                || record.transactionTime > intent.expiresAt) return false;
+            const amountAtomic = Number(BigInt(intent.amountAtomic));
+            if (!Number.isSafeInteger(amountAtomic) || amountAtomic <= 0) return false;
+            // The shared matcher is the authority for network, addresses,
+            // amount, asset and reference. Mainnet's settled intent may still
+            // receive an EXTRA_PAYMENT, so matching uses a read-only
+            // matchable projection; settlement remains governed by this
+            // service and the Mainnet ledger below.
+            const result = matchIncomingTransferToIntent(transfer, {
+                ...intent,
+                amountAtomic,
+                state: "PENDING",
+                transactionId: null,
+                paymentReference: record.paymentReference === null
+                    ? null : intent.paymentReference
+            });
+            return result.matched;
+        });
         if (exact.length === 1) return { status: "MATCHED", reason: null, intent: exact[0] };
         if (exact.length > 1) return { status: "AMBIGUOUS", reason: "MULTIPLE_INTENTS_MATCH", intent: null };
         if (record.paymentReference !== null) {
@@ -199,18 +244,6 @@ export class MainnetIncomingPaymentService {
             return { status: "UNRESOLVED", reason: "OUTSIDE_PAYMENT_WINDOW", intent: null };
         }
         return { status: "UNRESOLVED", reason: "PAYMENT_FIELDS_MISMATCH", intent: null };
-    }
-
-    _matches(intent, roomId, record) {
-        return intent.roomId === roomId
-            && intent.network === "mainnet" && intent.globalId === MAINNET_GLOBAL_ID
-            && record.network === "mainnet" && record.globalId === MAINNET_GLOBAL_ID
-            && sameAddress(intent.destinationWalletAddress, record.destinationAddress)
-            && sameAddress(intent.expectedSender, record.sourceAddress)
-            && intent.amountAtomic === record.amountAtomic
-            && intent.asset === record.asset
-            && record.transactionTime >= intent.createdAt
-            && record.transactionTime <= intent.expiresAt;
     }
 
     _mismatchReason(intent, roomId, record) {

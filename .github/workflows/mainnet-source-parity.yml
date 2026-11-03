@@ -1,0 +1,22 @@
+name: Mainnet source parity
+
+on:
+  push:
+    branches:
+      - codex/mainnet-integration-20261102
+  pull_request:
+    branches:
+      - codex/mainnet-integration-20261102
+
+jobs:
+  parity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Verify shared source blobs against frozen Testnet
+        run: node server/mainnet/tools/sourceParityAudit.js --check

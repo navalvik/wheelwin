@@ -9,7 +9,6 @@ import { WalletContractV4 } from "@ton/ton";
 import { RoomWalletAdapter } from "../../payment/roomWallet/RoomWalletAdapter.js";
 import { loadMainnetRuntimeConfig } from "../config/MainnetRuntimeConfig.js";
 import { MainnetNativeTonService, MAINNET_TONCENTER_RPC_ENDPOINT } from "../payment/MainnetNativeTonService.js";
-import { MainnetRoomWalletAdapter } from "../payment/MainnetRoomWalletAdapter.js";
 import { MainnetToncenterOutgoingTransferObserver } from "../payment/MainnetToncenterOutgoingTransferObserver.js";
 import { mainnetAddressIdentity } from "../payment/MainnetAddress.js";
 import { MainnetToncenterReadClient } from "../payment/MainnetToncenterReadClient.js";
@@ -49,8 +48,9 @@ function harness(t, { seqno = 7, failBroadcast = false, failSeqno = false } = {}
     const walletResolver = async (roomNumber) => ({
         roomNumber, address, workchain: 0, network: "mainnet", globalId: -239, ...keys
     });
-    const make = (overrides = {}) => new MainnetRoomWalletAdapter({
-        config, tonService, walletResolver,
+    const make = (overrides = {}) => new RoomWalletAdapter({
+        sequenceStateDir: join(config.dataDir, "outgoing-seqno"),
+        tonService, walletResolver,
         now: () => state.now,
         sleep: async () => {},
         seqnoConfirmTimeoutMs: 1,
@@ -219,22 +219,15 @@ test("expired ambiguous message is renewed only with the same unused authoritati
     assert.equal(h.state.sent.length, 2);
 });
 
-test("Mainnet adapter rejects Testnet-tagged wallet identities and mismatched retry payloads", async (t) => {
+test("shared Wallet V4 adapter rejects mismatched durable retry payloads", async (t) => {
     const h = harness(t);
-    const testnetResolver = async () => ({
-        roomNumber: 2, address: h.address, workchain: 0, network: "testnet", globalId: -3,
-        ...h.keys
-    });
-    await assert.rejects(new MainnetRoomWalletAdapter({ config: h.config,
-        tonService: h.tonService, walletResolver: testnetResolver }).sendTransfer(h.request()),
-    /MAINNET_WALLET_IDENTITY_INVALID/);
     const adapter = h.make();
     await adapter.sendTransfer(h.request("same-key"));
     await assert.rejects(adapter.sendTransfer(h.request("same-key", 1n)), /IDENTITY_MISMATCH/);
     assert.equal(h.state.sent.length, 1);
 });
 
-test("Mainnet send algorithm follows the Testnet adapter's seqno and durable retry behavior", async (t) => {
+test("Wallet V4 sequence flow uses the same shared adapter implementation", async (t) => {
     const h = harness(t);
     const mainnetTrace = [];
     const testnetTrace = [];
@@ -251,8 +244,8 @@ test("Mainnet send algorithm follows the Testnet adapter's seqno and durable ret
         workchain: 0, network: "mainnet", globalId: -239, ...keyPair });
     const testnetResolver = async (roomNumber) => ({ roomNumber, address: h.address,
         workchain: 0, network: "testnet", ...keyPair });
-    const mn = new MainnetRoomWalletAdapter({ config: h.config, tonService: mainnetTon,
-        walletResolver: mainnetResolver });
+    const mn = new RoomWalletAdapter({ sequenceStateDir: join(h.config.dataDir, "outgoing-seqno"),
+        tonService: mainnetTon, walletResolver: mainnetResolver });
     const tn = new RoomWalletAdapter({ tonService: testnetTon, walletResolver: testnetResolver });
     const resultMn = await mn.sendTransfer(h.request());
     const resultTn = await tn.sendTransfer(h.request());

@@ -60,7 +60,8 @@ export class MainnetPaymentRuntime {
             config, client: this.client, ledger: this.incomingLedger, nowProvider
         });
         this.gameStartPaymentGate = new MainnetGameStartPaymentGate({
-            incomingLedger: this.incomingLedger
+            incomingLedger: this.incomingLedger,
+            nowProvider
         });
         this.outgoingObserver = new MainnetToncenterOutgoingTransferObserver({
             client: this.client, nowProvider
