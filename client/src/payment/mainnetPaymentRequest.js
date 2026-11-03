@@ -52,3 +52,73 @@ export function normalizeMainnetPaymentRequest(payload, {
 export function getMainnetPlayerPaymentStatus(status) {
     return status === "SETTLED" ? "Payment verified" : "Waiting for payments";
 }
+
+/**
+ * Apply an authoritative Mainnet status update without discarding the
+ * separately delivered PAYMENT_REQUEST for the same player and room.
+ */
+export function mergeMainnetPaymentStatus(current, payload, {
+    roomId,
+    playerId,
+    now = Date.now()
+} = {}) {
+    const sameIdentity = current?.network === "mainnet"
+        && current.roomId === roomId
+        && current.playerId === playerId;
+    const savedRequest = sameIdentity
+        ? normalizeMainnetPaymentRequest({
+            ...current,
+            amountAtomic: String(current.amountAtomic)
+        }, { roomId, playerId, paymentAcceptanceEnabled: true, now })
+        : null;
+    const revoked = payload?.paymentAcceptanceEnabled === false
+        || payload?.status === "PAYMENT_UNAVAILABLE";
+
+    if (revoked || !savedRequest) {
+        return {
+            ...payload,
+            roomId,
+            playerId,
+            network: "mainnet",
+            paymentAcceptanceEnabled: payload?.paymentAcceptanceEnabled === true,
+            paymentReference: null,
+            payerAddress: null,
+            destinationWalletAddress: null,
+            amountAtomic: null,
+            expiresAt: null,
+            asset: "TON",
+            playerPaymentStatuses: payload?.playerPaymentStatuses ?? current?.playerPaymentStatuses ?? []
+        };
+    }
+
+    return {
+        ...payload,
+        ...savedRequest,
+        status: payload.status,
+        paymentAcceptanceEnabled: payload.paymentAcceptanceEnabled ?? true,
+        playerPaymentStatuses: payload.playerPaymentStatuses ?? current.playerPaymentStatuses ?? []
+    };
+}
+
+/**
+ * A valid payment request can open wallet selection before a wallet is
+ * connected. The eventual payment callback is reachable only for a matching
+ * connected wallet; initiatePayment performs its own checks as well.
+ */
+export function runMainnetPaymentAction({
+    requestValid,
+    connectedWallet,
+    walletMatches,
+    sending = false,
+    sentToWallet = false,
+    openWalletModal,
+    submitPayment
+}) {
+    if (!requestValid || sending || sentToWallet) return "BLOCKED";
+    if (!connectedWallet || !walletMatches) {
+        openWalletModal();
+        return "SELECT_WALLET";
+    }
+    submitPayment();
+    return "SUBMIT";
+}

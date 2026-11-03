@@ -3,7 +3,12 @@ import QRCode from "qrcode";
 import { buildRoomWalletTransferUri } from "../payment/buildRoomWalletTransferUri.js";
 import { useTonConnectUI, useTonWallet } from "@tonconnect/ui-react";
 import { buildRoomWalletTonConnectRequest, payerMatchesConnectedWallet } from "../payment/buildRoomWalletTonConnectRequest.js";
-import { getMainnetPlayerPaymentStatus, normalizeMainnetPaymentRequest } from "../payment/mainnetPaymentRequest.js";
+import {
+    getMainnetPlayerPaymentStatus,
+    mergeMainnetPaymentStatus,
+    normalizeMainnetPaymentRequest,
+    runMainnetPaymentAction
+} from "../payment/mainnetPaymentRequest.js";
 import {
     createPaymentStatusRequest,
     hasSubmissionAcknowledgement,
@@ -62,6 +67,7 @@ export default function Page4Payment() {
     const [showTransferQr, setShowTransferQr] = useState(false);
     const paymentReferenceRef = useRef(null);
     const paymentAcceptanceRef = useRef(false);
+    const mainnetRequestRef = useRef(null);
     const mainnetMode = payment.network === "mainnet";
     const networkLabel = mainnetMode ? "MAINNET"
         : payment.network === "testnet" ? "TESTNET" : "NETWORK";
@@ -101,7 +107,17 @@ export default function Page4Payment() {
     useEffect(() => {
         if (!mainnetMode || !Number.isSafeInteger(payment.expiresAt)) return undefined;
         const timeout = setTimeout(() => {
-            setPayment((current) => ({ ...current, status: "PAYMENT_EXPIRED" }));
+            mainnetRequestRef.current = null;
+            paymentReferenceRef.current = null;
+            setPayment((current) => ({
+                ...current,
+                status: "PAYMENT_EXPIRED",
+                paymentAcceptanceEnabled: false,
+                paymentReference: null,
+                payerAddress: null,
+                destinationWalletAddress: null,
+                amountAtomic: null
+            }));
         }, Math.max(0, payment.expiresAt - Date.now()));
         return () => clearTimeout(timeout);
     }, [mainnetMode, payment.expiresAt]);
@@ -117,9 +133,21 @@ export default function Page4Payment() {
 
             requestedRef.current = null;
             paymentReferenceRef.current = null;
+            mainnetRequestRef.current = null;
             return;
         }
 
+        const identityKey = roomId + ":" + playerId;
+        if (requestedRef.current !== identityKey) {
+            const wasMainnet = mainnetRequestRef.current !== null;
+            paymentReferenceRef.current = null;
+            mainnetRequestRef.current = null;
+            paymentAcceptanceRef.current = false;
+            if (wasMainnet) {
+                setPayment({ status: "PAYMENT_UNAVAILABLE", paymentAcceptanceEnabled: false });
+                setSentToWallet(false);
+            }
+        }
         paymentReferenceRef.current = null;
 
         function handlePaymentStatus(payload) {
@@ -128,15 +156,30 @@ export default function Page4Payment() {
                 || typeof payload.status !== "string") {
                 return;
             }
-            paymentAcceptanceRef.current = payload.paymentAcceptanceEnabled === true;
-            const nextPaymentReference = payload.paymentReference ?? null;
+            if (payload.network !== "mainnet"
+                || typeof payload.paymentAcceptanceEnabled === "boolean") {
+                paymentAcceptanceRef.current = payload.paymentAcceptanceEnabled === true;
+            }
+            const isMainnetUpdate = payload.network === "mainnet"
+                || mainnetRequestRef.current?.roomId === roomId;
+            const nextPayment = isMainnetUpdate
+                ? mergeMainnetPaymentStatus(mainnetRequestRef.current, payload, { roomId, playerId })
+                : payload;
+            if (isMainnetUpdate) {
+                mainnetRequestRef.current = nextPayment.paymentAcceptanceEnabled === true
+                    && nextPayment.paymentReference
+                    && nextPayment.expiresAt > Date.now()
+                    ? nextPayment
+                    : null;
+            }
+            const nextPaymentReference = nextPayment.paymentReference ?? null;
             if (paymentReferenceRef.current !== nextPaymentReference) {
                 setTransferQr(null);
                 setShowTransferQr(false);
             }
-            setPayment(payload);
+            setPayment(nextPayment);
             paymentReferenceRef.current = nextPaymentReference;
-            setSentToWallet(submissionAttemptIsActive(localStorage, payload.paymentReference));
+            setSentToWallet(submissionAttemptIsActive(localStorage, nextPaymentReference));
         }
 
         function handlePaymentRequest(payload) {
@@ -149,6 +192,8 @@ export default function Page4Payment() {
             if (!request) {
                 setPayment((current) => ({
                     ...current,
+                    network: "mainnet",
+                    paymentAcceptanceEnabled: false,
                     status: "PAYMENT_UNAVAILABLE",
                     paymentReference: null,
                     payerAddress: null,
@@ -156,6 +201,7 @@ export default function Page4Payment() {
                     amountAtomic: null,
                     expiresAt: null
                 }));
+                mainnetRequestRef.current = null;
                 paymentReferenceRef.current = null;
                 setTransferQr(null);
                 setShowTransferQr(false);
@@ -164,9 +210,11 @@ export default function Page4Payment() {
             if (paymentReferenceRef.current !== request.paymentReference) {
                 setSentToWallet(submissionAttemptIsActive(localStorage, request.paymentReference));
             }
+            mainnetRequestRef.current = request;
             setPayment((current) => ({
                 ...current,
                 ...request,
+                status: current.status === "SETTLED" ? "SETTLED" : "AWAITING_PAYMENT",
                 playerPaymentStatuses: current.playerPaymentStatuses ?? []
             }));
             paymentReferenceRef.current = request.paymentReference;
@@ -185,8 +233,8 @@ export default function Page4Payment() {
 
         // Re-request the authoritative payment state so a status event that
         // was emitted before this page subscribed is re-delivered now.
-        if (requestedRef.current !== roomId + ":" + playerId) {
-            requestedRef.current = roomId + ":" + playerId;
+        if (requestedRef.current !== identityKey) {
+            requestedRef.current = identityKey;
             socket.emit(PAYMENT_STATUS_REQUEST, createPaymentStatusRequest({ roomId, playerId }));
         }
 
@@ -222,6 +270,8 @@ export default function Page4Payment() {
 
     const walletMatches = payerMatchesConnectedWallet(payment.payerAddress, connectedWallet, payment.network);
     const mainnetRequestValid = mainnetMode
+        && payment.roomId === roomId
+        && payment.playerId === playerId
         && payment.paymentAcceptanceEnabled === true
         && status === "AWAITING_PAYMENT"
         && Number.isSafeInteger(payment.amountAtomic)
@@ -296,6 +346,18 @@ export default function Page4Payment() {
     }
 
     function handleWalletConfirmation() {
+        if (mainnetMode) {
+            runMainnetPaymentAction({
+                requestValid: mainnetRequestValid,
+                connectedWallet,
+                walletMatches,
+                sending,
+                sentToWallet,
+                openWalletModal: () => tonConnectUI.openModal(),
+                submitPayment: initiatePayment
+            });
+            return;
+        }
         if (!connectedWallet || !walletMatches) {
             tonConnectUI.openModal();
             return;
@@ -350,7 +412,7 @@ export default function Page4Payment() {
                                 {status === "SETTLED" ? "PAYMENT RECEIVED — WAITING FOR OTHER PLAYERS" : "WAITING FOR PAYMENT CONFIRMATION"}
                             </p>
                             {payable && <button className="page4Payment__confirm" type="button"
-                                disabled={sending || sentToWallet || !connectedWallet || !walletMatches}
+                                disabled={sending || sentToWallet || !mainnetRequestValid}
                                 onClick={handleWalletConfirmation}>
                                 {sending ? "OPENING WALLET…" : sentToWallet ? "PAYMENT SENT — WAITING FOR CONFIRMATION"
                                     : !connectedWallet ? "CONNECT MAINNET WALLET"
