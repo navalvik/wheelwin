@@ -16,7 +16,7 @@ import {
 
 import socket from "../socket/socket";
 import { isTestnetDisplay } from "../config/displayNetwork";
-import { isValidPage3WalletAddress } from "./page3WalletAddress";
+import { isValidPage3WalletAddress, restorePage3WalletAddress } from "./page3WalletAddress";
 
 import "../styles/page3verify.css";
 
@@ -130,7 +130,10 @@ export default function Page3VerifyPlayers({ onNavigate }) {
         const onRoomRecoverySync = (payload) => {
             if (!payload?.playerId || payload.playerId !== identity?.playerId) return;
             if (payload.profile?.wallet) {
-                setPayerWalletAddress(payload.profile.wallet);
+                setPayerWalletAddress(restorePage3WalletAddress(
+                    payload.profile.wallet,
+                    mainnetPage3 ? "mainnet" : "testnet"
+                ));
             }
             if (payload.verifyConfirmed) setWaitingForVerify(true);
             if (payload.verifyContinued) {

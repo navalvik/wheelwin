@@ -48,3 +48,7 @@ export function normalizeMainnetPaymentRequest(payload, {
         paymentAcceptanceEnabled: true
     });
 }
+
+export function getMainnetPlayerPaymentStatus(status) {
+    return status === "SETTLED" ? "Payment verified" : "Waiting for payments";
+}

@@ -26,3 +26,18 @@ export function isValidPage3WalletAddress(value, network) {
     }
 
 }
+
+/** Convert a saved raw Mainnet identity back to the friendly form Page3 accepts. */
+export function restorePage3WalletAddress(value, network) {
+    const candidate = typeof value === "string" ? value.trim() : "";
+    if (network !== "mainnet" || !candidate) return candidate;
+    try {
+        const parsed = Address.parse(candidate);
+        if (parsed.workChain !== 0) return candidate;
+        if (/^[A-Za-z0-9_-]{48}$/.test(candidate)
+            && Address.parseFriendly(candidate).isTestOnly) return candidate;
+        return parsed.toString({ urlSafe: true, bounceable: false, testOnly: false });
+    } catch {
+        return candidate;
+    }
+}

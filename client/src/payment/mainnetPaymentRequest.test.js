@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { Address } from "@ton/core";
-import { normalizeMainnetPaymentRequest } from "./mainnetPaymentRequest.js";
+import { getMainnetPlayerPaymentStatus, normalizeMainnetPaymentRequest } from "./mainnetPaymentRequest.js";
 
 const payerAddress = new Address(0, Buffer.alloc(32, 1)).toRawString();
 const destination = new Address(0, Buffer.alloc(32, 2)).toRawString();
@@ -32,4 +32,7 @@ assert.equal(normalizeMainnetPaymentRequest(base, {
 assert.equal(normalizeMainnetPaymentRequest(base, {
     ...context, playerId: "wrong-player"
 }), null);
+assert.equal(getMainnetPlayerPaymentStatus("PENDING"), "Waiting for payments");
+assert.equal(getMainnetPlayerPaymentStatus("SETTLED"), "Payment verified");
+assert.equal(getMainnetPlayerPaymentStatus(undefined), "Waiting for payments");
 process.stdout.write("mainnetPaymentRequest tests passed\n");

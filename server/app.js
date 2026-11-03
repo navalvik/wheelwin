@@ -137,6 +137,7 @@ import { MainnetPage4PaymentApplicationBinding } from "./mainnet/payment/Mainnet
 import { MainnetWinnerPayoutCoordinator } from "./mainnet/payment/MainnetWinnerPayoutCoordinator.js";
 import { MainnetHistoricalIncomingReceiptReconciler } from "./mainnet/payment/MainnetHistoricalIncomingReceiptReconciler.js";
 import { MainnetWalletReleaseReconciler } from "./mainnet/wallet/MainnetWalletReleaseReconciler.js";
+import { MainnetWalletQuarantineAdminService } from "./mainnet/admin/MainnetWalletQuarantineAdminService.js";
 
 import { DeveloperConsoleProjectionService } from "./console/DeveloperConsoleProjectionService.js";
 import { registerDeveloperConsoleRoutes } from "./console/registerDeveloperConsoleRoutes.js";
@@ -1380,9 +1381,9 @@ class WheelWinApplication {
 
                 // Use the existing Mainnet ledger-backed gate and prepare
                 // Page4 intents through the Mainnet-only application binding.
-                // Live financial operations remain disabled; only
-                // authoritative 3/3 ledger confirmations can satisfy this
-                // shared game-start barrier.
+                // Mainnet payment instructions and outgoing operations follow
+                // the explicit runtime permission; paid start remains guarded
+                // by the shared authoritative 3/3 ledger barrier.
                 this._gameStartAuthorization.configurePaymentGate(
                     mainnetBootstrap.paymentRuntime.gameStartPaymentGate
                 );
@@ -2264,25 +2265,36 @@ class WheelWinApplication {
         this._logger.startupLine("AdvertisementLifecycleManager");
         this._logger.startupLine("AdvertisementScheduler");
 
-        const walletQuarantineService = new WalletQuarantineAdminService({
-            getRuntime: () => this._paymentRuntime,
-            logger: this._logger,
-            getAdapter: () => {
-                if (this._nativeRoomWalletAdapter) return this._nativeRoomWalletAdapter;
-                if (process.env.ADMIN_WALLET_SWEEP_ENABLED !== "true"
-                    || process.env.TON_NETWORK !== "testnet"
-                    || !this._paymentRuntime?.initialized) return null;
-                if (!this._adminSweepAdapter) {
-                    this._adminSweepAdapter = new RoomWalletAdapter({
-                        sequenceStateDir: join(this._paymentRuntime.networkDataDir, "outbound-sequences"),
-                        walletResolver: createRoomWalletRuntimeResolver({env:process.env}),
-                        tonService: new TestnetNativeTonService(),
-                        logger: this._logger
-                    });
+        const walletQuarantineService = resolveServerPaymentMode(process.env) === "mainnet"
+            ? new MainnetWalletQuarantineAdminService({
+                getRuntime: () => this._mainnetPaymentRuntime,
+                getWalletPool: () => this._mainnetBootstrap?.walletPool,
+                getRoomManager: () => this._managers?.roomManager,
+                isInitialized: () => this._mainnetRuntimeReady,
+                getAdapter: runtime => runtime?.liveOperationsEnabled === true
+                    ? runtime.outgoingAdapter : null,
+                env: process.env,
+                logger: this._logger
+            })
+            : new WalletQuarantineAdminService({
+                getRuntime: () => this._paymentRuntime,
+                logger: this._logger,
+                getAdapter: () => {
+                    if (this._nativeRoomWalletAdapter) return this._nativeRoomWalletAdapter;
+                    if (process.env.ADMIN_WALLET_SWEEP_ENABLED !== "true"
+                        || process.env.TON_NETWORK !== "testnet"
+                        || !this._paymentRuntime?.initialized) return null;
+                    if (!this._adminSweepAdapter) {
+                        this._adminSweepAdapter = new RoomWalletAdapter({
+                            sequenceStateDir: join(this._paymentRuntime.networkDataDir, "outbound-sequences"),
+                            walletResolver: createRoomWalletRuntimeResolver({env:process.env}),
+                            tonService: new TestnetNativeTonService(),
+                            logger: this._logger
+                        });
+                    }
+                    return this._adminSweepAdapter;
                 }
-                return this._adminSweepAdapter;
-            }
-        });
+            });
         registerDeveloperConsoleRoutes(
             this._expressApp,
             this._consoleProjectionService,

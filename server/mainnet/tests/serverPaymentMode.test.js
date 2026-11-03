@@ -41,8 +41,11 @@ test("server payment mode accepts only explicit Testnet or Mainnet", () => {
 test("Mainnet startup diagnostic reflects the initialized live-operation state", () => {
     const config = { globalId: -239, walletCount: 64 };
     assert.equal(formatMainnetRuntimeStartupLine({ config,
-        paymentRuntime: { liveOperationsEnabled: false } }),
+        paymentRuntime: { liveOperationsEnabled: false, gameStartPaymentGate: { getGameStartGateStatus() {} } } }),
     "MainnetPaymentRuntime (globalId=-239 | wallets=64 | storage=isolated | liveOperations=disabled | paidGameStart=disabled)");
+    assert.equal(formatMainnetRuntimeStartupLine({ config,
+        paymentRuntime: { liveOperationsEnabled: true, gameStartPaymentGate: { getGameStartGateStatus() {} } } }),
+    "MainnetPaymentRuntime (globalId=-239 | wallets=64 | storage=isolated | liveOperations=enabled | paidGameStart=enabled (3/3 gated))");
     assert.equal(formatMainnetRuntimeStartupLine({ config,
         paymentRuntime: { liveOperationsEnabled: true } }),
     "MainnetPaymentRuntime (globalId=-239 | wallets=64 | storage=isolated | liveOperations=enabled | paidGameStart=disabled)");

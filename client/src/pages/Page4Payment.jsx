@@ -3,7 +3,7 @@ import QRCode from "qrcode";
 import { buildRoomWalletTransferUri } from "../payment/buildRoomWalletTransferUri.js";
 import { useTonConnectUI, useTonWallet } from "@tonconnect/ui-react";
 import { buildRoomWalletTonConnectRequest, payerMatchesConnectedWallet } from "../payment/buildRoomWalletTonConnectRequest.js";
-import { normalizeMainnetPaymentRequest } from "../payment/mainnetPaymentRequest.js";
+import { getMainnetPlayerPaymentStatus, normalizeMainnetPaymentRequest } from "../payment/mainnetPaymentRequest.js";
 import {
     createPaymentStatusRequest,
     hasSubmissionAcknowledgement,
@@ -330,9 +330,8 @@ export default function Page4Payment() {
                                 <div className="page4Payment__detail">
                                     <span>STATUS</span>
                                     <strong>{mainnetMode
-                                        ? payment.playerPaymentStatuses?.find(item => item.playerId === player.playerId)?.status === "SETTLED"
-                                            ? "Payment verified"
-                                            : "Payment unavailable"
+                                        ? getMainnetPlayerPaymentStatus(payment.playerPaymentStatuses
+                                            ?.find(item => item.playerId === player.playerId)?.status)
                                         : status === "SETTLED" && player.isLocal
                                             ? "Payment verified"
                                             : "Waiting for payments"}</strong>

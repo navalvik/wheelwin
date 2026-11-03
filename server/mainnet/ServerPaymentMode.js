@@ -14,10 +14,12 @@ export function formatMainnetRuntimeStartupLine({ config, paymentRuntime } = {})
     if (typeof paymentRuntime?.liveOperationsEnabled !== "boolean") {
         throw new Error("MAINNET_PAYMENT_RUNTIME_STATE_INVALID");
     }
+    const paidGameStartEnabled = paymentRuntime.liveOperationsEnabled === true
+        && typeof paymentRuntime.gameStartPaymentGate?.getGameStartGateStatus === "function";
     return `MainnetPaymentRuntime (globalId=${config?.globalId}`
         + ` | wallets=${config?.walletCount}`
         + ` | storage=isolated | liveOperations=${paymentRuntime.liveOperationsEnabled ? "enabled" : "disabled"}`
-        + " | paidGameStart=disabled)";
+        + ` | paidGameStart=${paidGameStartEnabled ? "enabled (3/3 gated)" : "disabled"})`;
 }
 
 /** Initialize only the isolated Mainnet bootstrap selected by server config. */

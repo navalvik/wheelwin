@@ -4,14 +4,14 @@ import { fetchWalletQuarantine, performWalletQuarantineAction } from "../develop
 import PanelShell from "./shared/PanelShell";
 
 const REFRESH_MS = 10_000;
-function grams(nano) {
+function formatBalance(nano, unit = "Gram") {
     if (nano == null) return "—";
     try {
         const value = BigInt(nano);
         const whole = value / 1_000_000_000n;
         const decimals = (value % 1_000_000_000n).toString().padStart(9,"0")
             .replace(/0+$/,"");
-        return `${whole}.${decimals.padEnd(2,"0")} Gram`;
+        return `${whole}.${decimals.padEnd(2,"0")} ${unit}`;
     } catch {return "—";}
 }
 
@@ -93,6 +93,9 @@ Submission does not confirm that funds were received by TON_RESIDUES.`);
     };
 
     const current = snapshot?.selected;
+    const mainnet = snapshot?.network === "mainnet";
+    const networkLabel = mainnet ? "Mainnet" : "Testnet";
+    const assetLabel = mainnet ? "TON" : "Gram";
     const blocked = current?.outstanding?.open > 0 || Boolean(current?.reservedByRoomId);
     const quarantineText = current ? `QUARANTINE ${current.roomNumber}` : "";
     const releaseText = current ? `RELEASE ${current.roomNumber}` : "";
@@ -100,10 +103,28 @@ Submission does not confirm that funds were received by TON_RESIDUES.`);
 
     return (
         <PanelShell title="Wallet Quarantine"
-            subtitle="Testnet · administrators only · selected wallet and TON_RESIDUES refreshed every 10 seconds">
+            subtitle={`${networkLabel} · administrators only · selected wallet and TON_RESIDUES refreshed every 10 seconds`}>
             {!isAdministrator && <p>Administrator access is required.</p>}
             {error && <p role="alert" style={{color:"#ff8b8b"}}>{error}</p>}
             {message && <p role="status">{message}</p>}
+            {mainnet && Array.isArray(snapshot?.wallets) && <section className="devConsole__opsCard">
+                <h3>Mainnet Wallet Catalog ({snapshot.wallets.length}/64)</h3>
+                <p>Wallet balances are queried only after selecting a wallet.</p>
+                <div className="devConsole__kvList">
+                    {snapshot.wallets.map(wallet => (
+                        <div className="devConsole__kvRow" key={wallet.roomNumber}>
+                            <span className="devConsole__kvKey">#{wallet.roomNumber}</span>
+                            <code style={{overflowWrap:"anywhere"}}>{wallet.address}</code>
+                            <span>{wallet.reservedByRoomId
+                                ? `Active room: ${wallet.reservedByRoomId}` : "Available"}</span>
+                            <span>{wallet.quarantined
+                                ? `Quarantined · ${wallet.quarantineReason}` : "Not quarantined"}</span>
+                            <button type="button" disabled={busy}
+                                onClick={() => choose(wallet.roomNumber)}>Inspect</button>
+                        </div>
+                    ))}
+                </div>
+            </section>}
             <section className="devConsole__opsCard">
                 <h3>Quarantined Wallets ({snapshot?.quarantined?.length ?? "—"})</h3>
                 <p>Quarantine prevents assignment to new rooms. Balance is checked only for the selected wallet.</p>
@@ -137,7 +158,7 @@ Submission does not confirm that funds were received by TON_RESIDUES.`);
                 {current && <div className="devConsole__kvList">
                     <div className="devConsole__kvRow"><span>Number</span><strong>#{current.roomNumber}</strong></div>
                     <div className="devConsole__kvRow"><span>Address</span><code style={{overflowWrap:"anywhere"}}>{current.address}</code></div>
-                    <div className="devConsole__kvRow"><span>Balance</span><strong>{grams(current.balanceNano)}</strong></div>
+                    <div className="devConsole__kvRow"><span>Balance</span><strong>{formatBalance(current.balanceNano, assetLabel)}</strong></div>
                     <div className="devConsole__kvRow"><span>Quarantined</span><strong>{current.quarantined ? "Yes" : "No"}</strong></div>
                     <div className="devConsole__kvRow"><span>Active Room</span><span>{current.reservedByRoomId || "No"}</span></div>
                     {current.quarantineNote && <div className="devConsole__kvRow"><span>Quarantine Reason</span>
@@ -155,10 +176,12 @@ Submission does not confirm that funds were received by TON_RESIDUES.`);
                 <h3>TON_RESIDUES · residual funds server wallet</h3>
                 <div className="devConsole__kvList">
                     <div className="devConsole__kvRow"><span>Address</span>
-                        <code style={{overflowWrap:"anywhere"}}>{snapshot?.residues?.address || "TON_RESIDUES_EXPECTED_ADDRESS not configured"}</code>
+                        <code style={{overflowWrap:"anywhere"}}>{snapshot?.residues?.address
+                            || (mainnet ? "MAINNET_TON_RESIDUES_EXPECTED_ADDRESS not configured"
+                                : "TON_RESIDUES_EXPECTED_ADDRESS not configured")}</code>
                     </div>
                     <div className="devConsole__kvRow"><span>Balance</span>
-                        <strong>{grams(snapshot?.residues?.balanceNano)}</strong></div>
+                        <strong>{formatBalance(snapshot?.residues?.balanceNano, assetLabel)}</strong></div>
                     <div className="devConsole__kvRow"><span>Last Checked</span>
                         <span>{snapshot?.residues?.updatedAt || "—"}</span></div>
                 </div>
@@ -197,8 +220,9 @@ Submission does not confirm that funds were received by TON_RESIDUES.`);
                         || current.sweepClaimExists || confirmation !== sweepText}
                         onClick={()=>action("sweep")}>Sweep Entire Balance to TON_RESIDUES</button>
                 </div>
-                {!snapshot?.sweepEnabled && <p>Sweep disabled: explicitly set ADMIN_WALLET_SWEEP_ENABLED=true for Testnet
-                    on the server. This is independent of Mainnet activation.</p>}
+                {!snapshot?.sweepEnabled && <p>{mainnet
+                    ? "Sweep disabled: configure MAINNET_TON_RESIDUES_EXPECTED_ADDRESS and MAINNET_ADMIN_WALLET_SWEEP_ENABLED=true; Mainnet live operations must also be enabled."
+                    : "Sweep disabled: explicitly set ADMIN_WALLET_SWEEP_ENABLED=true for Testnet on the server. This is independent of Mainnet activation."}</p>}
             </section>}
         </PanelShell>
     );

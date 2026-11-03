@@ -13,7 +13,17 @@ const allowedSharedIntegrationFiles = new Set([
     "server/app.js",
     "server/socket/RoomLobbyBridge.js",
     "client/src/pages/Page4Payment.jsx",
-    "client/src/tests/page4Payment.render.test.js"
+    "client/src/tests/page4Payment.render.test.js",
+    // Shared UI/helpers have network-conditional Mainnet branches; their
+    // Testnet behavior is covered by the corresponding focused regressions.
+    "client/src/console/panels/WalletQuarantinePanel.jsx",
+    "client/src/pages/Page3VerifyPlayers.jsx",
+    "client/src/pages/page3WalletAddress.js",
+    "client/src/pages/page3WalletAddress.test.js",
+    "client/src/payment/buildRoomWalletTonConnectRequest.test.js",
+    "client/src/payment/mainnetPaymentRequest.js",
+    "client/src/payment/mainnetPaymentRequest.test.js",
+    "server/tests/page3WalletNetworkValidation.test.js"
 ]);
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const canonicalCheckoutBytes = (bytes) => {

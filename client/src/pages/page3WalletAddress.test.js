@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { Address } from "@ton/core";
-import { isValidPage3WalletAddress } from "./page3WalletAddress.js";
+import { isValidPage3WalletAddress, restorePage3WalletAddress } from "./page3WalletAddress.js";
 
 const address = new Address(0, Buffer.alloc(32, 0x2a));
 const friendly = (options) => address.toString({ urlSafe: true, ...options });
@@ -36,4 +36,14 @@ test("Testnet Page3 keeps its existing raw and friendly format behavior", () => 
     assert.equal(isValidPage3WalletAddress(`0:${"a".repeat(64)}`, "testnet"), true);
     assert.equal(isValidPage3WalletAddress(testnetBounceable, "testnet"), true);
     assert.equal(isValidPage3WalletAddress(mainnetBounceable, "testnet"), true);
+});
+
+test("Page3 recovery restores canonical Mainnet identities as accepted friendly addresses", () => {
+    const raw = address.toRawString();
+    const restored = restorePage3WalletAddress(raw, "mainnet");
+    assert.match(restored, /^UQ/);
+    assert.equal(isValidPage3WalletAddress(restored, "mainnet"), true);
+    assert.equal(restorePage3WalletAddress(testnetNonBounceable, "mainnet"), testnetNonBounceable);
+    assert.equal(restorePage3WalletAddress(raw, "testnet"), raw);
+    assert.equal(isValidPage3WalletAddress(restorePage3WalletAddress(raw, "testnet"), "testnet"), true);
 });
