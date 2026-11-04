@@ -109,6 +109,7 @@ import { createRoomWalletRuntimeResolver } from "./payment/roomWallet/RoomWallet
 import { AuditActivation } from "./gameplay/AuditActivation.js";
 import { RecoverySnapshotCache } from "./gameplay/RecoverySnapshotCache.js";
 import { GameplayLifecycle } from "./gameplay/GameplayLifecycle.js";
+import { GameplayPaymentTerminalBridge } from "./gameplay/GameplayPaymentTerminalBridge.js";
 import { SetupSessionLifecycle } from "./gameplay/SetupSessionLifecycle.js";
 import { ResultSessionLifecycle } from "./gameplay/ResultSessionLifecycle.js";
 import { GameStartAuthorization } from "./gameplay/GameStartAuthorization.js";
@@ -292,6 +293,7 @@ class WheelWinApplication {
         this._mainnetPayoutReconciliationTimer = null;
         this._mainnetPendingPayoutExecutor = null;
         this._mainnetPayoutExecutionTimer = null;
+        this._gameplayPaymentTerminalBridge = null;
         this._mainnetRuntimeReady = false;
         this._nativeRoomWalletAdapter = null;
         this._adminSweepAdapter = null;
@@ -766,6 +768,10 @@ class WheelWinApplication {
         });
 
         this._eventBus.initialize();
+
+        this._gameplayPaymentTerminalBridge = new GameplayPaymentTerminalBridge({
+            eventBus: this._eventBus
+        });
 
         this._logger.startupLine("EventBus");
 
@@ -1419,7 +1425,15 @@ class WheelWinApplication {
                 });
                 const reconcileMainnetPayouts = () => {
                     void this._mainnetPayoutReconciler?.runPass()
-                        .then(() => this._mainnetWalletReleaseReconciler?.runPass())
+                        .then(pass => {
+                            for (const result of pass?.results ?? []) {
+                                this._gameplayPaymentTerminalBridge?.observePayoutOutcome({
+                                    payoutId: result.payoutId,
+                                    status: result.status
+                                });
+                            }
+                            return this._mainnetWalletReleaseReconciler?.runPass();
+                        })
                         .catch(error => this._logger.warn?.(
                             "MAINNET_PAYOUT_RECONCILIATION_PENDING | code="
                                 + (error?.code ?? "RECONCILIATION_FAILED")
@@ -1435,10 +1449,20 @@ class WheelWinApplication {
                     const gameId = envelope?.payload?.gameId;
                     void Promise.resolve()
                         .then(() => this._mainnetWinnerPayoutCoordinator.onGameResult({ gameId }))
-                        .then(outcome => this._logger.info(
-                            `MAINNET_WINNER_PAYOUT | gameId=${gameId} | status=${outcome.status}`
-                                + ` | payoutId=${outcome.payoutId}`
-                        ))
+                        .then(outcome => {
+                            this._gameplayPaymentTerminalBridge?.trackPayout({
+                                gameId,
+                                payoutId: outcome?.payoutId
+                            });
+                            this._gameplayPaymentTerminalBridge?.observePayoutOutcome({
+                                payoutId: outcome?.payoutId,
+                                status: outcome?.status
+                            });
+                            this._logger.info(
+                                `MAINNET_WINNER_PAYOUT | gameId=${gameId} | status=${outcome.status}`
+                                    + ` | payoutId=${outcome.payoutId}`
+                            );
+                        })
                         .catch(error => this._logger.warn(
                             `MAINNET_WINNER_PAYOUT_PENDING | gameId=${gameId}`
                                 + ` | reason=${error?.message ?? "unavailable"}`
@@ -1463,6 +1487,14 @@ class WheelWinApplication {
                     };
                     const executeMainnetPendingPayouts = () => {
                         void this._mainnetPendingPayoutExecutor?.runPass()
+                            .then(pass => {
+                                for (const result of pass?.results ?? []) {
+                                    this._gameplayPaymentTerminalBridge?.observePayoutOutcome({
+                                        payoutId: result.payoutId,
+                                        status: result.status
+                                    });
+                                }
+                            })
                             .catch(error => this._logger.warn?.(
                                 "MAINNET_PENDING_PAYOUT_EXECUTION_RETRY_LATER | code="
                                     + (error?.code ?? "SUBMISSION_FAILED")
@@ -1595,6 +1627,22 @@ class WheelWinApplication {
                         // One bounded pass: execute unattempted debts, verify history, archive.
                         void incomingRecovery.runPass().catch(() => this._logger.warn('Testnet incoming receipt history pending'))
                             .then(() => refundExecutor.runPass()).then(() => this._winnerPayoutCoordinator?.recoverPendingResults?.()).then(() => this._pendingPayoutRecovery.runPass())
+                            .then(pass => {
+                                for (const result of pass?.results ?? []) {
+                                    const context = paymentRuntime.outcomeStore?.list?.()
+                                        .find(item => item.context?.payoutId === result.payoutId)?.context;
+                                    if (!context?.gameId) continue;
+                                    this._gameplayPaymentTerminalBridge?.trackPayout({
+                                        gameId: context.gameId,
+                                        payoutId: result.payoutId
+                                    });
+                                    this._gameplayPaymentTerminalBridge?.observePayoutOutcome({
+                                        payoutId: result.payoutId,
+                                        status: result.status
+                                    });
+                                }
+                                return pass;
+                            })
                             .then(() => this._pendingRefundRecovery.runPass())
                             .then(async () => {
                                 if (!this._forensicArchiveService) return;
@@ -1644,10 +1692,20 @@ class WheelWinApplication {
                             .then(() => this._winnerPayoutCoordinator.onGameResult({
                                 gameId: envelope.payload?.gameId
                             }))
-                            .then((outcome) => this._logger.info(
-                                `TESTNET_WINNER_PAYOUT | gameId=${envelope.payload?.gameId}`
-                                    + ` | status=${outcome.status}`
-                            ))
+                            .then((outcome) => {
+                                this._gameplayPaymentTerminalBridge?.trackPayout({
+                                    gameId: envelope.payload?.gameId,
+                                    payoutId: outcome?.payoutId
+                                });
+                                this._gameplayPaymentTerminalBridge?.observePayoutOutcome({
+                                    payoutId: outcome?.payoutId,
+                                    status: outcome?.status
+                                });
+                                this._logger.info(
+                                    `TESTNET_WINNER_PAYOUT | gameId=${envelope.payload?.gameId}`
+                                        + ` | status=${outcome.status}`
+                                );
+                            })
                             .catch((error) => this._logger.warn(
                                 `TESTNET_WINNER_PAYOUT_PENDING | gameId=${envelope.payload?.gameId}`
                                     + ` | reason=${error?.message ?? "unavailable"}`
