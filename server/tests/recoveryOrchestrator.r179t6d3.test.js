@@ -42,6 +42,7 @@ import { LoggerService } from "../services/LoggerService.js";
 import {
     RecoveryDataPersistence
 } from "../persistence/RecoveryDataPersistence.js";
+import { stableStringify } from "../recovery/configurationHash.js";
 import {
     RecoveryOrchestrator,
     RECOVERY_RESULT_STATUS
@@ -232,7 +233,6 @@ function buildPayload(overrides = {}) {
         recoveryRecordId: GAME_ID,
         roomId: ROOM_ID,
         gameId: GAME_ID,
-        contractId: "contract_d3_001",
         correlationId: null,
         players: [
             {
@@ -276,7 +276,6 @@ function buildPayload(overrides = {}) {
         configurationHash: computeConfigurationHash(configuration),
         configurationVersion: "1.0",
         traceSeed: "trace-seed-d3",
-        snapshotHash: "snapshot-hash-d3-001",
         gameState: "READY",
         gameStatus: "RUNNING",
         phaseStartedAt: checkpoint,
@@ -443,15 +442,8 @@ function buildGraph() {
 
     const dataDir = mkdtempSync(join(tmpdir(), "wheelwin-d3-orchestrator-"));
 
-    const financialPersistence = new TonFinancialPersistence({
-        dataDir,
-        autoCheckpoint: false
-    });
-
-    financialPersistence.initialize();
-
     const recoveryDataPersistence = new RecoveryDataPersistence({
-        financialPersistence
+        dataDir: join(dataDir, "gameplay-recovery")
     });
 
     const orchestrator = new RecoveryOrchestrator({
@@ -1512,8 +1504,6 @@ function assertUnrelatedIntact(graph, unrelated, label) {
             return configuration;
 
         })(),
-        contractId: "contract_d3_speed",
-        paymentSessionId: "payment_session_d3_speed"
     });
 
     graph.recoveryDataPersistence.createRecoveryRecord(readyPayload);

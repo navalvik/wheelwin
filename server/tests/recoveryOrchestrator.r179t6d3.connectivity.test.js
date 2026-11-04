@@ -45,6 +45,7 @@ import { LoggerService } from "../services/LoggerService.js";
 import {
     RecoveryDataPersistence
 } from "../persistence/RecoveryDataPersistence.js";
+import { stableStringify } from "../recovery/configurationHash.js";
 import {
     RecoveryOrchestrator,
     RECOVERY_RESULT_STATUS
@@ -192,7 +193,6 @@ function buildPayload(overrides = {}, { phaseAgeMs = 500 } = {}) {
         recoveryRecordId: GAME_ID,
         roomId: ROOM_ID,
         gameId: GAME_ID,
-        contractId: "contract_conn_001",
         correlationId: null,
         players: [
             {
@@ -236,7 +236,6 @@ function buildPayload(overrides = {}, { phaseAgeMs = 500 } = {}) {
         configurationHash: computeConfigurationHash(configuration),
         configurationVersion: "1.0",
         traceSeed: "trace-seed-conn",
-        snapshotHash: "snapshot-hash-conn-001",
         gameState: "READY",
         gameStatus: "RUNNING",
         phaseStartedAt: checkpoint - phaseAgeMs,
@@ -383,15 +382,8 @@ function buildGraph() {
 
     const dataDir = mkdtempSync(join(tmpdir(), "wheelwin-conn-arming-"));
 
-    const financialPersistence = new TonFinancialPersistence({
-        dataDir,
-        autoCheckpoint: false
-    });
-
-    financialPersistence.initialize();
-
     const recoveryDataPersistence = new RecoveryDataPersistence({
-        financialPersistence
+        dataDir: join(dataDir, "gameplay-recovery")
     });
 
     const orchestrator = new RecoveryOrchestrator({

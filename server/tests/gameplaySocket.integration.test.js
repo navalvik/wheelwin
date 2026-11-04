@@ -3,7 +3,10 @@ import { io } from "socket.io-client";
 import { EVENT_TYPES } from "../events/EventTypes.js";
 import { GAME_MESSAGE_CHANNEL } from "../socket/events.js";
 import { createGameplaySocketHarness } from "./helpers/gameplaySocketHarness.js";
-import { emitGameStartAuthorized } from "./helpers/gameplayBootstrapHarness.js";
+import {
+    completeRoomProfilesForConfiguration,
+    emitGameStartAuthorized
+} from "./helpers/gameplayBootstrapHarness.js";
 
 function assert(condition, message) {
 
@@ -132,7 +135,36 @@ async function startGameplaySession(harness) {
         startGuestBPromise
     ]);
 
+    completeRoomProfilesForConfiguration(
+        harness.playerManager,
+        harness.eventBus,
+        harness.roomManager.getRoom(created.roomId)
+    );
+
+    const speedStarted = new Promise((resolve) => {
+
+        const handler = (envelope) => {
+
+            if (envelope.payload?.roomId
+                && envelope.payload.roomId !== created.roomId) {
+
+                return;
+
+            }
+
+            harness.eventBus.unsubscribe(EVENT_TYPES.SPEED_STARTED, handler);
+
+            resolve();
+
+        };
+
+        harness.eventBus.subscribe(EVENT_TYPES.SPEED_STARTED, handler);
+
+    });
+
     emitGameStartAuthorized(harness.eventBus, created.roomId);
+
+    await speedStarted;
 
     return {
         host,
@@ -144,6 +176,14 @@ async function startGameplaySession(harness) {
 }
 
 const harness = await createGameplaySocketHarness();
+
+// The production bridge correctly rejects room creation from an unauthenticated
+// guest socket. This socket-level harness has no Telegram handshake, so give
+// each test socket a synthetic server-trusted identity through the resolver;
+// no client-supplied identity is used.
+harness.roomLobbyBridge.configureTelegramIdentityResolver(
+    (socketId) => `gameplay-socket-test:${socketId}`
+);
 
 try {
 

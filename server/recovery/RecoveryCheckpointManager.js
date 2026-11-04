@@ -67,6 +67,7 @@ import {
     RECOVERY_CONTRACT_VERSION,
     computePayloadChecksum
 } from "../persistence/RecoveryDataPersistence.js";
+import { computeConfigurationHash } from "./configurationHash.js";
 
 /**
  * Local monotonic phase ranking (forward-only progression guard).
@@ -427,7 +428,7 @@ export class RecoveryCheckpointManager {
 
         }
 
-        const configurationHash = computePayloadChecksum(configuration);
+        const configurationHash = computeConfigurationHash(configuration);
 
         // --- Players (authoritative ordered room list) -----------------------
 

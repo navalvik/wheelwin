@@ -1460,6 +1460,7 @@ class WheelWinApplication {
         // it to the existing EventBus lifecycle events. No startup-order,
         // readiness, Socket.IO, or RecoveryOrchestrator integration changes.
         const recoveryDataPersistence = new RecoveryDataPersistence({
+            dataDir: join(this._paymentRuntime.networkDataDir, "gameplay-recovery"),
             logger: this._logger
         });
 
