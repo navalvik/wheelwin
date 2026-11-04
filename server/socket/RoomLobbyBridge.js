@@ -49,6 +49,11 @@ const NO_FRIENDS_SECTOR_COLORS = new Set([
     "Light Blue", "Light Green", "Light Red", "Beige"
 ]);
 
+const NO_FRIENDS_MINIMUM_BALANCE = Object.freeze({
+    1: Object.freeze({ nano: 2_600_000_000n, gram: "2.6" }),
+    10: Object.freeze({ nano: 26_000_000_000n, gram: "26" })
+});
+
 import {
     LOBBY_ERROR_CODES,
     LOBBY_ERROR_MESSAGES,
@@ -1030,12 +1035,14 @@ export class RoomLobbyBridge {
                 throw new Error(`wallet is not initialized on ${network}`);
             }
             const balance = BigInt(String(account.balance ?? "0"));
-            // Maximum possible sector purchase: one sector at base stake plus
-            // a second sector at 1.5x. Gas is paid by the wallet at transaction
-            // time and is not inferred from the account's unrelated history.
-            const required = BigInt(Math.round(baseStake * 2.5 * 1_000_000_000));
-            if (balance < required) {
-                throw new Error("insufficient balance for two sectors at this base stake");
+            const minimum = NO_FRIENDS_MINIMUM_BALANCE[baseStake];
+            if (!minimum) throw new Error("unsupported base stake for wallet balance check");
+            if (balance < minimum.nano) {
+                const error = new Error("insufficient wallet balance");
+                error.code = "INSUFFICIENT_BALANCE";
+                error.minimumBalanceGram = minimum.gram;
+                error.baseStake = String(baseStake);
+                throw error;
             }
             return { address, balance: balance.toString() };
         } finally {
@@ -1131,7 +1138,13 @@ export class RoomLobbyBridge {
             const reason = String(error?.message ?? error).slice(0, 180);
             this._logger.warn(`No Friends wallet verification rejected | ${reason}`);
             this._deliverToSocket(socketId, LOBBY_SERVER_EVENTS.NO_FRIENDS_ERROR, {
-                code: "WALLET_CHECK_FAILED",
+                code: error?.code === "INSUFFICIENT_BALANCE"
+                    ? "INSUFFICIENT_BALANCE"
+                    : "WALLET_CHECK_FAILED",
+                ...(error?.code === "INSUFFICIENT_BALANCE" ? {
+                    minimumBalanceGram: error.minimumBalanceGram,
+                    baseStake: error.baseStake
+                } : {}),
                 ...(localBrowser ? { detail: reason } : {})
             });
             return;
