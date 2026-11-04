@@ -3487,6 +3487,11 @@ export class RoomLobbyBridge {
             gameMode: room.gameMode ?? "FRIENDS",
             network: this._roomNetworkByRoom.get(roomId) ?? null,
             stage,
+            // Server-owned route hint closes the reconnect gap where a stale
+            // pre-game page remains mounted while SESSION_SNAPSHOT is delayed.
+            authoritativePage: stage === "RESULT"
+                ? "PAGE6_RESULT"
+                : stage === "GAMEPLAY" ? "PAGE5_GAME" : null,
             profile: ownProfile,
             optionsReady: optionsReady?.has(playerId) === true,
             readyCount: optionsReady?.size ?? 0,

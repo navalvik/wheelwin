@@ -47,6 +47,7 @@ import { GameDiagnosticLogManager } from "./logging/GameDiagnosticLogManager.js"
 import { SessionHistoryArchiveManager } from "./history/SessionHistoryArchiveManager.js";
 import { ForensicArchiveService } from "./forensic/ForensicArchiveService.js";
 import { ClientPage5DeviceReportStore } from "./forensic/ClientPage5DeviceReportStore.js";
+import { ClientPageConfirmationRegistry } from "./diagnostics/ClientPageConfirmationRegistry.js";
 import { evaluateFinalForensicArchive } from "./forensic/FinalForensicArchiveGate.js";
 import { purgeLocalForensicArchiveZips } from "./forensic/purgeLocalForensicArchiveZips.js";
 import { R2ForensicArchiveUploader } from "./forensic/R2ForensicArchiveUploader.js";
@@ -182,6 +183,8 @@ class WheelWinApplication {
         this._engines = null;
 
         this._socketGateway = null;
+
+        this._clientPageConfirmationRegistry = null;
 
         this._eventBus = null;
 
@@ -1605,12 +1608,17 @@ class WheelWinApplication {
             })()
         };
 
+        this._clientPageConfirmationRegistry = new ClientPageConfirmationRegistry({
+            logger: this._logger
+        });
+
         this._socketGateway = new SocketGateway({
             logger: this._logger,
             socketConfig,
             eventBus: this._eventBus,
             inputAuthority: this._inputAuthority,
             gameplayContextResolver: this._gameplayContextResolver,
+            clientPageConfirmationRegistry: this._clientPageConfirmationRegistry,
             telegramAuth: telegramAuthConfig,
             devMode: this._productionConfig.isDevelopment
         });
@@ -1744,6 +1752,7 @@ class WheelWinApplication {
             gameClockEngine: this._engines.gameClockEngine,
             winnerEngine: this._engines.winnerEngine,
             socketGateway: this._socketGateway,
+            clientPageConfirmationRegistry: this._clientPageConfirmationRegistry,
             metricsService: this._metricsService,
             healthService: this._healthService,
             monitoringManager: MonitoringManager.getInstance(),

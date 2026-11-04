@@ -14,6 +14,7 @@ import NoFriendsQueuePage from "./pages/NoFriendsQueuePage";
 import NoFriendsOptionsPage from "./pages/NoFriendsOptionsPage";
 
 import OpenPage5Navigator from "./components/OpenPage5Navigator";
+import ClientPageConfirmationReporter from "./components/ClientPageConfirmationReporter";
 
 import RoomNetworkHandoffBootstrap from "./components/RoomNetworkHandoffBootstrap";
 
@@ -41,6 +42,7 @@ import {
 } from "./game/result/gameResultFlow";
 import socket from "./socket/socket";
 import { LOBBY_OUTGOING_EVENTS } from "./socket/socketEvents";
+import { CLIENT_PAGE_NAMES } from "./game/diagnostics/clientPageConfirmation.js";
 
 const PageDeveloperConsole = DEV_CONSOLE_ENABLED
     ? lazy(() => import("./pages/PageDeveloperConsole.jsx"))
@@ -119,6 +121,7 @@ function GameFlow() {
     const [sessionGeneration, setSessionGeneration] = useState(0);
 
     const currentPageRef = useRef(currentPage);
+    const lastNavigationRequestRef = useRef(null);
 
     useEffect(() => {
         currentPageRef.current = currentPage;
@@ -128,6 +131,11 @@ function GameFlow() {
     function navigate(page, navigationOptions = {}) {
 
         const fromPage = currentPageRef.current;
+        lastNavigationRequestRef.current = {
+            fromPage,
+            toPage: page,
+            requestedAt: Date.now()
+        };
 
         const isVerifiedNewGameplay = page === APP_PAGES.GAMEPLAY
             && navigationOptions.authoritativeNewGame === true
@@ -170,6 +178,11 @@ function GameFlow() {
 
     const performTerminalReset = useCallback(() => {
 
+        lastNavigationRequestRef.current = {
+            fromPage: currentPageRef.current,
+            toPage: APP_PAGES.WELCOME,
+            requestedAt: Date.now()
+        };
         currentPageRef.current = APP_PAGES.WELCOME;
         setCurrentPage(APP_PAGES.WELCOME);
 
@@ -492,7 +505,17 @@ function GameFlow() {
                     */}
                     <RoomNetworkHandoffBootstrap onNavigate={navigate} />
 
-                    {renderPage()}
+                    <div
+                        data-wheelwin-app-page-root={CLIENT_PAGE_NAMES[currentPage] ?? "OTHER"}
+                        style={{ display: "contents" }}
+                    >
+                        {renderPage()}
+                    </div>
+
+                    <ClientPageConfirmationReporter
+                        currentPage={currentPage}
+                        lastNavigationRequest={lastNavigationRequestRef.current}
+                    />
 
                     <RecoveryOverlay />
 

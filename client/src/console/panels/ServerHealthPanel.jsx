@@ -13,6 +13,7 @@ import PanelShell from "./shared/PanelShell";
 import { StatCard, StatGrid } from "./shared/StatGrid";
 import { StatusBadge } from "./shared/StatusDot";
 import EmptyState from "./shared/EmptyState";
+import { DataTable } from "./shared/DataTable";
 
 const SUBSYSTEMS = [
     { key: "socket", label: "Socket.IO" },
@@ -554,6 +555,82 @@ export default function ServerHealthPanel() {
                 ))}
 
             </div>
+
+            <h3 className="devConsole__sectionTitle">
+                Client page confirmations (diagnostic only)
+            </h3>
+
+            <p className="devConsole__placeholder">
+                Client reports describe its last committed route and visible DOM
+                evidence. They never authorize or pause gameplay. A stale row
+                means the server has no recent confirmation; it does not prove
+                what is currently displayed on the physical device.
+            </p>
+
+            <DataTable
+                empty="No active player has reported a page yet."
+                columns={[
+                    { key: "roomId", label: "Room" },
+                    { key: "gameId", label: "Game" },
+                    { key: "playerId", label: "Player" },
+                    { key: "authoritativePhase", label: "Server phase" },
+                    { key: "lastConfirmedPage", label: "Client page" },
+                    {
+                        key: "requestedPage",
+                        label: "Requested transition",
+                        render: (row) => row.requestedPage
+                            ? `${row.requestedFromPage ?? "?"} → ${row.requestedPage}`
+                            : "—"
+                    },
+                    {
+                        key: "uiState",
+                        label: "Applied route",
+                        render: (row) => row.uiState?.appliedPage ?? "—"
+                    },
+                    { key: "clientTransitionAt", label: "Client time" },
+                    { key: "serverReceivedAt", label: "Received" },
+                    { key: "socketConnected", label: "Socket" },
+                    {
+                        key: "ageMs",
+                        label: "Age",
+                        render: (row) => row.ageMs == null
+                            ? "—"
+                            : `${Math.floor(row.ageMs / 1000)}s`
+                    },
+                    {
+                        key: "stale",
+                        label: "Freshness",
+                        render: (row) => row.missingConfirmation
+                            ? "MISSING"
+                            : row.stale ? "STALE" : "CURRENT"
+                    },
+                    {
+                        key: "pageMatchesServer",
+                        label: "Match",
+                        render: (row) => row.pageMatchesServer == null
+                            ? "UNKNOWN"
+                            : row.pageMatchesServer ? "YES" : "MISMATCH"
+                    },
+                    {
+                        key: "uiStateMismatch",
+                        label: "UI mismatch",
+                        render: (row) => row.uiState == null
+                            ? "UNKNOWN"
+                            : row.uiStateMismatch ? "YES" : "NO"
+                    },
+                    {
+                        key: "uiState",
+                        label: "UI evidence",
+                        render: (row) => row.uiState
+                            ? `mounted=${row.uiState.mounted}; visible=${row.uiState.visible}; topmost=${row.uiState.topmostAtSample}; overlays=${row.uiState.blockingUi.join(",") || "none"}`
+                            : "No client report"
+                    }
+                ]}
+                rows={(server.clientPageConfirmations ?? []).map((row) => ({
+                    id: `${row.roomId}:${row.playerId}`,
+                    data: row
+                }))}
+            />
 
         </PanelShell>
 

@@ -1,6 +1,7 @@
 import {
     APP_PAGES,
     resolveRoomRecoveryPage,
+    resolveGameplayPageFromRoomRecovery,
     shouldAcceptRoomRecoverySync,
     buildRoomRecoveryIdentityUpdate
 } from "./recoveryFlow.js";
@@ -24,6 +25,19 @@ for (const stage of ["GAMEPLAY", "RESULT", "UNKNOWN"]) {
     if (resolveRoomRecoveryPage(stage) !== null) {
         throw new Error(`${stage} must remain under the existing gameplay recovery protocol`);
     }
+}
+
+if (resolveGameplayPageFromRoomRecovery({ stage: "GAMEPLAY" }) !== null) {
+    throw new Error("Lifecycle labels alone must not select a gameplay page");
+}
+if (resolveGameplayPageFromRoomRecovery({ authoritativePage: "PAGE5_GAME" }) !== APP_PAGES.GAMEPLAY) {
+    throw new Error("Server-authoritative Page5 hint must restore Page5");
+}
+if (resolveGameplayPageFromRoomRecovery({ authoritativePage: "PAGE6_RESULT" }) !== APP_PAGES.RESULT) {
+    throw new Error("Server-authoritative Page6 hint must restore Page6");
+}
+if (resolveGameplayPageFromRoomRecovery({ authoritativePage: "PAGE4_PAYMENT" }) !== null) {
+    throw new Error("Unsupported page hints must not redirect the client");
 }
 
 const payload = { roomId: "room-1", playerId: "player-1", stage: "MATRIX" };

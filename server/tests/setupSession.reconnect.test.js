@@ -164,6 +164,12 @@ function assert(condition, message) {
             "OPEN_PAGE5 must preserve the production { roomId } contract"
         );
 
+        const page5Route = delivered.find(
+            (event) => event.eventName === LOBBY_SERVER_EVENTS.ROOM_RECOVERY_SYNC
+        );
+        assert(page5Route?.payload?.authoritativePage === "PAGE5_GAME",
+            "room recovery must expose the server-owned Page5 fallback route");
+
         const authorized = delivered.find(
             (event) => event.eventName === LOBBY_SERVER_EVENTS.GAME_START_AUTHORIZED
         );
@@ -217,6 +223,12 @@ function assert(condition, message) {
                 && page6Snapshot.message.payload.openPage6 === true,
             "Page6 reconnect must receive the authoritative result snapshot"
         );
+
+        const page6Route = delivered.find(
+            (event) => event.eventName === LOBBY_SERVER_EVENTS.ROOM_RECOVERY_SYNC
+        );
+        assert(page6Route?.payload?.authoritativePage === "PAGE6_RESULT",
+            "cached Page6 authority must recover the route without Page5 demotion");
 
         console.log("  scenario G (Page5 and Page6 authoritative recovery) passed");
 

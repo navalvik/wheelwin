@@ -69,6 +69,7 @@ export const LOBBY_OUTGOING_EVENTS = Object.freeze({
     LEAVE_ROOM: "leaveRoom",
     /** R12.5G — observation-only Page6 / InfoBar client diagnostics. */
     PAGE6_CLIENT_DIAG: "PAGE6_CLIENT_DIAG",
+    CLIENT_PAGE_CONFIRMED: "CLIENT_PAGE_CONFIRMED",
     NO_FRIENDS_REQUEST: "noFriendsRequest",
     NO_FRIENDS_OPTIONS_NEXT: "noFriendsOptionsNext"
 });

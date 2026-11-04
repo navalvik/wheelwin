@@ -111,7 +111,7 @@ export class GameplayContextResolver {
 
     }
 
-    resolve(socketId) {
+    resolveRoomPlayer(socketId) {
 
         const binding = this._socketBindings.get(socketId);
 
@@ -177,15 +177,6 @@ export class GameplayContextResolver {
 
         const gameId = this._roomGames.get(roomId) ?? runtime.gameId ?? null;
 
-        if (!gameId) {
-
-            return {
-                ok: false,
-                reason: "No active gameplay session for this room"
-            };
-
-        }
-
         if (runtime.gameId && runtime.gameId !== gameId) {
 
             return {
@@ -201,6 +192,27 @@ export class GameplayContextResolver {
             roomId,
             gameId
         };
+
+    }
+
+    resolve(socketId) {
+
+        const identity = this.resolveRoomPlayer(socketId);
+
+        if (!identity.ok) return identity;
+
+        const { gameId } = identity;
+
+        if (!gameId) {
+
+            return {
+                ok: false,
+                reason: "No active gameplay session for this room"
+            };
+
+        }
+
+        return identity;
 
     }
 
