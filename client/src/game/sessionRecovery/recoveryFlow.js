@@ -84,6 +84,13 @@ export function resolveRoomRecoveryPage(stage) {
 
 }
 
+/** Route fallback from a server-owned gameplay recovery hint, never client state. */
+export function resolveGameplayPageFromRoomRecovery(payload) {
+    if (payload?.authoritativePage === "PAGE5_GAME") return APP_PAGES.GAMEPLAY;
+    if (payload?.authoritativePage === "PAGE6_RESULT") return APP_PAGES.RESULT;
+    return null;
+}
+
 export function shouldAcceptRoomRecoverySync({
     payload,
     identity,

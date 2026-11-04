@@ -111,7 +111,7 @@ export class GameplayContextResolver {
 
     }
 
-    resolve(socketId) {
+    resolveRoomPlayer(socketId) {
 
         const binding = this._socketBindings.get(socketId);
 
@@ -177,6 +177,30 @@ export class GameplayContextResolver {
 
         const gameId = this._roomGames.get(roomId) ?? runtime.gameId ?? null;
 
+        if (runtime.gameId && runtime.gameId !== gameId) {
+            return {
+                ok: false,
+                reason: "Player does not belong to the active gameplay session"
+            };
+        }
+
+        return {
+            ok: true,
+            playerId,
+            roomId,
+            gameId
+        };
+
+    }
+
+    resolve(socketId) {
+
+        const identity = this.resolveRoomPlayer(socketId);
+
+        if (!identity.ok) return identity;
+
+        const { playerId, roomId, gameId } = identity;
+
         if (!gameId) {
 
             return {
@@ -186,21 +210,7 @@ export class GameplayContextResolver {
 
         }
 
-        if (runtime.gameId && runtime.gameId !== gameId) {
-
-            return {
-                ok: false,
-                reason: "Player does not belong to the active gameplay session"
-            };
-
-        }
-
-        return {
-            ok: true,
-            playerId,
-            roomId,
-            gameId
-        };
+        return identity;
 
     }
 

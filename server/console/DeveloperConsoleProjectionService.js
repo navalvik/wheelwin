@@ -44,6 +44,7 @@ export class DeveloperConsoleProjectionService {
         gameClockEngine = null,
         winnerEngine = null,
         socketGateway = null,
+        clientPageConfirmationRegistry = null,
         metricsService = null,
         healthService = null,
         monitoringManager = null,
@@ -71,6 +72,7 @@ export class DeveloperConsoleProjectionService {
         this._gameClockEngine = gameClockEngine;
         this._winnerEngine = winnerEngine;
         this._socketGateway = socketGateway;
+        this._clientPageConfirmationRegistry = clientPageConfirmationRegistry;
         this._metricsService = metricsService;
         this._healthService = healthService;
         // R17.9T.8-completion — read-only access to monitoring registry gauges.
@@ -100,6 +102,8 @@ export class DeveloperConsoleProjectionService {
             recoveryEngine: this._recoveryEngine,
             simulationLoop: this._simulationLoop,
             socketGateway: this._socketGateway,
+            clientPageConfirmationRegistry: this._clientPageConfirmationRegistry,
+            playerManager: this._playerManager,
             resultSessionLifecycle: this._resultSessionLifecycle
         });
 

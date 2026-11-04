@@ -3498,6 +3498,12 @@ export class RoomLobbyBridge {
             gameMode: room.gameMode ?? "FRIENDS",
             network: this._roomNetworkByRoom.get(roomId) ?? null,
             stage,
+            // Explicit server-owned route hint closes the reconnect gap where
+            // pre-game Page4 remains mounted while a separate gameplay snapshot
+            // is delayed or unavailable. This is presentation recovery only.
+            authoritativePage: stage === "RESULT"
+                ? "PAGE6_RESULT"
+                : stage === "GAMEPLAY" ? "PAGE5_GAME" : null,
             profile: ownProfile,
             optionsReady: optionsReady?.has(playerId) === true,
             readyCount: optionsReady?.size ?? 0,

@@ -37,7 +37,9 @@ export const LOBBY_CLIENT_EVENTS = Object.freeze({
     // P6.5 — player cancelled Telegram Wallet payment confirmation.
     PAYMENT_CANCEL_INTENT: "PAYMENT_CANCEL_INTENT",
     // R12.5G — observation-only Page6 / InfoBar client diagnostics.
-    PAGE6_CLIENT_DIAG: "PAGE6_CLIENT_DIAG"
+    PAGE6_CLIENT_DIAG: "PAGE6_CLIENT_DIAG",
+    // Task 60 — client-applied page observation only; never a gameplay gate.
+    CLIENT_PAGE_CONFIRMED: "CLIENT_PAGE_CONFIRMED"
 });
 
 export const LOBBY_SERVER_EVENTS = Object.freeze({

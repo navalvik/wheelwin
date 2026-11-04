@@ -78,6 +78,7 @@ export class SocketGateway {
         roomLobbyBridge = null,
         resultSessionLifecycle = null,
         telegramAuth = null,
+        clientPageConfirmationRegistry = null,
         devMode = false
     }) {
 
@@ -107,6 +108,8 @@ export class SocketGateway {
         // Shape: { botToken: string|null, maxAgeSeconds?: number }
         // botToken is a server secret: never logged, never sent to clients.
         this._telegramAuth = telegramAuth ?? null;
+
+        this._clientPageConfirmationRegistry = clientPageConfirmationRegistry;
 
         this._devMode = devMode;
 
@@ -868,6 +871,27 @@ export class SocketGateway {
 
         });
 
+        // Task 60 — diagnostic page observation. Identity comes only from the
+        // existing server socket binding; this handler has no gameplay side
+        // effects and never participates in start, physics, or payout gates.
+        socket.on(LOBBY_CLIENT_EVENTS.CLIENT_PAGE_CONFIRMED, (payload, acknowledge) => {
+            const identity = this._gameplayContextResolver
+                ?.resolveRoomPlayer?.(socket.id);
+            const trustedIdentity = identity?.ok
+                ? identity
+                : this._clientPageConfirmationRegistry?.getTrustedIdentity?.(socket.id);
+            if (!trustedIdentity?.ok) {
+                acknowledge?.({ ok: false, reason: "IDENTITY_UNAVAILABLE" });
+                return;
+            }
+            const result = this._clientPageConfirmationRegistry?.record?.({
+                identity: trustedIdentity,
+                socketId: socket.id,
+                raw: payload
+            }) ?? { ok: false, reason: "REGISTRY_UNAVAILABLE" };
+            acknowledge?.(result);
+        });
+
         // R1.3D — never expose DEBUG_START_GAME outside development.
         if (this._devMode) {
 
@@ -941,6 +965,8 @@ export class SocketGateway {
         });
 
         this._socketRooms.delete(socket.id);
+
+        this._clientPageConfirmationRegistry?.markDisconnected?.(socket.id);
 
     }
 
@@ -1671,6 +1697,12 @@ export class SocketGateway {
 
         }
 
+        this._clientPageConfirmationRegistry?.observeAuthoritativePhase?.({
+            roomId,
+            gameId: statePayload.gameId,
+            phase: statePayload.currentState
+        });
+
         this._logGameStateSyncStep(
             `GAME_STATE_CHANGED → ${statePayload.currentState}`
         );
@@ -2200,6 +2232,8 @@ export class SocketGateway {
 
             const socket = this._io.sockets.sockets.get(delivery.socketId);
 
+            this._observeAuthoritativePage(delivery.event, delivery.payload);
+
             if (socket) {
 
                 socket.emit(delivery.event, delivery.payload);
@@ -2215,6 +2249,8 @@ export class SocketGateway {
             const roomId = delivery.roomId;
 
             const eventName = delivery.event;
+
+            this._observeAuthoritativePage(eventName, delivery.payload, roomId);
 
             if (
                 eventName === "SESSION_FINISHED"
@@ -2261,6 +2297,32 @@ export class SocketGateway {
 
         }
 
+    }
+
+    _observeAuthoritativePage(eventName, payload = {}, roomId = null) {
+        const pages = {
+            roomCreated: "ROOM_LOBBY",
+            roomJoined: "ROOM_LOBBY",
+            SETUP_SESSION_STARTED: "PAGE2_PLAYER_SETUP",
+            SECRET_MATRIX_ACCEPTED: "PAGE_MATRIX",
+            SECRET_MATRIX_STATUS: "PAGE_MATRIX",
+            VERIFY_COMPLETED: "PAGE3_VERIFY_PLAYERS",
+            PAYMENT_STAGE_READY: "PAGE4_PAYMENT",
+            OPEN_PAGE5: "PAGE5_GAME",
+            OPEN_PAGE6: "PAGE6_RESULT",
+            SESSION_FINISHED: "PAGE1_WELCOME"
+        };
+        const page = pages[eventName];
+        const boundRoomId = payload?.roomId ?? roomId;
+        if (!page || !boundRoomId) return;
+        this._clientPageConfirmationRegistry?.observeAuthoritativePage?.({
+            roomId: boundRoomId,
+            gameId: payload?.gameId
+                ?? this._gameplayContextResolver?.resolveGameIdByRoomId?.(boundRoomId)
+                ?? null,
+            page,
+            phase: payload?.phase ?? payload?.currentState ?? null
+        });
     }
 
     /**

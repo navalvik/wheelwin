@@ -23,7 +23,12 @@ export default function RecoveryOverlay() {
 
     return (
 
-        <div className="recoveryOverlay" role="status" aria-live="polite">
+        <div
+            className="recoveryOverlay"
+            role="status"
+            aria-live="polite"
+            data-wheelwin-blocking-ui="recovery-overlay"
+        >
 
             <div className="recoveryOverlay__card">
 

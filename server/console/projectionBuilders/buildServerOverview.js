@@ -13,12 +13,16 @@ export function buildServerOverview({
     recoveryEngine,
     simulationLoop,
     socketGateway,
+    clientPageConfirmationRegistry = null,
     resultSessionLifecycle = null
 }) {
 
     const rooms = roomManager?.getRooms?.() ?? [];
     const games = gameManager?.getGames?.() ?? [];
     const players = playerManager?.getDebugSnapshot?.()?.players ?? [];
+    const clientPageConfirmations = clientPageConfirmationRegistry?.getSnapshot?.(
+        players
+    ) ?? [];
     const setup = setupSessionLifecycle?.getDebugSnapshot?.() ?? { activeCount: 0 };
     const recoveryIds = recoveryEngine?.listActiveRecoveryGameIds?.() ?? [];
     const memory = process.memoryUsage();
@@ -58,6 +62,7 @@ export function buildServerOverview({
             resultSessionLifecycle?.getActiveSessionCount?.() ?? 0,
         activeSimulations: simulationLoop?.getActiveGameCount?.() ?? 0,
         socketCount: socketGateway?.getConnectedSocketCount?.() ?? 0,
+        clientPageConfirmations,
         memory: Object.freeze({
             rss: memory.rss,
             heapTotal: memory.heapTotal,

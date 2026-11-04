@@ -18,6 +18,7 @@ import {
     isSetupRecoveryPage,
     isTerminalRecoveryFailure,
     resolveGameplayRecoveryPage,
+    resolveGameplayPageFromRoomRecovery,
     shouldPreservePage6OnRecoveryFailure,
     resolveRoomRecoveryPage,
     shouldAcceptRoomRecoverySync,
@@ -290,11 +291,12 @@ export function RecoveryExperienceProvider({
 
         setIdentity(buildRoomRecoveryIdentityUpdate(payload, previousIdentity));
 
-        const targetPage = resolveRoomRecoveryPage(payload.stage);
+        const targetPage = resolveGameplayPageFromRoomRecovery(payload)
+            ?? resolveRoomRecoveryPage(payload.stage);
         if (targetPage && targetPage !== currentPage) onNavigate(targetPage);
 
-        // GAMEPLAY and RESULT continue through OPEN_PAGE5 and the authoritative
-        // SESSION_SNAPSHOT. Stage metadata never navigates those pages.
+        // The route hint is derived by the server from its current lifecycle.
+        // The full gameplay state still restores through SESSION_SNAPSHOT.
         setStatus(showOverlay ? RECOVERY_UI_STATUS.COMPLETE : RECOVERY_UI_STATUS.IDLE);
         if (showOverlay) scheduleOverlayHide();
 
