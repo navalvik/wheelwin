@@ -105,6 +105,7 @@ import { createRoomWalletRuntimeResolver } from "./payment/roomWallet/RoomWallet
 import { AuditActivation } from "./gameplay/AuditActivation.js";
 import { RecoverySnapshotCache } from "./gameplay/RecoverySnapshotCache.js";
 import { GameplayLifecycle } from "./gameplay/GameplayLifecycle.js";
+import { GameplayPaymentTerminalBridge } from "./gameplay/GameplayPaymentTerminalBridge.js";
 import { SetupSessionLifecycle } from "./gameplay/SetupSessionLifecycle.js";
 import { ResultSessionLifecycle } from "./gameplay/ResultSessionLifecycle.js";
 import { GameStartAuthorization } from "./gameplay/GameStartAuthorization.js";
@@ -233,6 +234,8 @@ class WheelWinApplication {
         this._recoverySnapshotCache = null;
 
         this._gameplayLifecycle = null;
+
+        this._gameplayPaymentTerminalBridge = null;
 
         this._setupSessionLifecycle = null;
 
@@ -733,6 +736,10 @@ class WheelWinApplication {
         });
 
         this._eventBus.initialize();
+
+        this._gameplayPaymentTerminalBridge = new GameplayPaymentTerminalBridge({
+            eventBus: this._eventBus
+        });
 
         this._logger.startupLine("EventBus");
 
@@ -1342,6 +1349,22 @@ class WheelWinApplication {
                     // One bounded pass: execute unattempted debts, verify history, archive.
                     void incomingRecovery.runPass().catch(() => this._logger.warn('Testnet incoming receipt history pending'))
                         .then(() => refundExecutor.runPass()).then(() => this._winnerPayoutCoordinator?.recoverPendingResults?.()).then(() => this._pendingPayoutRecovery.runPass())
+                        .then(pass => {
+                            for (const result of pass?.results ?? []) {
+                                const context = paymentRuntime.outcomeStore?.list?.()
+                                    .find(item => item.context?.payoutId === result.payoutId)?.context;
+                                if (!context?.gameId) continue;
+                                this._gameplayPaymentTerminalBridge?.trackPayout({
+                                    gameId: context.gameId,
+                                    payoutId: result.payoutId
+                                });
+                                this._gameplayPaymentTerminalBridge?.observePayoutOutcome({
+                                    payoutId: result.payoutId,
+                                    status: result.status
+                                });
+                            }
+                            return pass;
+                        })
                         .then(() => this._pendingRefundRecovery.runPass())
                         .then(async () => {
                             if (!this._forensicArchiveService) return;
@@ -1391,10 +1414,20 @@ class WheelWinApplication {
                         .then(() => this._winnerPayoutCoordinator.onGameResult({
                             gameId: envelope.payload?.gameId
                         }))
-                        .then((outcome) => this._logger.info(
-                            `TESTNET_WINNER_PAYOUT | gameId=${envelope.payload?.gameId}`
-                                + ` | status=${outcome.status}`
-                        ))
+                        .then((outcome) => {
+                            this._gameplayPaymentTerminalBridge?.trackPayout({
+                                gameId: envelope.payload?.gameId,
+                                payoutId: outcome?.payoutId
+                            });
+                            this._gameplayPaymentTerminalBridge?.observePayoutOutcome({
+                                payoutId: outcome?.payoutId,
+                                status: outcome?.status
+                            });
+                            this._logger.info(
+                                `TESTNET_WINNER_PAYOUT | gameId=${envelope.payload?.gameId}`
+                                    + ` | status=${outcome.status}`
+                            );
+                        })
                         .catch((error) => this._logger.warn(
                             `TESTNET_WINNER_PAYOUT_PENDING | gameId=${envelope.payload?.gameId}`
                                 + ` | reason=${error?.message ?? "unavailable"}`
