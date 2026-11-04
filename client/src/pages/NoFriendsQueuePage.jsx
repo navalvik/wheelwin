@@ -4,7 +4,6 @@ import { useLanguage } from "../context/LanguageContext";
 import { APP_PAGES } from "../game/sessionRecovery/recoveryFlow";
 import { LOBBY_OUTGOING_EVENTS } from "../socket/socketEvents";
 import socket from "../socket/socket";
-import NoFriendsInsufficientBalanceOverlay from "../components/NoFriendsInsufficientBalanceOverlay";
 import { isTestnetDisplay } from "../config/displayNetwork";
 import { MIN_PLAYER_AGE, MAX_PLAYER_AGE } from "../utils/playerProfileRules";
 import "../styles/noFriends.css";
@@ -111,14 +110,17 @@ export default function NoFriendsQueuePage({ onNavigate, onBack }) {
         message={t("noFriends.queueTitle")}
         backEnabled={!waiting && !checking}
         onBack={onBack}
-        nextEnabled={!waiting && !checking && valid}
+        nextEnabled={!waiting && !checking && !insufficientBalance && valid}
         nextLabel={t("noFriends.findGame")}
         onNext={submit}
     >
         <div className="noFriendsPage">
             <div className="noFriendsForm">
                 <label>{t("noFriends.baseStake")}
-                    <select value={baseStake} onChange={(event) => setBaseStake(event.target.value)} disabled={Boolean(waiting) || checking}>
+                    <select value={baseStake} onChange={(event) => {
+                        setBaseStake(event.target.value);
+                        setInsufficientBalance(null);
+                    }} disabled={Boolean(waiting) || checking}>
                         <option value="1">{t("setup.oneGram")}</option>
                         <option value="10">{t("setup.tenGram")}</option>
                     </select>
@@ -131,7 +133,10 @@ export default function NoFriendsQueuePage({ onNavigate, onBack }) {
                     <input inputMode="numeric" value={age} onChange={(event) => setAge(event.target.value.replace(/\D/g, ""))} disabled={Boolean(waiting) || checking} />
                 </label>
                 <label>{t(testnet ? "noFriends.wallet" : "noFriends.mainnetWallet")}
-                    <input autoComplete="off" value={wallet} onChange={(event) => setWallet(event.target.value)} disabled={Boolean(waiting) || checking} />
+                    <input autoComplete="off" value={wallet} onChange={(event) => {
+                        setWallet(event.target.value);
+                        setInsufficientBalance(null);
+                    }} disabled={Boolean(waiting) || checking} />
                 </label>
                 {waiting && <div className="noFriendsWaiting">
                     {t("noFriends.waiting", { count: waiting.waitingFor })}<br />
@@ -140,11 +145,13 @@ export default function NoFriendsQueuePage({ onNavigate, onBack }) {
                 {checking && <div className="noFriendsWaiting">{t(testnet ? "noFriends.checkingWallet" : "noFriends.checkingMainnetWallet")}</div>}
                 {error && <div className="noFriendsError">{error}</div>}
             </div>
-            {insufficientBalance && <NoFriendsInsufficientBalanceOverlay
-                minimumBalanceGram={insufficientBalance.minimumBalanceGram}
-                baseStake={insufficientBalance.baseStake}
-                onDismiss={() => setInsufficientBalance(null)}
-            />}
+            {insufficientBalance && <div className="noFriendsError" role="alert">
+                <strong>{t("noFriends.insufficientBalance.title")}</strong>
+                <p>{t("noFriends.insufficientBalance.body", {
+                    minimum: insufficientBalance.minimumBalanceGram,
+                    stake: insufficientBalance.baseStake
+                })}</p>
+            </div>}
         </div>
     </GameLayout>;
 

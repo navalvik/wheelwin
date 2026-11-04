@@ -7,9 +7,4 @@
 .noFriendsForm input,.noFriendsForm select{box-sizing:border-box;width:100%;min-height:44px;padding:8px 11px;border:1px solid #9cbadd;border-radius:8px;background:#fff;color:#111;font-size:16px}
 .noFriendsNetwork,.noFriendsStatus,.noFriendsWaiting{padding:12px;border-radius:9px;background:#eff6fc;color:#124b83;text-align:center;font-weight:700;line-height:1.5}
 .noFriendsError{padding:11px;border-radius:8px;background:#fff0ef;color:#9e1c15;text-align:center;font-weight:700}
-.noFriendsBalanceOverlay{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:20px;background:rgba(9,24,43,.72)}
-.noFriendsBalanceOverlay__panel{box-sizing:border-box;width:min(100%,440px);padding:24px;border:2px solid #2d83df;border-radius:16px;background:#fff;color:#123b64;box-shadow:0 18px 55px rgba(0,0,0,.28);text-align:center}
-.noFriendsBalanceOverlay__panel h2{margin:0 0 14px;font-size:clamp(20px,5vw,26px);color:#9e1c15}
-.noFriendsBalanceOverlay__panel p{margin:0;line-height:1.55}
-.noFriendsBalanceOverlay__panel button{min-width:120px;min-height:44px;margin-top:20px;border:0;border-radius:9px;background:#176fc4;color:#fff;font-size:16px;font-weight:700;cursor:pointer}
 @media(max-width:480px){.noFriendsPage{padding:14px}.noFriendsPage--entry{gap:10px}.noFriendsChoice{width:50%;min-height:76px;font-size:15px}.noFriendsForm{padding:14px}}
