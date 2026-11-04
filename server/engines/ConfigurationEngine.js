@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { computeConfigurationHash } from "../recovery/configurationHash.js";
 
 import { EVENT_SOURCES } from "../events/EventSources.js";
 import { EVENT_TYPES } from "../events/EventTypes.js";
@@ -700,9 +700,7 @@ export class ConfigurationEngine {
         }
 
         // Configuration hash validation against the complete persisted configuration.
-        const computedHash = createHash("sha256")
-            .update(stableStringify(configuration))
-            .digest("hex");
+        const computedHash = computeConfigurationHash(configuration);
 
         if (computedHash !== configurationHash) {
 
@@ -719,9 +717,7 @@ export class ConfigurationEngine {
 
         if (existing) {
 
-            const existingHash = createHash("sha256")
-                .update(stableStringify(existing))
-                .digest("hex");
+            const existingHash = computeConfigurationHash(existing);
 
             if (existingHash === configurationHash) {
 

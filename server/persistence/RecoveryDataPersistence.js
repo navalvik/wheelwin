@@ -15,6 +15,10 @@
  */
 
 import { createHash } from "node:crypto";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { join, basename } from "node:path";
+import { durableWriteJson } from "../payment/DurableJson.js";
+import { computeConfigurationHash } from "../recovery/configurationHash.js";
 
 /**
  * Recovery Data Contract version.
@@ -138,7 +142,8 @@ export class CorruptedRecordError extends RecoveryDataError {
 }
 
 /**
- * Compute a deterministic checksum for a payload (sha256 of stable JSON).
+ * Compute the existing Recovery Data Contract payload checksum.
+ * Its JSON.stringify format is intentionally retained for on-disk compatibility.
  *
  * @param {object} payload
  * @returns {string} Hex digest.
@@ -149,6 +154,7 @@ export function computePayloadChecksum(payload) {
 
 /**
  * @typedef {object} RecoveryDataPersistenceOptions
+ * @property {string} dataDir - Network-specific durable recovery directory.
  * @property {object} [logger]
  */
 export class RecoveryDataPersistence {
@@ -156,12 +162,14 @@ export class RecoveryDataPersistence {
     /**
      * @param {RecoveryDataPersistenceOptions} options
      */
-    constructor({ logger = null } = {}) {
+    constructor({ dataDir, logger = null } = {}) {
+
+        if (typeof dataDir !== "string" || !dataDir.trim()) {
+            throw new RecoveryDataError("RecoveryDataPersistence requires a network-specific dataDir");
+        }
 
         this._logger = logger;
-
-        /** @type {Map<string, object>} */
-        this._records = new Map();
+        this._dataDir = dataDir;
 
     }
 
@@ -183,14 +191,6 @@ export class RecoveryDataPersistence {
 
         const recordId = recoveryData.recoveryRecordId;
 
-        if (this._records.has(recordId)) {
-
-            throw new RecoveryDataError(
-                `Recovery data record already exists: ${recordId}`
-            );
-
-        }
-
         const status = metadata.status ?? "ACTIVE";
 
         const record = Object.freeze({
@@ -203,7 +203,15 @@ export class RecoveryDataPersistence {
             metadata: Object.freeze({ ...metadata })
         });
 
-        this._records.set(recordId, record);
+        this._validateStatus(status, recordId);
+        try {
+            durableWriteJson(this._recordPath(recordId), record, { exclusive: true });
+        } catch (error) {
+            if (error?.code === "EEXIST") {
+                throw new RecoveryDataError(`Recovery data record already exists: ${recordId}`);
+            }
+            throw error;
+        }
 
         this._logInfo(`RecoveryDataPersistence: record created | id=${recordId}`);
 
@@ -220,12 +228,19 @@ export class RecoveryDataPersistence {
      */
     loadRecoveryRecord(recordId) {
 
-        const record = this._records.get(recordId) ?? null;
-
-        if (!record) {
-
-            return null;
-
+        const path = this._recordPath(recordId);
+        if (!existsSync(path)) return null;
+        let parsed;
+        try {
+            parsed = JSON.parse(readFileSync(path, "utf8"));
+        } catch (error) {
+            throw new CorruptedRecordError(recordId, `json_parse_failed:${error?.message ?? "invalid_json"}`);
+        }
+        let record;
+        try {
+            record = this._hydrateRecord(parsed);
+        } catch (error) {
+            throw new CorruptedRecordError(recordId, error?.message ?? "invalid_envelope");
         }
 
         const validationResult = this.validateRecoveryRecord(record);
@@ -244,30 +259,36 @@ export class RecoveryDataPersistence {
     }
 
     /**
-     * List all active recovery data records.
+     * List all valid recovery records. Terminal entries are returned so the
+     * orchestrator can explicitly classify and skip them.
      *
      * @returns {object[]} Array of valid public records. Invalid records are skipped.
      */
     listRecoveryRecords() {
 
-        return [...this._records.values()].filter((record) => {
-
-            const result = this.validateRecoveryRecord(record);
-
-            if (!result.valid) {
-
-                this._logError(
-                    `RecoveryDataPersistence: skipping invalid recovery record | `
-                        + `id=${record.recordId} | errors=${result.errors.join(",")}`
-                );
-
-                return false;
-
+        let filenames;
+        try {
+            filenames = readdirSync(this._dataDir);
+        } catch (error) {
+            if (error?.code === "ENOENT") return [];
+            throw error;
+        }
+        const records = [];
+        for (const filename of filenames.filter((entry) => entry.endsWith(".json"))) {
+            const path = join(this._dataDir, filename);
+            try {
+                const record = this._hydrateRecord(JSON.parse(readFileSync(path, "utf8")));
+                const result = this.validateRecoveryRecord(record);
+                if (!result.valid || basename(this._recordPath(record.recordId)) !== filename) {
+                    this._logError(`RecoveryDataPersistence: skipping invalid recovery record | id=${filename} | errors=${result.errors.join(",") || "filename_mismatch"}`);
+                    continue;
+                }
+                records.push(record);
+            } catch (error) {
+                this._logError(`RecoveryDataPersistence: skipping invalid recovery record | id=${filename} | errors=${error?.message ?? "invalid_record"}`);
             }
-
-            return true;
-
-        });
+        }
+        return records;
 
     }
 
@@ -285,7 +306,11 @@ export class RecoveryDataPersistence {
 
         this._validateRecoveryPayload(recoveryData);
 
-        const existing = this._records.get(recordId);
+        if (recoveryData.recoveryRecordId !== recordId) {
+            throw new RecoveryDataError("Recovery data record identity cannot be changed");
+        }
+
+        const existing = this.loadRecoveryRecord(recordId);
 
         if (!existing) {
 
@@ -311,7 +336,8 @@ export class RecoveryDataPersistence {
             metadata: Object.freeze({ ...existing.metadata, ...metadata })
         });
 
-        this._records.set(recordId, record);
+        this._validateStatus(status, recordId);
+        durableWriteJson(this._recordPath(recordId), record);
 
         return record;
 
@@ -333,6 +359,20 @@ export class RecoveryDataPersistence {
 
             return { valid: false, errors: ["record_missing"] };
 
+        }
+
+        if (typeof record.recordId !== "string"
+            || record.recordId !== record.payload?.recoveryRecordId) {
+            errors.push("record_identity_mismatch");
+        }
+
+        if (record.immutable !== RECOVERY_DATA_TERMINAL_STATUSES.includes(record.status)) {
+            errors.push("record_immutability_mismatch");
+        }
+
+        if (record.status !== "ACTIVE"
+            && !RECOVERY_DATA_TERMINAL_STATUSES.includes(record.status)) {
+            errors.push("record_status_invalid");
         }
 
         // --- Checksum verification (re-verify from public record) ---
@@ -410,7 +450,7 @@ export class RecoveryDataPersistence {
 
         if (payload.configuration != null && payload.configurationHash != null) {
 
-            const computedHash = computePayloadChecksum(payload.configuration);
+            const computedHash = computeConfigurationHash(payload.configuration);
 
             if (computedHash !== payload.configurationHash) {
 
@@ -512,6 +552,13 @@ export class RecoveryDataPersistence {
      */
     _validateRecoveryPayload(payload) {
 
+        const sensitiveField = this._findForbiddenFinancialField(payload);
+        if (sensitiveField) {
+            throw new RecoveryDataError(
+                `Recovery data payload contains forbidden financial field: ${sensitiveField}`
+            );
+        }
+
         if (!payload || typeof payload !== "object") {
 
             throw new RecoveryDataError(
@@ -579,7 +626,7 @@ export class RecoveryDataPersistence {
 
         if (payload.configuration != null && payload.configurationHash != null) {
 
-            const computedHash = computePayloadChecksum(payload.configuration);
+            const computedHash = computeConfigurationHash(payload.configuration);
 
             if (computedHash !== payload.configurationHash) {
 
@@ -661,6 +708,49 @@ export class RecoveryDataPersistence {
             ...overrides
         };
 
+    }
+
+    _recordPath(recordId) {
+        const filename = createHash("sha256").update(String(recordId)).digest("hex");
+        return join(this._dataDir, `${filename}.json`);
+    }
+
+    _hydrateRecord(record) {
+        if (!record || typeof record !== "object"
+            || !record.payload || typeof record.payload !== "object"
+            || !record.metadata || typeof record.metadata !== "object") {
+            throw new RecoveryDataError("Recovery data envelope is invalid");
+        }
+        if (record.status !== "ACTIVE"
+            && !RECOVERY_DATA_TERMINAL_STATUSES.includes(record.status)) {
+            throw new RecoveryDataError("Recovery data status is unsupported");
+        }
+        if (typeof record.immutable !== "boolean") {
+            throw new RecoveryDataError("Recovery data envelope immutable marker is missing");
+        }
+        return Object.freeze({
+            ...record,
+            payload: Object.freeze({ ...record.payload }),
+            metadata: Object.freeze({ ...record.metadata })
+        });
+    }
+
+    _findForbiddenFinancialField(value, path = "payload") {
+        if (!value || typeof value !== "object") return null;
+        const forbidden = /(payment|settlement|wallet|refund|payout|transaction|balance|amount|nano|financial|receipt|intent|contractId|snapshotHash)/i;
+        for (const [key, child] of Object.entries(value)) {
+            const nextPath = `${path}.${key}`;
+            if (forbidden.test(key)) return nextPath;
+            const nested = this._findForbiddenFinancialField(child, nextPath);
+            if (nested) return nested;
+        }
+        return null;
+    }
+
+    _validateStatus(status, recordId) {
+        if (status !== "ACTIVE" && !RECOVERY_DATA_TERMINAL_STATUSES.includes(status)) {
+            throw new RecoveryDataError(`Recovery data status is unsupported: ${recordId}`);
+        }
     }
 
     _logInfo(message) {

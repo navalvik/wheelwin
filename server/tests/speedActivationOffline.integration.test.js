@@ -10,6 +10,7 @@ import { CONNECTION_STATE } from "../models/ConnectionState.js";
 import { PLAYER_STATE } from "../models/PlayerState.js";
 import { PlayerManager } from "../managers/PlayerManager.js";
 import { GameStateActivation } from "../gameplay/GameStateActivation.js";
+import { GameplayPhaseLifecycle } from "../gameplay/GameplayPhaseLifecycle.js";
 import { SpeedActivation } from "../gameplay/SpeedActivation.js";
 import { OfflineInputContinuation } from "../gameplay/OfflineInputContinuation.js";
 import { LoggerService } from "../services/LoggerService.js";
@@ -19,15 +20,11 @@ import {
     exhaustAllPlayerInput
 } from "./helpers/gameplayBootstrapHarness.js";
 import { GameCatalog } from "../catalog/GameCatalog.js";
+import { TIMER_PHASES } from "../catalog/Timers.js";
 
-// C4.8b — Authoritative Offline Input Continuation.
-//
-// These scenarios prove the original WheelWin philosophy: an offline player
-// never stops the game and never changes the outcome merely by disconnecting.
-// Their remaining SPEED interaction is continued authoritatively through the
-// same InputAuthority path, so they still reach the press limit and still push
-// the wheel. SPEED completes on the plain full-roster rule (SpeedActivation),
-// never early because a player vanished.
+// Offline SPEED behavior: disconnecting does not synthesize player input or
+// change the timed game lifecycle. A held input is released by the server;
+// otherwise the player's input count remains as-is while the phase clock runs.
 
 function assert(condition, message) {
 
@@ -128,7 +125,13 @@ function buildSpeedStack() {
 
     catalog.initialize();
 
-    catalog.getTimers = () => createFastTimers();
+    const fastTimers = createFastTimers();
+
+    // Keep a little more time in the mock SPEED phase so the integration test
+    // can exercise disconnect continuation; production timers remain unchanged.
+    fastTimers[TIMER_PHASES.SPEED].durationMs = 250;
+
+    catalog.getTimers = () => fastTimers;
 
     const fastInputCatalog = createFastInputCatalog(catalog);
 
@@ -190,6 +193,16 @@ function buildSpeedStack() {
 
     gameStateActivation.initialize();
 
+    const gameplayPhaseLifecycle = new GameplayPhaseLifecycle({
+        logger,
+        eventBus,
+        gameStateEngine,
+        gameClockEngine,
+        devMode: true
+    });
+
+    gameplayPhaseLifecycle.initialize();
+
     const speedActivation = new SpeedActivation({
         logger,
         eventBus,
@@ -222,6 +235,7 @@ function buildSpeedStack() {
         inputAuthority,
         simulationLoop,
         gameStateActivation,
+        gameplayPhaseLifecycle,
         speedActivation,
         offlineInputContinuation,
         shutdown() {
@@ -229,6 +243,8 @@ function buildSpeedStack() {
             offlineInputContinuation.shutdown();
 
             speedActivation.shutdown();
+
+            gameplayPhaseLifecycle.shutdown();
 
             gameStateActivation.shutdown();
 
@@ -258,6 +274,29 @@ async function bootstrapSpeedGame(stack, {
     players,
     connectionByPlayer
 }) {
+
+    // The fast timer fixture can advance through SPEED before the setup code
+    // finishes registering players. Observe the authoritative phase event
+    // instead of polling a short-lived state after the fact.
+    const speedStarted = new Promise((resolve) => {
+
+        const handler = (envelope) => {
+
+            if (envelope.payload?.gameId !== gameId) {
+
+                return;
+
+            }
+
+            stack.eventBus.unsubscribe(EVENT_TYPES.SPEED_STARTED, handler);
+
+            resolve();
+
+        };
+
+        stack.eventBus.subscribe(EVENT_TYPES.SPEED_STARTED, handler);
+
+    });
 
     stack.eventBus.emit({
         source: "test",
@@ -290,11 +329,12 @@ async function bootstrapSpeedGame(stack, {
 
     stack.inputAuthority.registerPlayers(gameId, players);
 
-    const reachedSpeed = await poll(
-        () => stack.gameStateEngine.getState(gameId) === GAME_STATES.SPEED
-    );
+    await speedStarted;
 
-    assert(reachedSpeed, `${gameId} should reach SPEED`);
+    assert(
+        stack.gameStateEngine.getState(gameId) === GAME_STATES.SPEED,
+        `${gameId} should reach SPEED (actual: ${stack.gameStateEngine.getState(gameId)})`
+    );
 
 }
 
@@ -368,10 +408,8 @@ function countSpeedTimeouts(stack, gameId) {
 }
 
 // -------------------------------------------------------------------------
-// Scenario 2 — a player disconnects mid-SPEED after one cycle.
-// The server continues their remaining input; SPEED is NOT terminated early,
-// and the disconnected player still reaches the press limit (still pushes the
-// wheel) instead of vanishing.
+// Scenario 2 — a player disconnects mid-SPEED after one cycle. Their completed
+// input remains recorded; the server does not invent the two remaining cycles.
 // -------------------------------------------------------------------------
 
 {
@@ -408,8 +446,7 @@ function countSpeedTimeouts(stack, gameId) {
             "SPEED must persist while a player still has input remaining"
         );
 
-        // p_a drops. C4.8a would have ended SPEED immediately here (losing p_a's
-        // remaining acceleration). C4.8b continues p_a authoritatively instead.
+        // p_a drops while not holding the button. No synthetic input is added.
         stack.playerManager.setConnectionState(
             "p_a",
             CONNECTION_STATE.DISCONNECTED
@@ -425,18 +462,12 @@ function countSpeedTimeouts(stack, gameId) {
         );
 
         assert(
-            isLockedAtLimit(stack.inputAuthority, gameId, "p_a"),
-            "offline player must reach the full press limit via continuation"
+            stack.inputAuthority.getPlayerInputState(gameId, "p_a")?.pressCount === 1
+                && !stack.inputAuthority.getPlayerInputState(gameId, "p_a")?.locked,
+            "offline player's input count must remain unchanged"
         );
 
-        const sim = stack.physicsEngine.getSimulation(gameId);
-
-        assert(
-            sim && sim.runtime.angle > 0,
-            "the wheel must have received authoritative acceleration (angle > 0)"
-        );
-
-        console.log("  scenario 2 (disconnect mid-SPEED, continued) passed");
+        console.log("  scenario 2 (disconnect mid-SPEED, timed phase) passed");
 
     } finally {
 
@@ -447,8 +478,8 @@ function countSpeedTimeouts(stack, gameId) {
 }
 
 // -------------------------------------------------------------------------
-// Scenario 3 — every player is offline at SPEED entry.
-// The server still finishes gameplay entirely on their behalf.
+// Scenario 3 — every player is offline at SPEED entry. The clock still advances
+// the game without generating any player input.
 // -------------------------------------------------------------------------
 
 {
@@ -483,18 +514,12 @@ function countSpeedTimeouts(stack, gameId) {
         for (const playerId of players) {
 
             assert(
-                isLockedAtLimit(stack.inputAuthority, gameId, playerId),
-                `offline ${playerId} must be continued to the press limit`
+                stack.inputAuthority.getPlayerInputState(gameId, playerId)?.pressCount === 0
+                    && !stack.inputAuthority.getPlayerInputState(gameId, playerId)?.locked,
+                `offline ${playerId} must keep the initial input state`
             );
 
         }
-
-        const sim = stack.physicsEngine.getSimulation(gameId);
-
-        assert(
-            sim && sim.runtime.angle > 0,
-            "the wheel must still receive acceleration when all are offline"
-        );
 
         console.log("  scenario 3 (all offline at entry) passed");
 
@@ -507,9 +532,8 @@ function countSpeedTimeouts(stack, gameId) {
 }
 
 // -------------------------------------------------------------------------
-// Scenario 4 — a player reconnects during SPEED.
-// Continuation is handed back cleanly: no duplicated input, no duplicated
-// completion, and the player finishes their own remaining input.
+// Scenario 4 — a player reconnects during SPEED. Their input remains unchanged
+// and they can finish it themselves without duplicate phase completion.
 // -------------------------------------------------------------------------
 
 {
@@ -538,7 +562,7 @@ function countSpeedTimeouts(stack, gameId) {
 
         pressCycle(stack.inputAuthority, gameId, "p_c", 3);
 
-        // p_a drops: continuation adopts them.
+        // p_a drops while idle; no input continuation is created.
         stack.playerManager.setConnectionState(
             "p_a",
             CONNECTION_STATE.DISCONNECTED
@@ -549,11 +573,11 @@ function countSpeedTimeouts(stack, gameId) {
             .some((entry) => entry.gameId === gameId && entry.playerId === "p_a");
 
         assert(
-            activeAfterDrop,
-            "continuation must adopt the player immediately on disconnect"
+            !activeAfterDrop,
+            "disconnecting an idle player must not create synthetic input work"
         );
 
-        // p_a returns: continuation must hand control back at once.
+        // Reconnect does not change the player's authoritative input count.
         stack.playerManager.setConnectionState(
             "p_a",
             CONNECTION_STATE.CONNECTED
@@ -565,7 +589,7 @@ function countSpeedTimeouts(stack, gameId) {
 
         assert(
             !activeAfterReturn,
-            "continuation must release the player on reconnect"
+            "no synthetic input work should exist after reconnect"
         );
 
         assert(
@@ -580,7 +604,7 @@ function countSpeedTimeouts(stack, gameId) {
             () => stack.gameStateEngine.getState(gameId) === GAME_STATES.BRAKE
         );
 
-        assert(reachedBrake, "reconnected player finishing must complete SPEED");
+        assert(reachedBrake, "timed SPEED phase must proceed to BRAKE");
 
         assert(
             isLockedAtLimit(stack.inputAuthority, gameId, "p_a"),

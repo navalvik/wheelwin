@@ -22,7 +22,6 @@
  *   I.  MIXED candidates: one succeeds while another fails independently.
  *
  *   J.  INFRASTRUCTURE FAILURE is startup-fatal:
- *       - RecoveryDataPersistence cannot be constructed;
  *       - RecoveryOrchestrator cannot be constructed;
  *       - candidate discovery through the persistence layer fails.
  *
@@ -31,12 +30,12 @@
  *
  *   L.  EVENT ISOLATION: no ROOM_CREATED / GAME_CREATED / PLAYER_CREATED or
  *       other gameplay lifecycle events are emitted during startup recovery,
- *       and no financial side effects occur (record count unchanged).
+ *       and recovery does not create extra checkpoint records.
  */
 
+import { join, dirname } from "node:path";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
@@ -70,6 +69,28 @@ function assert(condition, message) {
         throw new Error(message);
 
     }
+
+}
+
+function stableStringify(value) {
+
+    if (Array.isArray(value)) {
+
+        return `[${value.map(stableStringify).join(",")}]`;
+
+    }
+
+    if (value && typeof value === "object") {
+
+        const entries = Object.keys(value).sort().map((key) =>
+            `${JSON.stringify(key)}:${stableStringify(value[key])}`
+        );
+
+        return `{${entries.join(",")}}`;
+
+    }
+
+    return JSON.stringify(value);
 
 }
 
@@ -279,7 +300,11 @@ function computeConfigurationHash(configuration) {
  */
 function buildPayload(ids, overrides = {}) {
 
-    const configuration = overrides.configuration ?? buildConfiguration(ids);
+    // Keep insertion order canonical so both RECOVERY_DATA's JSON checksum
+    // and ConfigurationEngine's stable hash describe the same bytes.
+    const configuration = JSON.parse(stableStringify(
+        overrides.configuration ?? buildConfiguration(ids)
+    ));
 
     const now = Date.now();
 
@@ -291,7 +316,6 @@ function buildPayload(ids, overrides = {}) {
         recoveryRecordId: ids.gameId,
         roomId: ids.roomId,
         gameId: ids.gameId,
-        contractId: `contract_${ids.gameId}`,
         correlationId: null,
         players: ids.playerIds.map((playerId, index) => ({
             playerId,
@@ -309,7 +333,6 @@ function buildPayload(ids, overrides = {}) {
         configurationHash: computeConfigurationHash(configuration),
         configurationVersion: "1.0",
         traceSeed: configuration.traceSeed,
-        snapshotHash: `snapshot-${ids.gameId}`,
         gameState: "READY",
         gameStatus: "RUNNING",
         phaseStartedAt: checkpoint,
@@ -463,17 +486,8 @@ function buildGraph() {
 
     winnerEngine.initialize();
 
-    const dataDir = mkdtempSync(join(tmpdir(), "wheelwin-startup-recovery-"));
-
-    const financialPersistence = new TonFinancialPersistence({
-        dataDir,
-        autoCheckpoint: false
-    });
-
-    financialPersistence.initialize();
-
     const recoveryDataPersistence = new RecoveryDataPersistence({
-        financialPersistence,
+        dataDir: mkdtempSync(join(tmpdir(), "wheelwin-startup-recovery-")),
         logger
     });
 
@@ -491,7 +505,6 @@ function buildGraph() {
         physicsEngine,
         inputAuthority,
         winnerEngine,
-        financialPersistence,
         recoveryDataPersistence
     };
 
@@ -601,7 +614,8 @@ function buildGraph() {
 
     const { outcome, failedCandidates } = runStartupRecoverySequence(graph);
 
-    assert(failedCandidates.length === 0, "C: unexpected failures");
+    assert(failedCandidates.length === 0,
+        `C: unexpected failures ${JSON.stringify(failedCandidates)}`);
     assert(outcome.summary.success === 1, "C: expected 1 recovered");
 
     assert(graph.roomManager.hasRoom(ids.roomId), "C: room missing");
@@ -724,6 +738,36 @@ function buildGraph() {
     graph.assertZeroLifecycleEvents("E");
 
     console.log("E. RESULT recovery OK");
+
+}
+
+// ===========================================================================
+// E2. TERMINAL RECOVERY ENVELOPE — never reconstructed as an active game
+// ===========================================================================
+
+{
+
+    const graph = buildGraph();
+
+    const ids = nextFixtureIds();
+
+    graph.recoveryDataPersistence.createRecoveryRecord(
+        buildPayload(ids, { gameState: "RESULT" }),
+        { status: "TERMINAL" }
+    );
+
+    const { outcome, failedCandidates } = runStartupRecoverySequence(graph);
+
+    assert(failedCandidates.length === 0, "E2: terminal checkpoint should be safely skipped");
+    assert(
+        outcome.results[0]?.status === RECOVERY_RESULT_STATUS.SKIPPED_FINANCIAL_ONLY,
+        "E2: terminal checkpoint must not be reconstructed as active gameplay"
+    );
+    assert(!graph.roomManager.hasRoom(ids.roomId), "E2: terminal room must stay detached");
+    assert(!graph.gameManager.hasGame(ids.gameId), "E2: terminal game must stay detached");
+    graph.assertZeroLifecycleEvents("E2");
+
+    console.log("E2. terminal recovery checkpoint safely skipped");
 
 }
 
@@ -924,23 +968,18 @@ function buildGraph() {
 
 {
 
-    // J1. RecoveryDataPersistence cannot be constructed.
-    let threw = false;
-
-    try {
-
-        new RecoveryDataPersistence({ financialPersistence: null });
-
-    } catch {
-
-        threw = true;
-
-    }
-
-    assert(threw, "J1: RecoveryDataPersistence construction must fail closed");
+    // The current RecoveryDataPersistence is a self-contained recovery-record
+    // store; construction does not depend on the retired financial persistence
+    // API. Startup must still fail closed if the orchestrator lacks its store.
+    const emptyRecoveryStore = new RecoveryDataPersistence({
+        dataDir: mkdtempSync(join(tmpdir(), "wheelwin-empty-recovery-")),
+        logger
+    });
+    assert(emptyRecoveryStore.listRecoveryRecords().length === 0,
+        "J1: a new recovery-record store starts empty");
 
     // J2. RecoveryOrchestrator cannot be constructed without persistence.
-    threw = false;
+    let threw = false;
 
     try {
 
@@ -1036,7 +1075,7 @@ function buildGraph() {
 }
 
 // ===========================================================================
-// L. FINANCIAL SIDE EFFECTS — none during startup recovery
+// L. RECOVERY RECORD SIDE EFFECTS — no extra records during startup recovery
 // ===========================================================================
 
 {
@@ -1049,17 +1088,15 @@ function buildGraph() {
         buildPayload(ids, { gameState: "READY" })
     );
 
-    const recordsBefore =
-        graph.financialPersistence.listActiveRecoveryDataRecords().length;
+    const recordsBefore = graph.recoveryDataPersistence.listRecoveryRecords().length;
 
     runStartupRecoverySequence(graph);
 
-    const recordsAfter =
-        graph.financialPersistence.listActiveRecoveryDataRecords().length;
+    const recordsAfter = graph.recoveryDataPersistence.listRecoveryRecords().length;
 
     assert(
         recordsBefore === recordsAfter,
-        "L: startup recovery must not write financial/recovery records"
+        "L: startup recovery must not create extra recovery records"
     );
 
     graph.assertZeroLifecycleEvents("L");

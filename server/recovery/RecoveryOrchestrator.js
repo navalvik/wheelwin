@@ -22,8 +22,8 @@
  *   - emits NO normal gameplay lifecycle events during construction,
  *     attach, validation, rollback or duplicate detection;
  *   - never registers SimulationLoop;
- *   - never triggers financial behavior; preserves financial reference IDs
- *     only (contractId, paymentSessionId, snapshotHash, winnerId);
+ *   - never triggers financial behavior or persists financial identifiers;
+ *     winnerId is retained only as gameplay result state;
  *   - does NOT integrate into server startup (independently callable);
  *   - SELF_TEST / SPEED / BRAKE candidates fail closed (active physics/input
  *     state is not persisted under the current contract).
@@ -39,6 +39,8 @@ import { Room } from "../models/Room.js";
 import { Game } from "../models/Game.js";
 import { PlayerIdentity } from "../models/PlayerIdentity.js";
 import { PlayerRuntime } from "../models/PlayerRuntime.js";
+import { RECOVERY_DATA_TERMINAL_STATUSES } from "../persistence/RecoveryDataPersistence.js";
+import { computeConfigurationHash } from "./configurationHash.js";
 
 /**
  * Gameplay phases eligible for full reconstruction under the current
@@ -1212,7 +1214,7 @@ export class RecoveryOrchestrator {
 
             if (existingConfiguration != null) {
 
-                const existingHash = computePayloadChecksum(existingConfiguration);
+                const existingHash = computeConfigurationHash(existingConfiguration);
 
                 if (existingHash !== payload.configurationHash) {
 
@@ -1347,7 +1349,7 @@ export class RecoveryOrchestrator {
 
         }
 
-        const computedHash = computePayloadChecksum(configuration);
+        const computedHash = computeConfigurationHash(configuration);
 
         if (computedHash !== payload.configurationHash) {
 

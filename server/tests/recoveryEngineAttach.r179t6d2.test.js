@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { EventBus } from "../events/EventBus.js";
 import { EVENT_TYPES } from "../events/EventTypes.js";
 import { ConfigurationEngine } from "../engines/ConfigurationEngine.js";
+import { stableStringify } from "../recovery/configurationHash.js";
 import { GameStateEngine } from "../engines/GameStateEngine.js";
 import { GameClockEngine } from "../engines/GameClockEngine.js";
 import { PhysicsEngine } from "../engines/PhysicsEngine.js";
