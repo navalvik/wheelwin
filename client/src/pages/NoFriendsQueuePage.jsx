@@ -4,6 +4,7 @@ import { useLanguage } from "../context/LanguageContext";
 import { APP_PAGES } from "../game/sessionRecovery/recoveryFlow";
 import { LOBBY_OUTGOING_EVENTS } from "../socket/socketEvents";
 import socket from "../socket/socket";
+import NoFriendsInsufficientBalanceOverlay from "../components/NoFriendsInsufficientBalanceOverlay";
 import { isTestnetDisplay } from "../config/displayNetwork";
 import { MIN_PLAYER_AGE, MAX_PLAYER_AGE } from "../utils/playerProfileRules";
 import "../styles/noFriends.css";
@@ -18,12 +19,14 @@ export default function NoFriendsQueuePage({ onNavigate, onBack }) {
     const [wallet, setWallet] = useState("");
     const [waiting, setWaiting] = useState(null);
     const [checking, setChecking] = useState(false);
+    const [insufficientBalance, setInsufficientBalance] = useState(null);
     const [error, setError] = useState("");
     const [seconds, setSeconds] = useState(180);
 
     useEffect(() => {
         const onStatus = (payload) => {
             setChecking(false);
+            setInsufficientBalance(null);
             setWaiting(payload);
             setSeconds(Math.max(0, Math.ceil((payload.expiresAt - Date.now()) / 1000)));
             setError("");
@@ -36,6 +39,15 @@ export default function NoFriendsQueuePage({ onNavigate, onBack }) {
         };
         const onError = (payload) => {
             setChecking(false);
+            if (payload?.code === "INSUFFICIENT_BALANCE") {
+                setError("");
+                setInsufficientBalance({
+                    minimumBalanceGram: payload.minimumBalanceGram,
+                    baseStake: payload.baseStake
+                });
+                return;
+            }
+            setInsufficientBalance(null);
             const message = t(`noFriends.error.${payload?.code ?? "UNKNOWN"}`);
             const detail = typeof payload?.detail === "string"
                 ? payload.detail.trim().slice(0, 180)
@@ -44,6 +56,7 @@ export default function NoFriendsQueuePage({ onNavigate, onBack }) {
         };
         const onDisconnect = () => {
             setChecking(false);
+            setInsufficientBalance(null);
             setError(t("noFriends.error.CONNECTION_LOST"));
         };
         socket.on("noFriendsQueueStatus", onStatus);
@@ -75,6 +88,7 @@ export default function NoFriendsQueuePage({ onNavigate, onBack }) {
             || numericAge < MIN_PLAYER_AGE || numericAge > MAX_PLAYER_AGE
             || !wallet.trim() || checking || waiting) return;
         setError("");
+        setInsufficientBalance(null);
         setChecking(true);
         socket.emit(LOBBY_OUTGOING_EVENTS.NO_FRIENDS_REQUEST, {
             nickname: nickname.trim().slice(0, 4),
@@ -104,20 +118,20 @@ export default function NoFriendsQueuePage({ onNavigate, onBack }) {
         <div className="noFriendsPage">
             <div className="noFriendsForm">
                 <label>{t("noFriends.baseStake")}
-                    <select value={baseStake} onChange={(event) => setBaseStake(event.target.value)} disabled={Boolean(waiting)}>
+                    <select value={baseStake} onChange={(event) => setBaseStake(event.target.value)} disabled={Boolean(waiting) || checking}>
                         <option value="1">{t("setup.oneGram")}</option>
                         <option value="10">{t("setup.tenGram")}</option>
                     </select>
                 </label>
                 <div className="noFriendsNetwork">{t(testnet ? "noFriends.testnetOnly" : "noFriends.mainnetOnly")}</div>
                 <label>{t("setup.nickname")}
-                    <input maxLength={4} value={nickname} onChange={(event) => setNickname(event.target.value)} disabled={Boolean(waiting)} />
+                    <input maxLength={4} value={nickname} onChange={(event) => setNickname(event.target.value)} disabled={Boolean(waiting) || checking} />
                 </label>
                 <label>{t("setup.age")}
-                    <input inputMode="numeric" value={age} onChange={(event) => setAge(event.target.value.replace(/\D/g, ""))} disabled={Boolean(waiting)} />
+                    <input inputMode="numeric" value={age} onChange={(event) => setAge(event.target.value.replace(/\D/g, ""))} disabled={Boolean(waiting) || checking} />
                 </label>
                 <label>{t(testnet ? "noFriends.wallet" : "noFriends.mainnetWallet")}
-                    <input autoComplete="off" value={wallet} onChange={(event) => setWallet(event.target.value)} disabled={Boolean(waiting)} />
+                    <input autoComplete="off" value={wallet} onChange={(event) => setWallet(event.target.value)} disabled={Boolean(waiting) || checking} />
                 </label>
                 {waiting && <div className="noFriendsWaiting">
                     {t("noFriends.waiting", { count: waiting.waitingFor })}<br />
@@ -126,6 +140,11 @@ export default function NoFriendsQueuePage({ onNavigate, onBack }) {
                 {checking && <div className="noFriendsWaiting">{t(testnet ? "noFriends.checkingWallet" : "noFriends.checkingMainnetWallet")}</div>}
                 {error && <div className="noFriendsError">{error}</div>}
             </div>
+            {insufficientBalance && <NoFriendsInsufficientBalanceOverlay
+                minimumBalanceGram={insufficientBalance.minimumBalanceGram}
+                baseStake={insufficientBalance.baseStake}
+                onDismiss={() => setInsufficientBalance(null)}
+            />}
         </div>
     </GameLayout>;
 
