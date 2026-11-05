@@ -20,8 +20,14 @@ test("authenticated Mainnet Page4 request observes its room once and never opens
         network: "mainnet",
         getCapabilities: () => ({ livePaymentAcceptanceEnabled: false }),
         sessionAdapter: {
-            async observeRoomPayments(id) {
-                observations.push(id);
+            async observeRoomPayments(request) {
+                if (!request || Array.isArray(request)
+                    || Object.getPrototypeOf(request) !== Object.prototype) {
+                    throw new Error("observation request must be a plain object");
+                }
+                assert.deepEqual(Object.keys(request), ["roomId"]);
+                assert.equal(request.roomId, roomId);
+                observations.push(request);
                 return { status: "OBSERVED", paymentStatus: { status: "3/3" } };
             }
         },
@@ -61,7 +67,7 @@ test("authenticated Mainnet Page4 request observes its room once and never opens
     bridge._handlePaymentStatusRequest("socket-player-a", { observationRequested: true });
     await pending;
 
-    assert.deepEqual(observations, [roomId], "repeat request is coalesced into one Toncenter observation");
+    assert.deepEqual(observations, [{ roomId }], "repeat request is coalesced into one contract-valid Toncenter observation");
     assert.equal(deliveries.length, 5,
         "each request gets immediate status and all three seated players get refreshed status");
     assert.ok(events.some(event => event.type === EVENT_TYPES.PAYMENT_OBSERVATION_STARTED));
@@ -74,7 +80,7 @@ test("authenticated Mainnet Page4 request observes its room once and never opens
     const rateLimited = bridge._roomPaymentChecks.get(roomId);
     assert.ok(rateLimited, "subsequent requests still use the shared room cadence budget");
     await rateLimited;
-    assert.deepEqual(observations, [roomId],
+    assert.deepEqual(observations, [{ roomId }],
         "the active-room frequency limit prevents a second Toncenter observation");
 });
 

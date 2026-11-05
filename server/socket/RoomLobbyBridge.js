@@ -5738,7 +5738,7 @@ export class RoomLobbyBridge {
                             destination: payment.destinationWalletAddress,
                             destinationWalletAddress: payment.destinationWalletAddress,
                             amount: payment.amountAtomic,
-                            amountAtomic: payment.amountAtomic,
+                            amountAtomic: String(payment.amountAtomic),
                             asset: payment.asset,
                             network: payment.network,
                             expiresAt: payment.expiresAt ?? null
@@ -6079,9 +6079,7 @@ export class RoomLobbyBridge {
                 this._logger?.info?.(
                     `Room payment observation started | roomId=${roomId} | triggerPlayer=${context.playerId} | walletScope=ACTIVE_ROOM`
                 );
-                return Promise.resolve(mainnetMode
-                    ? observeRoomPayments(roomId)
-                    : observeRoomPayments({ roomId }))
+                return Promise.resolve(observeRoomPayments({ roomId }))
                     .then(() => true);
             })
             .then(observed => {
@@ -6227,7 +6225,9 @@ export class RoomLobbyBridge {
                 paymentReference: payment.paymentReference,
                 destination: payment.destinationWalletAddress,
                 amount: payment.amountAtomic,
-                amountAtomic: payment.amountAtomic,
+                amountAtomic: payment.network === "mainnet"
+                    ? String(payment.amountAtomic)
+                    : payment.amountAtomic,
                 asset: payment.asset,
                 network: payment.network,
                 expiresAt: payment.expiresAt ?? null

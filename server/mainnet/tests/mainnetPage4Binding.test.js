@@ -1,11 +1,17 @@
 import assert from "node:assert/strict";
+import { Address } from "@ton/core";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { buildRoomWalletTonConnectRequest } from "../../../client/src/payment/buildRoomWalletTonConnectRequest.js";
+import { normalizeMainnetPaymentRequest } from "../../../client/src/payment/mainnetPaymentRequest.js";
 import { createMainnetBootstrap } from "../MainnetBootstrap.js";
 import { MainnetPage4PaymentApplicationBinding } from "../payment/MainnetPage4PaymentApplicationBinding.js";
 import { deriveMainnetRoomPaymentRequirements } from "../testnet_source/payment/runtime/deriveTestnetRoomPaymentRequirements.js";
+
+process.env.ROOM_WALLET_PAYMENTS_ENABLED = "true";
+const { RoomLobbyBridge } = await import("../../socket/RoomLobbyBridge.js");
 
 const PLAYERS = ["seat-a", "seat-b", "seat-c"];
 
@@ -52,7 +58,7 @@ function setup(t) {
         nowProvider: () => now
     });
     return { dataDir, bootstrap, room, roomManager, identities, binding,
-        getRpcCalls: () => rpcCalls };
+        now, getRpcCalls: () => rpcCalls };
 }
 
 function requirements(h) {
@@ -96,6 +102,79 @@ test("Page4 retries are idempotent and conflicting requirements fail closed", t 
             : payment)));
     assert.equal(h.bootstrap.paymentRuntime.paymentService
         .listPaymentIntentsForRoom(h.room.roomId).length, 3);
+});
+
+test("Page4 sends a client-valid Mainnet request from the saved intent on entry and refresh", t => {
+    const h = setup(t);
+    const runtime = Object.create(h.bootstrap.paymentRuntime);
+    Object.defineProperty(runtime, "getCapabilities", {
+        value: () => ({
+            ...h.bootstrap.paymentRuntime.getCapabilities(),
+            livePaymentAcceptanceEnabled: true
+        })
+    });
+    const binding = new MainnetPage4PaymentApplicationBinding({
+        runtime,
+        walletPool: h.bootstrap.walletPool,
+        dataDir: h.dataDir,
+        roomManager: h.roomManager,
+        nowProvider: () => h.now,
+        paymentAcceptanceEnabled: true
+    });
+    const deliveries = [];
+    const bridge = Object.create(RoomLobbyBridge.prototype);
+    Object.assign(bridge, {
+        _paymentApplicationBinding: binding,
+        _roomManager: h.roomManager,
+        _playerManager: { getIdentity: playerId => h.identities.get(playerId) },
+        _playerToSocket: new Map(PLAYERS.map(playerId => [playerId, `socket-${playerId}`])),
+        _deliverToSocket: (socketId, event, payload) => deliveries.push({ socketId, event, payload }),
+        _logger: { info() {}, warn() {} }
+    });
+
+    bridge._preparePaymentSessionIfEnabled(h.room.roomId, h.room);
+    const entryRequests = deliveries.filter(item => item.event === "PAYMENT_REQUEST");
+    assert.equal(entryRequests.length, 3, "all seated players receive their own saved payment intent");
+
+    const checkRequest = ({ socketId, payload }) => {
+        assert.equal(typeof payload.amountAtomic, "string",
+            "the Mainnet socket contract sends atomic units as a decimal string");
+        assert.equal(payload.amount, 1_000_000_000);
+        assert.equal(payload.asset, "TON");
+        assert.equal(payload.network, "mainnet");
+        const payment = normalizeMainnetPaymentRequest(payload, {
+            roomId: h.room.roomId,
+            playerId: payload.playerId,
+            paymentAcceptanceEnabled: true,
+            now: h.now
+        });
+        assert.ok(payment, "Page4 accepts the request and can render its payment button");
+        assert.equal(payment.payerAddress, h.identities.get(payload.playerId).wallet);
+        assert.equal(payment.destinationWalletAddress,
+            h.bootstrap.walletPool.getReservationForRoom(h.room.roomId).address);
+        assert.equal(payment.amountAtomic, 1_000_000_000);
+
+        const tonConnect = buildRoomWalletTonConnectRequest({
+            ...payment,
+            status: "AWAITING_PAYMENT"
+        }, h.now);
+        assert.equal(tonConnect.network, "-239");
+        assert.equal(tonConnect.messages.length, 1);
+        assert.equal(tonConnect.messages[0].amount, "1000000000");
+        assert.equal(Address.parse(tonConnect.messages[0].address).toRawString(),
+            Address.parse(payment.destinationWalletAddress).toRawString());
+        return socketId;
+    };
+
+    for (const item of entryRequests) checkRequest(item);
+
+    const refreshSocketId = `socket-${PLAYERS[0]}`;
+    bridge._deliverPaymentStatusToSocket(h.room.roomId, PLAYERS[0], refreshSocketId,
+        { includePaymentRequest: true });
+    const refreshedRequest = deliveries.filter(item => item.event === "PAYMENT_REQUEST")
+        .find(item => item.socketId === refreshSocketId);
+    assert.ok(refreshedRequest, "Page4 refresh re-sends the saved request after its status event");
+    checkRequest(refreshedRequest);
 });
 
 test("Page4 state survives restart without RPC or live transfer capabilities", t => {

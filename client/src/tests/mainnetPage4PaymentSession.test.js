@@ -9,7 +9,7 @@ import {
     normalizeMainnetPaymentRequest,
     runMainnetPaymentAction
 } from "../payment/mainnetPaymentRequest.js";
-import { payerMatchesConnectedWallet } from "../payment/buildRoomWalletTonConnectRequest.js";
+import { buildRoomWalletTonConnectRequest, payerMatchesConnectedWallet } from "../payment/buildRoomWalletTonConnectRequest.js";
 import { PAYMENT_SUBMISSION_PENDING_STATE, submissionAttemptIsActive } from "../payment/paymentStatusRequest.js";
 
 const now = 1_800_000_000_000;
@@ -37,6 +37,14 @@ function clickMainnet({ requestValid = true, connectedWallet = null, walletMatch
 
 // A: no wallet opens selection, but cannot send.
 assert.deepEqual(clickMainnet(), { result: "SELECT_WALLET", modalOpenCount: 1, sendCount: 0 });
+const walletRequest = buildRoomWalletTonConnectRequest({
+    ...paymentRequest,
+    status: "AWAITING_PAYMENT"
+}, now);
+assert.equal(walletRequest.network, "-239");
+assert.equal(walletRequest.messages.length, 1);
+assert.equal(walletRequest.messages[0].amount, "1000000000");
+assert.equal(walletRequest.validUntil, Math.floor((now + 60_000) / 1000));
 
 // B: wrong wallet/address or chain opens selection; only matching Mainnet can submit.
 const foreignWallet = { account: { address: "0:" + "33".repeat(32), chain: "-239" } };
@@ -89,6 +97,10 @@ assert.match(page4Source, /runMainnetPaymentAction\(\{[\s\S]*requestValid: mainn
 assert.match(page4Source, /disabled=\{sending \|\| sentToWallet \|\| !mainnetRequestValid\}/,
     "Mainnet selector/payment action is enabled only for a valid request and no active attempt");
 assert.match(page4Source, /payment\.paymentAcceptanceEnabled && !mainnetMode/);
+assert.match(page4Source, /mainnetMode && payment\.paymentAcceptanceEnabled && payment\.paymentReference/,
+    "a valid Mainnet intent renders the Page4 payment panel");
+assert.match(page4Source, /\{payable && <button className="page4Payment__confirm"/,
+    "an unpaid valid Mainnet intent exposes the payment button");
 assert.match(page4Source, /disabled=\{sending \|\| sentToWallet\}/);
 
 // G: both networks use the same active-session polling effect. Mainnet's
