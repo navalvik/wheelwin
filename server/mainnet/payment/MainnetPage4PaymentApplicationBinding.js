@@ -1,19 +1,14 @@
-import { join } from "node:path";
-import { ROOM_LIFETIME_MS } from "../../payment/RoomPaymentConstants.js";
-import { mainnetAddressIdentity } from "./MainnetAddress.js";
+import { ROOM_LIFETIME_MS } from "../testnet_source/payment/RoomPaymentConstants.js";
 
-/** Page4 preparation adapter over the existing Mainnet pool and receipt ledger. */
+/** Page4 protocol binding over the copied Testnet session and intent APIs. */
 export class MainnetPage4PaymentApplicationBinding {
-    constructor({ runtime, walletPool, dataDir, roomManager, nowProvider = Date.now } = {}) {
+    constructor({ runtime, walletPool, dataDir, roomManager, nowProvider = Date.now,
+        paymentAcceptanceEnabled = false } = {}) {
         if (runtime?.network !== "mainnet" || runtime?.globalId !== -239
-            || typeof runtime?.liveOperationsEnabled !== "boolean"
-            || typeof runtime?.incomingPayments?.createRoomPaymentIntents !== "function"
-            || typeof runtime?.incomingLedger?.listRoomIntents !== "function"
-            || typeof runtime?.incomingLedger?.getRoomPaymentStatus !== "function"
+            || typeof runtime?.sessionAdapter?.prepareRoom !== "function"
+            || typeof runtime?.paymentService?.listPaymentIntentsForRoom !== "function"
             || walletPool?.network !== "mainnet"
             || typeof walletPool.reserve !== "function"
-            || typeof walletPool.getReservationForRoom !== "function"
-            || typeof walletPool.persistSnapshot !== "function"
             || typeof dataDir !== "string" || !dataDir
             || typeof roomManager?.getRoom !== "function"
             || typeof nowProvider !== "function") {
@@ -24,9 +19,9 @@ export class MainnetPage4PaymentApplicationBinding {
         this._dataDir = dataDir;
         this._roomManager = roomManager;
         this._now = nowProvider;
+        this._paymentAcceptanceEnabled = paymentAcceptanceEnabled === true;
     }
 
-    /** Create exactly three durable intents. Retries return the existing set. */
     prepareRoomPaymentSession(roomId, playerPayments) {
         const room = this._roomManager.getRoom(roomId);
         if (!room || room.maxPlayers !== 3 || !Array.isArray(room.players)
@@ -34,140 +29,70 @@ export class MainnetPage4PaymentApplicationBinding {
             || !Array.isArray(playerPayments) || playerPayments.length !== 3) {
             throw new Error("MAINNET_PAGE4_ROOM_ROSTER_INVALID");
         }
-        const requested = new Map();
+        const byPlayer = new Map();
         for (const payment of playerPayments) {
             if (!payment || !room.players.includes(payment.playerId)
-                || requested.has(payment.playerId)
+                || byPlayer.has(payment.playerId)
                 || typeof payment.paymentReference !== "string"
                 || !Number.isSafeInteger(payment.amountAtomic) || payment.amountAtomic <= 0) {
                 throw new Error("MAINNET_PAGE4_PAYMENT_REQUIREMENTS_INVALID");
             }
-            mainnetAddressIdentity(payment.expectedSender);
-            requested.set(payment.playerId, payment);
+            byPlayer.set(payment.playerId, payment);
         }
-        if (room.players.some(playerId => !requested.has(playerId))) {
-            throw new Error("MAINNET_PAGE4_PAYMENT_ROSTER_MISMATCH");
-        }
+        if (byPlayer.size !== 3) throw new Error("MAINNET_PAGE4_PAYMENT_ROSTER_MISMATCH");
 
-        const ledger = this.runtime.incomingLedger;
-        const existing = ledger.listRoomIntents(roomId);
-        if (existing.length !== 0 && existing.length !== 3) {
-            throw new Error("MAINNET_PAGE4_PARTIAL_INTENT_SET");
-        }
-
-        let reservation = this._walletPool.getReservationForRoom(roomId);
-        if (existing.length === 3) {
-            const first = existing[0];
-            const exact = existing.every(intent => {
-                const payment = requested.get(intent.playerId);
-                return payment
-                    && intent.network === "mainnet" && intent.globalId === -239
-                    && intent.destinationWalletId === first.destinationWalletId
-                    && mainnetAddressIdentity(intent.destinationWalletAddress)
-                        === mainnetAddressIdentity(first.destinationWalletAddress)
-                    && intent.paymentReference === payment.paymentReference
-                    && mainnetAddressIdentity(intent.expectedSender)
-                        === mainnetAddressIdentity(payment.expectedSender)
-                    && intent.amountAtomic === String(payment.amountAtomic);
-            });
-            if (!exact) throw new Error("MAINNET_PAGE4_EXISTING_INTENTS_CONFLICT");
-            if (!reservation) {
-                const catalogWallet = this._walletPool.getWallet(first.destinationWalletId);
-                if (!catalogWallet || catalogWallet.network !== "mainnet"
-                    || mainnetAddressIdentity(catalogWallet.address)
-                        !== mainnetAddressIdentity(first.destinationWalletAddress)) {
-                    throw new Error("MAINNET_PAGE4_WALLET_RESERVATION_CONFLICT");
-                }
-                reservation = this._walletPool.reserve({
-                    roomId, network: "mainnet", walletId: first.destinationWalletId, now: this._now()
-                }).wallet;
-                this._persistWalletPool();
-            }
-            if (reservation.walletId !== first.destinationWalletId
-                || reservation.network !== "mainnet"
-                || mainnetAddressIdentity(reservation.address)
-                    !== mainnetAddressIdentity(first.destinationWalletAddress)) {
-                throw new Error("MAINNET_PAGE4_WALLET_RESERVATION_CONFLICT");
-            }
-            const payments = this.runtime.liveOperationsEnabled === true
-                ? this.getPaymentRequestData(roomId) : [];
-            return Object.freeze({ prepared: true, idempotent: true, payments: Object.freeze(payments),
-                intentCount: 3, paymentStatus: ledger.getRoomPaymentStatus(roomId) });
-        }
-
-        if (!reservation) {
-            reservation = this._walletPool.reserve({
-                roomId, network: "mainnet", now: this._now()
-            }).wallet;
-            this._persistWalletPool();
-        }
-        if (reservation.network !== "mainnet") {
-            throw new Error("MAINNET_PAGE4_WALLET_NETWORK_MISMATCH");
-        }
+        const before = this.runtime.paymentService.listPaymentIntentsForRoom(roomId).length;
         const createdAt = Number.isSafeInteger(room.createdAt) && room.createdAt > 0
             ? room.createdAt : this._now();
-        const expiresAt = createdAt + ROOM_LIFETIME_MS;
-        if (expiresAt <= this._now()) throw new Error("MAINNET_PAGE4_ROOM_PAYMENT_WINDOW_EXPIRED");
-
-        const intents = this.runtime.incomingPayments.createRoomPaymentIntents({
-            roomId,
-            wallet: { walletId: reservation.walletId, address: reservation.address,
-                network: "mainnet", globalId: -239 },
-            createdAt,
-            expiresAt,
-            players: room.players.map(playerId => {
-                const payment = requested.get(playerId);
-                return { playerId, paymentReference: payment.paymentReference,
-                    expectedSender: payment.expectedSender, amountAtomic: payment.amountAtomic };
-            })
-        });
-        if (intents.length !== 3) throw new Error("MAINNET_PAGE4_INTENT_COUNT_INVALID");
-
-        const payments = this.runtime.liveOperationsEnabled === true
-            ? this.getPaymentRequestData(roomId) : [];
-        return Object.freeze({ prepared: true, idempotent: false, payments: Object.freeze(payments),
-            intentCount: intents.length, paymentStatus: ledger.getRoomPaymentStatus(roomId) });
-    }
-
-    /**
-     * Read the saved Page4 requirements in the Testnet PAYMENT_REQUEST shape.
-     * This method never creates intents. The bridge consumes it only while
-     * Mainnet live operations are explicitly enabled.
-     */
-    getPaymentRequestData(roomId) {
-        const room = this._roomManager.getRoom(roomId);
-        if (!room || room.maxPlayers !== 3 || !Array.isArray(room.players)
-            || room.players.length !== 3 || new Set(room.players).size !== 3) {
-            throw new Error("MAINNET_PAGE4_ROOM_ROSTER_INVALID");
+        if (createdAt + ROOM_LIFETIME_MS <= this._now()) {
+            throw new Error("MAINNET_PAGE4_ROOM_PAYMENT_WINDOW_EXPIRED");
         }
-        const intents = this.runtime.incomingLedger.listRoomIntents(roomId);
-        if (intents.length !== 3) throw new Error("MAINNET_PAGE4_INTENT_COUNT_INVALID");
-        const reservation = this._walletPool.getReservationForRoom(roomId);
-        if (!reservation || reservation.network !== "mainnet"
-            || reservation.reservedByRoomId !== roomId) {
+        const session = this.runtime.sessionAdapter.prepareRoom({
+            roomId,
+            roomCreatedAt: createdAt,
+            network: "mainnet",
+            asset: "TON",
+            stakeLedgerRelation: "ONE_PLAYER_STAKE_AND_PRINCIPAL_PER_PAYMENT",
+            requiredPlayers: room.players.map(playerId => ({
+                roomId,
+                playerId,
+                paymentReference: byPlayer.get(playerId).paymentReference,
+                expectedSender: byPlayer.get(playerId).expectedSender,
+                amountAtomic: byPlayer.get(playerId).amountAtomic
+            }))
+        });
+        const reservation = this.runtime.paymentService.getWalletForRoom(roomId);
+        if (!reservation || reservation.network !== "mainnet") {
             throw new Error("MAINNET_PAGE4_WALLET_RESERVATION_REQUIRED");
         }
-        const byPlayer = new Map();
-        for (const intent of intents) {
-            if (intent.roomId !== roomId || intent.network !== "mainnet" || intent.globalId !== -239
-                || intent.asset !== "TON" || !room.players.includes(intent.playerId)
-                || byPlayer.has(intent.playerId)
-                || intent.destinationWalletId !== reservation.walletId
-                || mainnetAddressIdentity(intent.destinationWalletAddress)
-                    !== mainnetAddressIdentity(reservation.address)
-                || !/^[1-9][0-9]*$/.test(intent.amountAtomic)
-                || !Number.isSafeInteger(intent.expiresAt)) {
-                throw new Error("MAINNET_PAGE4_SAVED_INTENT_CONFLICT");
-            }
-            byPlayer.set(intent.playerId, intent);
-        }
-        if (room.players.some(playerId => !byPlayer.has(playerId))) {
-            throw new Error("MAINNET_PAGE4_PAYMENT_ROSTER_MISMATCH");
+        return Object.freeze({
+            prepared: true,
+            idempotent: before === 3,
+            intentCount: session.payments.length,
+            payments: this._paymentAcceptanceEnabled
+                ? this.getPaymentRequestData(roomId)
+                : Object.freeze([]),
+            paymentStatus: this.runtime.paymentGate.getGameStartGateStatus(roomId, room.players)
+        });
+    }
+
+    getPaymentRequestData(roomId) {
+        const room = this._roomManager.getRoom(roomId);
+        const intents = this.runtime.paymentService.listPaymentIntentsForRoom(roomId);
+        const reservation = this._walletPool.getReservationForRoom(roomId);
+        if (!room || room.players?.length !== 3 || intents.length !== 3
+            || !reservation || reservation.network !== "mainnet") {
+            throw new Error("MAINNET_PAGE4_PAYMENT_STATE_UNAVAILABLE");
         }
         return Object.freeze(room.players.map(playerId => {
-            const intent = byPlayer.get(playerId);
+            const intent = intents.find(item => item.playerId === playerId);
+            if (!intent || intent.network !== "mainnet"
+                || intent.destinationWalletId !== reservation.walletId
+                || intent.destinationWalletAddress !== reservation.address) {
+                throw new Error("MAINNET_PAGE4_SAVED_INTENT_CONFLICT");
+            }
             return Object.freeze({
-                playerId: intent.playerId,
+                playerId,
                 paymentReference: intent.paymentReference,
                 destinationWalletAddress: intent.destinationWalletAddress,
                 amountAtomic: intent.amountAtomic,
@@ -176,9 +101,5 @@ export class MainnetPage4PaymentApplicationBinding {
                 expiresAt: intent.expiresAt
             });
         }));
-    }
-
-    _persistWalletPool() {
-        this._walletPool.persistSnapshot(join(this._dataDir, "wallet-registry"));
     }
 }

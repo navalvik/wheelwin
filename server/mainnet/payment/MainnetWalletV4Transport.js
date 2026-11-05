@@ -12,7 +12,7 @@ import { mainnetAddressIdentity } from "./MainnetAddress.js";
 /**
  * Build the shared Wallet V4 adapter with Mainnet-only RPC, keys and state.
  * Runtime activation remains controlled by ROOM_WALLET_PAYMENTS_ENABLED and
- * TON_NETWORK in MainnetPaymentRuntime.
+ * TON_NETWORK in MainnetBootstrap.
  */
 export function createMainnetWalletV4Transport({ config, env = process.env, client = null,
     logger = null, now, sleep, seqnoConfirmTimeoutMs, seqnoConfirmPollMs } = {}) {

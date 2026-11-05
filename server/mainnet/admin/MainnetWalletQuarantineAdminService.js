@@ -25,12 +25,13 @@ function matchingAddress(left, right) {
 /** Mainnet-only administrator inspection and manual wallet quarantine/sweep. */
 export class MainnetWalletQuarantineAdminService {
     constructor({ getRuntime, getWalletPool, getRoomManager = () => null,
-        getAdapter = runtime => runtime?.outgoingAdapter, isInitialized = () => false,
+        getAdapter = () => null, getClient = () => null, isInitialized = () => false,
         env = process.env, logger = null } = {}) {
         this.getRuntime = getRuntime;
         this.getWalletPool = getWalletPool;
         this.getRoomManager = getRoomManager;
         this.getAdapter = getAdapter;
+        this.getClient = getClient;
         this.isInitialized = isInitialized;
         this.env = env;
         this.logger = logger;
@@ -42,12 +43,9 @@ export class MainnetWalletQuarantineAdminService {
         if (this.env.TON_NETWORK !== "mainnet" || this.isInitialized?.() !== true
             || runtime?.network !== "mainnet"
             || runtime?.globalId !== MAINNET_GLOBAL_ID
-            || runtime?.financialLedger?.network !== "mainnet"
-            || runtime?.financialLedger?.globalId !== MAINNET_GLOBAL_ID
-            || runtime?.incomingLedger?.network !== "mainnet"
-            || runtime?.incomingLedger?.globalId !== MAINNET_GLOBAL_ID
-            || runtime?.client?.network !== "mainnet"
-            || runtime?.client?.globalId !== MAINNET_GLOBAL_ID) {
+            || typeof runtime?.paymentService?.countOpenObligations !== "function"
+            || typeof runtime?.paymentService?.listPaymentIntentsForRoom !== "function"
+            || typeof this.getClient?.()?.getAddressInformation !== "function") {
             throw new Error("MAINNET_PAYMENT_RUNTIME_UNAVAILABLE");
         }
         const pool = this.getWalletPool?.();
@@ -71,7 +69,8 @@ export class MainnetWalletQuarantineAdminService {
     }
 
     residuesAddress() {
-        const configured = String(this.env.MAINNET_TON_RESIDUES_EXPECTED_ADDRESS ?? "").trim();
+        const configured = String(this.env.MAINNET_TON_RESIDUES_EXPECTED_ADDRESS
+            ?? this.env.TON_RESIDUES_EXPECTED_ADDRESS ?? "").trim();
         if (!configured) return null;
         try { return rawMainnetAddress(configured); }
         catch { throw new Error("MAINNET_TON_RESIDUES_ADDRESS_INVALID"); }
@@ -79,7 +78,7 @@ export class MainnetWalletQuarantineAdminService {
 
     async chainBalance(runtime, address) {
         try {
-            const response = await runtime.client.getAddressInformation(rawMainnetAddress(address));
+            const response = await this.getClient().getAddressInformation(rawMainnetAddress(address));
             const balance = response?.result?.balance;
             if (response?.ok === false || !/^[0-9]+$/.test(String(balance))) {
                 throw new Error("response");
@@ -94,9 +93,7 @@ export class MainnetWalletQuarantineAdminService {
 
     /** Count every known room interval for this wallet; uncertain accounting holds it. */
     outstanding(runtime, pool, wallet) {
-        const incoming = runtime.incomingLedger;
-        const financial = runtime.financialLedger;
-        const intents = incoming.listAllIntents().filter(item =>
+        const intents = runtime.intentStore.list().filter(item =>
             item.destinationWalletId === wallet.walletId
             || matchingAddress(item.destinationWalletAddress, wallet.address));
         const walletHistory = pool.listReservationHistoryForWallet(wallet.walletId);
@@ -109,47 +106,13 @@ export class MainnetWalletQuarantineAdminService {
         let open = 0;
         for (const roomId of rooms) {
             if (wallet.reservedByRoomId === roomId || this.getRoomManager?.()?.getRoom?.(roomId)) open += 1;
-            open += financial.countWalletBlockingObligations(roomId);
-
-            const roomIntents = intents.filter(item => item.roomId === roomId);
-            const receipts = incoming.listReceipts(roomId).filter(receipt =>
-                matchingAddress(receipt.destinationAddress, wallet.address));
-            const observations = incoming.listObservations(roomId).filter(observation =>
-                matchingAddress(observation.destinationAddress, wallet.address));
-
-            // Unsettled requests may still receive a late on-chain payment.
-            open += roomIntents.filter(item => item.state === "PENDING").length;
-
-            const receiptTransactions = new Set(receipts.map(item => item.transactionId));
-            open += observations.filter(item => !receiptTransactions.has(item.transactionId)).length;
-            for (const receipt of receipts) {
-                if (["UNRESOLVED", "AMBIGUOUS", "PENDING_FINALITY"].includes(receipt.status)) {
-                    open += 1;
-                    continue;
-                }
-                const intent = roomIntents.find(item => item.paymentReference === receipt.paymentReference);
-                const refundComplete = financial.listRefunds(roomId).some(item =>
-                    item.state === "COMPLETE" && item.incomingTransactionId === receipt.transactionId);
-                const outcome = financial.getOutcome(roomId);
-                const payout = financial.listPayouts().find(item => item.roomId === roomId
-                    && matchingAddress(item.sourceWalletAddress, wallet.address));
-                const payoutComplete = outcome?.kind === "PAYOUT" && payout
-                    && payout.winner.state === "CONFIRMED"
-                    && ["CONFIRMED", "UNPAID_INSUFFICIENT_GAS"].includes(payout.owner.state);
-                const principalCoveredByPayout = receipt.status === "CONFIRMED"
-                    && intent?.state === "SETTLED"
-                    && intent.confirmedTransactionId === receipt.transactionId
-                    && payoutComplete;
-                const coveredByRefund = refundComplete && (receipt.status === "CONFIRMED"
-                    || receipt.status === "EXTRA_PAYMENT");
-                if (!principalCoveredByPayout && !coveredByRefund) open += 1;
-            }
+            open += runtime.paymentService.countOpenObligations(roomId);
         }
         return Object.freeze({ open, knownRooms: rooms.size });
     }
 
     sweepClaimPath(runtime, roomNumber) {
-        return join(runtime.stateDirectories.outgoing, "admin-sweeps", `${roomNumber}.json`);
+        return join(runtime.networkDataDir, "outbound-sequences", "admin-sweeps", `${roomNumber}.json`);
     }
 
     async status(roomNumber = null) {
@@ -203,7 +166,7 @@ export class MainnetWalletQuarantineAdminService {
             residues: Object.freeze({ address: residues, ...residueChain }),
             sweepEnabled: this.env.TON_NETWORK === "mainnet"
                 && this.env.MAINNET_ADMIN_WALLET_SWEEP_ENABLED === "true"
-                && runtime.liveOperationsEnabled === true && Boolean(residues)
+                && runtime.getCapabilities?.().outgoingRefundTransfersEnabled === true && Boolean(residues)
         });
     }
 
@@ -252,7 +215,7 @@ export class MainnetWalletQuarantineAdminService {
         if (confirmation !== `SWEEP ${number} TO TON_RESIDUES`) throw new Error("SWEEP_CONFIRMATION_REQUIRED");
         if (this.env.TON_NETWORK !== "mainnet"
             || this.env.MAINNET_ADMIN_WALLET_SWEEP_ENABLED !== "true"
-            || runtime.liveOperationsEnabled !== true) throw new Error("MAINNET_ADMIN_SWEEP_DISABLED");
+            || runtime.getCapabilities?.().outgoingRefundTransfersEnabled !== true) throw new Error("MAINNET_ADMIN_SWEEP_DISABLED");
         const destination = this.residuesAddress();
         if (!destination) throw new Error("MAINNET_TON_RESIDUES_ADDRESS_NOT_CONFIGURED");
         if (matchingAddress(wallet.address, destination)) throw new Error("SWEEP_SELF_TRANSFER_FORBIDDEN");
@@ -266,7 +229,7 @@ export class MainnetWalletQuarantineAdminService {
                 throw new Error("SWEEP_PREVIOUS_ATTEMPT_REQUIRES_RECONCILIATION");
             }
             const adapter = this.getAdapter?.(runtime);
-            if (adapter !== runtime.outgoingAdapter
+            if (adapter !== this.getAdapter?.(runtime)
                 || typeof adapter?.sendAllBalance !== "function"
                 || typeof adapter?.getWalletAddress !== "function") {
                 throw new Error("MAINNET_SWEEP_SIGNER_UNAVAILABLE");

@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createMainnetBootstrap } from "../MainnetBootstrap.js";
-import { MainnetPendingPayoutExecutor } from "../payment/MainnetPendingPayoutExecutor.js";
 import {
     formatMainnetRuntimeStartupLine,
     initializeMainnetServerRuntime,
@@ -38,147 +37,51 @@ test("server payment mode accepts only explicit Testnet or Mainnet", () => {
     }
 });
 
-test("Mainnet startup diagnostic reflects the initialized live-operation state", () => {
+test("Mainnet startup diagnostic reports isolated source runtime capabilities", () => {
     const config = { globalId: -239, walletCount: 64 };
+    const disabledRuntime = { getCapabilities: () => ({ livePaymentAcceptanceEnabled: false }) };
     assert.equal(formatMainnetRuntimeStartupLine({ config,
-        paymentRuntime: { liveOperationsEnabled: false, gameStartPaymentGate: { getGameStartGateStatus() {} } } }),
+        paymentRuntime: disabledRuntime, liveOperationsEnabled: false }),
     "MainnetPaymentRuntime (globalId=-239 | wallets=64 | storage=isolated | liveOperations=disabled | paidGameStart=disabled)");
+    const enabledRuntime = { paymentGate: { getGameStartGateStatus() {} },
+        getCapabilities: () => ({ livePaymentAcceptanceEnabled: true }) };
     assert.equal(formatMainnetRuntimeStartupLine({ config,
-        paymentRuntime: { liveOperationsEnabled: true, gameStartPaymentGate: { getGameStartGateStatus() {} } } }),
+        paymentRuntime: enabledRuntime, liveOperationsEnabled: true }),
     "MainnetPaymentRuntime (globalId=-239 | wallets=64 | storage=isolated | liveOperations=enabled | paidGameStart=enabled (3/3 gated))");
-    assert.equal(formatMainnetRuntimeStartupLine({ config,
-        paymentRuntime: { liveOperationsEnabled: true } }),
-    "MainnetPaymentRuntime (globalId=-239 | wallets=64 | storage=isolated | liveOperations=enabled | paidGameStart=disabled)");
-    assert.throws(() => formatMainnetRuntimeStartupLine({ config,
-        paymentRuntime: { liveOperationsEnabled: undefined } }),
-    /MAINNET_PAYMENT_RUNTIME_STATE_INVALID/);
 });
 
-test("main server Mainnet initialization uses only the Mainnet bootstrap and remains read-only", (t) => {
+test("Mainnet server initialization selects the copied runtime and remains offline", t => {
     const dataDir = mkdtempSync(join(tmpdir(), "wheelwin-server-mainnet-mode-"));
     t.after(() => rmSync(dataDir, { recursive: true, force: true }));
     let rpcCalls = 0;
     const bootstrap = initializeMainnetServerRuntime({
         env: mainnetEnv(dataDir),
-        fetchImpl: async () => { rpcCalls += 1; throw new Error("unexpected RPC"); },
+        fetchImpl: async () => { rpcCalls++; throw new Error("unexpected RPC"); },
         createBootstrap: options => createMainnetBootstrap(options)
     });
-
     assert.equal(bootstrap.config.network, "mainnet");
     assert.equal(bootstrap.config.globalId, -239);
     assert.equal(bootstrap.config.walletCount, 64);
     assert.equal(bootstrap.paymentRuntime.network, "mainnet");
-    assert.equal(bootstrap.paymentRuntime.liveOperationsEnabled, false);
-    assert.equal(bootstrap.paymentRuntime.pendingPayoutExecutor instanceof MainnetPendingPayoutExecutor, true);
+    assert.equal(bootstrap.paymentRuntime.globalId, -239);
+    assert.equal(bootstrap.paymentRuntime.getCapabilities().gameStartGateEnforced, true);
+    assert.equal(bootstrap.paymentRuntime.getCapabilities().livePaymentAcceptanceEnabled, false);
+    assert.equal(bootstrap.paymentRuntime.networkDataDir, join(dataDir, "mainnet"));
     assert.equal(rpcCalls, 0);
-    assert.equal(bootstrap.paymentRuntime.stateDirectories.gameplay.startsWith(dataDir), true);
 });
 
-test("server app selects Mainnet bootstrap before the Testnet runtime branch", () => {
+test("app composes the copied source runtime for Mainnet and excludes the retired runtime APIs", () => {
     const app = readFileSync(new URL("../../app.js", import.meta.url), "utf8");
     const modeSelection = app.indexOf("const paymentMode = resolveServerPaymentMode(process.env)");
     const mainnetBranch = app.indexOf('if (paymentMode === "mainnet")', modeSelection);
-    const mainnetBootstrap = app.indexOf("initializeMainnetServerRuntime({", mainnetBranch);
-    const testnetBranch = app.indexOf("} else {", mainnetBootstrap);
-    const testnetRuntime = app.indexOf("buildPaymentRuntime({", testnetBranch);
-
-    assert.ok(modeSelection >= 0);
-    assert.ok(mainnetBranch > modeSelection);
-    assert.ok(mainnetBootstrap > mainnetBranch);
-    assert.ok(testnetBranch > mainnetBootstrap);
-    assert.ok(testnetRuntime > testnetBranch);
-    assert.match(app.slice(mainnetBranch, testnetBranch),
-        /new MainnetPage4PaymentApplicationBinding\(/);
-    assert.match(app.slice(mainnetBranch, testnetBranch),
-        /startupLine\(formatMainnetRuntimeStartupLine\(\{[\s\S]*?paymentRuntime: mainnetBootstrap\.paymentRuntime/);
-    assert.match(app.slice(mainnetBranch, testnetBranch),
-        /configurePaymentGate\(\s*mainnetBootstrap\.paymentRuntime\.gameStartPaymentGate\s*\)/);
-    assert.match(app.slice(mainnetBranch, testnetBranch),
-        /refundLifecycle\.configurePage5StateResolver\([\s\S]*?getLifecycle\(roomId\).*?phase === "OPEN_PAGE5"/);
-    assert.match(app.slice(mainnetBranch, testnetBranch),
-        /configureReservedWalletRoomNumberResolver\([\s\S]*?walletPool\.getReservationForRoomHistory\(roomId\).*?roomNumber/);
-    assert.match(app.slice(mainnetBranch, testnetBranch),
-        /configureCurrentWalletReservationResolver\([\s\S]*?walletPool\.getWalletByRoomNumber\(roomNumber\)/);
-    assert.match(app.slice(mainnetBranch, testnetBranch), /recordPage5Started\(roomId\)/);
-    assert.match(app.slice(mainnetBranch, testnetBranch), /EVENT_TYPES\.GAME_START_BOOTSTRAP_READY/);
-    assert.match(app.slice(mainnetBranch, testnetBranch),
-        /new MainnetWinnerPayoutCoordinator\([\s\S]*?winnerEngine: this\._engines\.winnerEngine/);
-    assert.match(app.slice(mainnetBranch, testnetBranch),
-        /EVENT_TYPES\.GAME_RESULT_READY,[\s\S]*?this\._mainnetGameResultReadyHandler/);
-    assert.match(app.slice(mainnetBranch, testnetBranch),
-        /_mainnetWinnerPayoutCoordinator\.onGameResult\(\{ gameId \}\)/);
-    assert.match(app.slice(mainnetBranch, testnetBranch),
-        /_mainnetWinnerPayoutCoordinator\.recoverPendingResults\(\)/);
-    assert.match(app.slice(mainnetBranch, testnetBranch), /hasPage5Started\(roomId\)/);
-    assert.match(app.slice(mainnetBranch, testnetBranch),
-        /new MainnetPendingRefundReconciler\([\s\S]*?financialLedger:[\s\S]*?refundLifecycle:[\s\S]*?maxPerPass: 2/);
-    assert.match(app.slice(mainnetBranch, testnetBranch),
-        /refundLifecycle\.recover\(\)[\s\S]*?new MainnetPendingRefundReconciler\([\s\S]*?reconcileMainnetRefunds\(\)[\s\S]*?setInterval\(reconcileMainnetRefunds, 60_000\)/);
-    assert.match(app.slice(mainnetBranch, testnetBranch),
-        /new MainnetPendingPayoutReconciler\([\s\S]*?financialLedger:[\s\S]*?payoutLifecycle:[\s\S]*?maxPerPass: 2/);
-    assert.match(app.slice(mainnetBranch, testnetBranch),
-        /_mainnetWinnerPayoutCoordinator\.recoverPendingResults\(\)[\s\S]*?new MainnetPendingPayoutReconciler\([\s\S]*?reconcileMainnetPayouts\(\)[\s\S]*?setInterval\(reconcileMainnetPayouts, 60_000\)/);
-    assert.ok(app.indexOf("new MainnetPendingPayoutReconciler(")
-        < app.indexOf("const archivePaymentMode"),
-    "payout recovery wiring must not depend on R2 initialization");
-    assert.ok(app.indexOf("new MainnetPendingRefundReconciler(")
-        < app.indexOf("const archivePaymentMode"),
-    "refund recovery wiring must not depend on R2 initialization");
-    assert.ok(app.indexOf("new MainnetHistoricalIncomingReceiptReconciler(")
-        < app.indexOf("const archivePaymentMode"),
-    "late incoming receipt recovery must not depend on R2 initialization");
-    assert.ok(app.indexOf("new MainnetWalletReleaseReconciler(")
-        < app.indexOf("const archivePaymentMode"),
-    "wallet release recovery must not depend on R2 initialization");
-    assert.match(app.slice(mainnetBranch, app.indexOf("const archivePaymentMode")),
-        /releaseForMainnetOutcome|new MainnetWalletReleaseReconciler\([\s\S]*?financialLedger:[\s\S]*?roomManager:/);
-    assert.match(app.slice(mainnetBranch, app.indexOf("const archivePaymentMode")),
-        /reconcileMainnetWalletReleases\(\)[\s\S]*?setInterval\(reconcileMainnetWalletReleases, 60_000\)/);
-    assert.match(app.slice(mainnetBranch, app.indexOf("const archivePaymentMode")),
-        /refundLifecycle:\s*mainnetBootstrap\.paymentRuntime\.refundLifecycle/);
-    assert.match(app.slice(mainnetBranch, app.indexOf("const archivePaymentMode")),
-        /_mainnetPendingRefundExecutor\s*=\s*mainnetBootstrap\.paymentRuntime\.pendingRefundExecutor[\s\S]*?liveOperationsEnabled\s*===\s*true[\s\S]*?runPass\(\)[\s\S]*?setInterval\(executeMainnetPendingRefunds,\s*60_000\)/);
-    assert.match(app.slice(mainnetBranch, app.indexOf("const archivePaymentMode")),
-        /_mainnetPendingPayoutExecutor\s*=\s*mainnetBootstrap\.paymentRuntime\.pendingPayoutExecutor[\s\S]*?liveOperationsEnabled\s*===\s*true[\s\S]*?runPass\(\)[\s\S]*?setInterval\(executeMainnetPendingPayouts,\s*60_000\)/);
-    const coordinatorInitialization = app.indexOf(
-        "new MainnetWinnerPayoutCoordinator(", mainnetBranch
-    );
-    const resultHandlerRegistration = app.indexOf(
-        "EVENT_TYPES.GAME_RESULT_READY,", coordinatorInitialization
-    );
-    const refundExecutorStart = app.indexOf("executeMainnetPendingRefunds();", mainnetBranch);
-    const payoutExecutorStart = app.indexOf("executeMainnetPendingPayouts();", mainnetBranch);
-    assert.ok(coordinatorInitialization >= 0 && resultHandlerRegistration > coordinatorInitialization);
-    assert.ok(refundExecutorStart > resultHandlerRegistration,
-        "refund executor cannot run before coordinator and event-handler initialization succeeds");
-    assert.ok(payoutExecutorStart > resultHandlerRegistration,
-        "payout executor cannot run before coordinator and event-handler initialization succeeds");
-    assert.match(app.slice(resultHandlerRegistration, refundExecutorStart),
-        /liveOperationsEnabled\s*===\s*true/,
-    "live mode remains the sole condition for outbound executor startup");
-    assert.match(app.slice(mainnetBranch, app.indexOf("const archivePaymentMode")),
-        /reconcileMainnetHistoricalReceipts\(\)[\s\S]*?setInterval\(\s*reconcileMainnetHistoricalReceipts,\s*60_000\s*\)/);
-    assert.doesNotMatch(app.slice(app.indexOf("const reconcileMainnetArchives"),
-        app.indexOf("this._mainnetForensicHistoryTimer = setInterval")), /_mainnetHistoryReconciler\.runPass\(\)/,
-    "R2 archive polling must not own historical receipt reconciliation");
-    assert.match(app, /clearInterval\(this\._mainnetRefundReconciliationTimer\)/);
-    assert.match(app, /this\._mainnetRefundReconciler\?\.stop\(\)/);
-    assert.match(app, /clearInterval\(this\._mainnetRefundExecutionTimer\)/);
-    assert.match(app, /this\._mainnetPendingRefundExecutor\?\.stop\(\)/);
-    assert.match(app, /clearInterval\(this\._mainnetPayoutExecutionTimer\)/);
-    assert.match(app, /this\._mainnetPendingPayoutExecutor\?\.stop\(\)/);
-    assert.match(app, /clearInterval\(this\._mainnetHistoryReconciliationTimer\)/);
-    assert.match(app, /this\._mainnetHistoryReconciler\?\.stop\(\)/);
-    assert.match(app, /clearInterval\(this\._mainnetWalletReleaseTimer\)/);
-    assert.match(app, /this\._mainnetWalletReleaseReconciler\?\.stop\(\)/);
-    assert.match(app, /clearInterval\(this\._mainnetPayoutReconciliationTimer\)/);
-    assert.match(app, /this\._mainnetPayoutReconciler\?\.stop\(\)/);
-    assert.match(app.slice(mainnetBranch, testnetBranch),
-        /roomManager\.attachRefundLifecycle\(\s*mainnetBootstrap\.paymentRuntime\.refundLifecycle\s*\)/);
-    assert.match(app.slice(mainnetBranch, testnetBranch), /_paymentRuntimeReady = true/);
-    assert.match(app.slice(mainnetBranch, testnetBranch),
-        /startupLine\(formatMainnetRuntimeStartupLine\(/);
-    const initializationFailure = app.indexOf("} catch (error) {", testnetRuntime);
-    assert.match(app.slice(initializationFailure, initializationFailure + 3000),
-        /configurePaymentGate\?\.\(null\)/);
+    const testnetBranch = app.indexOf("} else {", mainnetBranch);
+    assert.ok(modeSelection >= 0 && mainnetBranch > modeSelection && testnetBranch > mainnetBranch);
+    const branch = app.slice(mainnetBranch, testnetBranch);
+    assert.match(branch, /initializeMainnetServerRuntime\(/);
+    assert.match(branch, /new MainnetPage4PaymentApplicationBinding\(/);
+    assert.match(branch, /configurePaymentGate\(paymentRuntime\.paymentGate\)/);
+    assert.match(branch, /paymentRuntime\.refundLifecycle\.recover\(\)/);
+    assert.match(app, /mainnetRuntime: this\._mainnetPaymentRuntime/);
+    assert.doesNotMatch(branch, /new MainnetPaymentRuntime\(/);
+    assert.doesNotMatch(branch, /financialLedger|incomingLedger|incomingPayments/);
 });

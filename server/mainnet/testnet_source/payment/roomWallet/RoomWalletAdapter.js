@@ -1,0 +1,730 @@
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { createHash } from 'node:crypto';
+import { durableWriteJson } from '../DurableJson.js';
+/**
+ * TON transport adapter for persistent Room Wallets.
+ *
+ * The adapter is intentionally independent from WheelWin gameplay and
+ * settlement calculations. It accepts an already-resolved wallet identity
+ * and signs a plain TON transfer. Recipient value is never reduced by gas.
+ * Sending does not preflight balance or reject on a fee estimate; TON
+ * determines whether the source has enough to execute the message.
+ */
+
+import {
+    Address,
+    beginCell,
+    external,
+    internal,
+    SendMode,
+    storeMessage
+} from "@ton/core";
+import { WalletContractV4 } from "@ton/ton";
+
+import {
+    ROOM_WALLET_POLICY,
+    assertNonNegativeNano
+} from "./RoomWalletFinancialPolicy.js";
+
+export class RoomWalletAdapter {
+    constructor({
+        sequenceStateDir = null,
+        tonService,
+        walletResolver,
+        logger = null,
+        gasReserveNano = ROOM_WALLET_POLICY.initialRoomReserveNano,
+        seqnoConfirmTimeoutMs = 90_000,
+        seqnoConfirmPollMs = 2_000,
+        now = () => Date.now(),
+        sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+    } = {}) {
+        if (!tonService) {
+            throw new Error("RoomWalletAdapter requires tonService");
+        }
+
+        if (typeof walletResolver !== "function") {
+            throw new TypeError("RoomWalletAdapter requires walletResolver");
+        }
+
+        assertNonNegativeNano(gasReserveNano, "gasReserveNano");
+
+        if (!Number.isFinite(seqnoConfirmTimeoutMs) || seqnoConfirmTimeoutMs <= 0) {
+            throw new TypeError("seqnoConfirmTimeoutMs must be a positive finite number");
+        }
+
+        if (!Number.isFinite(seqnoConfirmPollMs) || seqnoConfirmPollMs < 0) {
+            throw new TypeError("seqnoConfirmPollMs must be a non-negative finite number");
+        }
+
+        if (typeof now !== "function") {
+            throw new TypeError("now must be a function");
+        }
+
+        if (typeof sleep !== "function") {
+            throw new TypeError("sleep must be a function");
+        }
+
+        this._sequenceStateDir = sequenceStateDir;
+        this._tonService = tonService;
+        this._walletResolver = walletResolver;
+        this._logger = logger;
+        this._gasReserveNano = gasReserveNano;
+        this._seqnoConfirmTimeoutMs = seqnoConfirmTimeoutMs;
+        this._seqnoConfirmPollMs = seqnoConfirmPollMs;
+        this._now = now;
+        this._sleep = sleep;
+
+        /**
+         * SEQNO SAFETY (production incident game_8b040e1c-1007-463f-bde7-8056c6dd3124).
+         *
+         * A Room Wallet must never sign two independent external messages with
+         * the same seqno. TON accepts the first message and silently rejects
+         * the duplicate, so the second transfer (for example the Owner payout)
+         * never lands.
+         *
+         * Two structural guards are enforced here:
+         *
+         * 1. `_outboundQueues` serializes all sendTransfer calls per wallet
+         *    address so two concurrent callers cannot interleave their seqno
+         *    reads and broadcasts.
+         *
+         * 2. `_pendingOutboundSeqno` records the seqno of every successful
+         *    broadcast. Before the next send on the same address, the adapter
+         *    waits for the AUTHORITATIVE chain seqno (getSeqno get-method read)
+         *    to advance past that value — positive on-chain evidence that the
+         *    previous external message was accepted. It does not rely on
+         *    process timing, fixed delays, or locally incremented counters.
+         *    If the chain does not advance within the bounded window, the send
+         *    fails closed with a retryable code instead of reusing the seqno.
+         */
+        this._outboundQueues = new Map();
+        this._pendingOutboundSeqno = new Map();
+    }
+
+    _sequencePath(address) {
+        return this._sequenceStateDir ? join(this._sequenceStateDir, createHash('sha256').update(address).digest('hex') + '.json') : null;
+    }
+    _holdSequence(address, seqno, transfer = null) {
+        const path = this._sequencePath(address);
+        if (path) {
+            if (existsSync(path)) {
+                const previous = JSON.parse(readFileSync(path, 'utf8'));
+                const sameTransfer = transfer && previous.transferKey === transfer.transferKey
+                    && seqno === previous.seqno
+                    && (previous.bocHash === transfer.bocHash
+                        || previous.validUntil <= Math.floor(this._now() / 1000));
+                if (previous.address !== address || !Number.isSafeInteger(previous.seqno)
+                    || (seqno <= previous.seqno && !sameTransfer)) throw new Error('OUTBOUND_SEQNO_NOT_ADVANCED');
+            }
+            durableWriteJson(path, {address, seqno, ...(transfer ?? {})});
+        }
+        this._pendingOutboundSeqno.set(address, {seqno});
+    }
+    getGasReserveNano() {
+        return this._gasReserveNano;
+    }
+
+    supportsDurableTransferRetry() {
+        return Boolean(this._sequenceStateDir);
+    }
+
+    async getBalance(roomNumber) {
+        const identity = await this._resolveAddress(roomNumber);
+        return this._tonService.getBalance(identity.address);
+    }
+
+    async getWalletAddress(roomNumber) {
+        const identity = await this._resolveAddress(roomNumber);
+        return identity.address;
+    }
+
+    async getTransactions(roomNumber, query = {}) {
+        const identity = await this._resolveAddress(roomNumber);
+        if (typeof this._tonService.getTransactions !== "function") {
+            return [];
+        }
+        return this._tonService.getTransactions(identity.address, query);
+    }
+
+    /**
+     * Read-only lookup of an arbitrary TON address transaction history.
+     * Used by refund reconciliation to inspect a destination player wallet.
+     * The address is passed through untouched: no wallet resolution, no
+     * signing material access, never broadcasts anything.
+     */
+    async getAddressTransactions(address, query = {}) {
+        if (typeof this._tonService.getTransactions !== "function") {
+            return [];
+        }
+        return this._tonService.getTransactions(address, query);
+    }
+
+    async getSeqno(roomNumber) {
+        const identity = await this._resolveAddress(roomNumber);
+        if (typeof this._tonService.getSeqno !== "function") {
+            return null;
+        }
+        return this._tonService.getSeqno(identity.address);
+    }
+
+    async canFundTransfer({ roomNumber, amountNano, sourceReserveNano = null } = {}) {
+        assertNonNegativeNano(amountNano, "amountNano");
+
+        const reserveNano = resolveSourceReserveNano(
+            sourceReserveNano,
+            this._gasReserveNano
+        );
+        const identity = await this._resolve(roomNumber);
+        const balanceNano = await this._tonService.getBalance(identity.address);
+        const requiredNano = amountNano + reserveNano;
+
+        return Object.freeze({
+            ok: balanceNano >= requiredNano,
+            roomNumber: identity.roomNumber,
+            address: identity.address,
+            balanceNano,
+            amountNano,
+            gasReserveNano: reserveNano,
+            requiredNano,
+            shortfallNano: balanceNano >= requiredNano
+                ? 0n
+                : requiredNano - balanceNano
+        });
+    }
+
+    /**
+     * RECIPIENT_PAYS_GAS infrastructure: source-side fee estimate for the
+     * EXACT outbound wallet transfer message that would be broadcast.
+     *
+     * The transfer body is built identically to sendTransfer (same wallet,
+     * send mode, bounce, queryId and value) at the current authoritative
+     * seqno, then handed to TonService.estimateExternalMessageFee. The signed
+     * body is only used for estimation (ignoreSignature on the RPC side); it
+     * is never broadcast by this method and never included in the result.
+     *
+     * Fail-closed: when the transport cannot estimate fees the caller must
+     * not fall back to source-funded gas.
+     */
+    async estimateOutboundTransferFee({
+        roomNumber,
+        destination,
+        amountNano,
+        bounce = true,
+        queryId = null
+    } = {}) {
+        assertNonNegativeNano(amountNano, "amountNano");
+
+        if (amountNano <= 0n) {
+            return Object.freeze({
+                ok: false,
+                code: "FEE_ESTIMATE_INVALID_AMOUNT",
+                amountNano
+            });
+        }
+
+        if (typeof this._tonService.estimateExternalMessageFee !== "function") {
+            return Object.freeze({
+                ok: false,
+                code: "FEE_ESTIMATION_UNAVAILABLE",
+                roomNumber
+            });
+        }
+
+        const identity = await this._resolve(roomNumber);
+        const destinationAddress = Address.parse(String(destination ?? "").trim());
+
+        if (identity.workchain != null && Number(identity.workchain) !== 0) {
+            return Object.freeze({
+                ok: false,
+                code: "FEE_ESTIMATE_INVALID_IDENTITY",
+                roomNumber: identity.roomNumber
+            });
+        }
+
+        try {
+            const { wallet, seqno, externalMessage } = await this._buildSignedExternalMessage({
+                identity,
+                destinationAddress,
+                amountNano,
+                bounce,
+                queryId
+            });
+
+            const estimate = await this._tonService.estimateExternalMessageFee(
+                wallet.address,
+                {
+                    body: externalMessage.body,
+                    initCode: externalMessage.init?.code ?? null,
+                    initData: externalMessage.init?.data ?? null,
+                    ignoreSignature: true
+                }
+            );
+
+            return Object.freeze({
+                ok: true,
+                feeSource: "estimateExternalMessageFee",
+                roomNumber: identity.roomNumber,
+                destination: configuredDestination(destinationAddress),
+                amountNano,
+                seqno,
+                inFwdFeeNano: estimate.inFwdFeeNano,
+                storageFeeNano: estimate.storageFeeNano,
+                gasFeeNano: estimate.gasFeeNano,
+                fwdFeeNano: estimate.fwdFeeNano,
+                totalNano: estimate.totalFeeNano
+            });
+        } catch (error) {
+            return Object.freeze({
+                ok: false,
+                code: "FEE_ESTIMATION_UNAVAILABLE",
+                roomNumber: identity.roomNumber,
+                detail: error?.message ?? String(error)
+            });
+        }
+    }
+
+    async sendTransfer({
+        roomNumber,
+        destination,
+        amountNano,
+        bounce = true,
+        queryId = null,
+        sourceReserveNano = null,
+        idempotencyKey = null
+    } = {}) {
+        assertNonNegativeNano(amountNano, "amountNano");
+
+        if (amountNano <= 0n) {
+            throw new RangeError("amountNano must be greater than zero");
+        }
+
+        const reserveNano = resolveSourceReserveNano(
+            sourceReserveNano,
+            this._gasReserveNano
+        );
+        const identity = await this._resolve(roomNumber);
+        const destinationAddress = Address.parse(String(destination ?? "").trim());
+
+        if (identity.workchain != null && Number(identity.workchain) !== 0) {
+            throw new Error("Room Wallet workchain must be 0 for WalletContractV4");
+        }
+
+        // SEQNO SAFETY: all broadcasts from one Room Wallet are serialized per
+        // address and gated on the authoritative confirmation of the previous
+        // broadcast before the next seqno is read.
+        return this._enqueueOutbound(identity.address, () => {
+            const request = {
+                identity,
+                destinationAddress,
+                amountNano,
+                bounce,
+                queryId,
+                reserveNano
+            };
+            return idempotencyKey === null
+                ? this._sendTransferLocked(request)
+                : this._sendDurableTransferLocked({...request, idempotencyKey});
+        });
+    }
+
+    /**
+     * Administrator-only Mainnet rescue transfer. Wallet V4 send mode 128
+     * carries the full remaining balance, paying chain fees out of that balance.
+     * This is intentionally separate from normal prize/refund transfers.
+     * A durable one-shot claim is written BEFORE the first RPC broadcast.
+     * Ambiguous submissions are NEVER automatically retried.
+     */
+    async sendAllBalance({roomNumber, destination} = {}) {
+        if (!this._sequenceStateDir) throw new Error("SWEEP_DURABLE_OUTBOX_REQUIRED");
+        const identity = await this._resolve(roomNumber);
+        if (identity.workchain !== 0) throw new Error("SWEEP_MAINNET_WALLET_REQUIRED");
+        const destinationAddress = Address.parse(String(destination ?? "").trim());
+        const canonicalDestination = configuredDestination(destinationAddress);
+        if (Address.parse(identity.address).equals(destinationAddress)) throw new Error("SWEEP_SELF_TRANSFER_FORBIDDEN");
+        return this._enqueueOutbound(identity.address, async () => {
+            const dir = join(this._sequenceStateDir, "admin-sweeps");
+            mkdirSync(dir, {recursive:true, mode:0o700});
+            const claimPath = join(dir, String(identity.roomNumber) + ".json");
+            if (existsSync(claimPath)) return Object.freeze({
+                ok:false, code:"SWEEP_PREVIOUS_ATTEMPT_REQUIRES_RECONCILIATION", roomNumber:identity.roomNumber
+            });
+            const safety = await this._awaitOutboundSequenceSafety(identity);
+            if (!safety.ok) return Object.freeze({ok:false, code:safety.code, roomNumber});
+            const balanceNano = await this._tonService.getBalance(identity.address);
+            if (balanceNano <= 0n) return Object.freeze({ok:false, code:"SWEEP_BALANCE_EMPTY", roomNumber});
+            const signed = await this._buildSignedExternalMessage({
+                identity, destinationAddress, amountNano:0n, bounce:false,
+                queryId:null, sendMode:SendMode.CARRY_ALL_REMAINING_BALANCE
+            });
+            // Estimate the exact mode-128 message before persisting an attempt.
+            // The network fee is charged to the source wallet's own balance.
+            if (typeof this._tonService.estimateExternalMessageFee !== "function")
+                return Object.freeze({ok:false,code:"SWEEP_FEE_ESTIMATE_UNAVAILABLE",roomNumber});
+            const fee = await this._tonService.estimateExternalMessageFee(
+                signed.wallet.address, {
+                    body:signed.externalMessage.body,
+                    initCode:signed.externalMessage.init?.code ?? null,
+                    initData:signed.externalMessage.init?.data ?? null,
+                    ignoreSignature:true
+                });
+            if (typeof fee.totalFeeNano !== "bigint" || fee.totalFeeNano < 0n)
+                return Object.freeze({ok:false,code:"SWEEP_FEE_ESTIMATE_UNAVAILABLE",roomNumber});
+            if (balanceNano <= fee.totalFeeNano + 1_000_000n)
+                return Object.freeze({ok:false,code:"SWEEP_INSUFFICIENT_GAS",roomNumber});
+            const boc = beginCell().store(storeMessage(signed.externalMessage)).endCell().toBoc().toString("base64");
+            const record = {
+                roomNumber:identity.roomNumber, address:identity.address,
+                destination:canonicalDestination, balanceBeforeNano:balanceNano.toString(),
+                seqno:signed.seqno, validUntil:signed.validUntil,
+                bocHash:createHash("sha256").update(boc).digest("hex"),
+                createdAt:new Date().toISOString(), status:"SUBMISSION_UNKNOWN"
+            };
+            // No signed BOC or signing material is persisted in the admin record.
+            durableWriteJson(claimPath, record, {exclusive:true});
+            this._holdSequence(identity.address, signed.seqno);
+            try {
+                await this._tonService.broadcastTransaction(boc);
+                return Object.freeze({ok:true, code:"SUBMITTED_UNCONFIRMED",
+                    roomNumber:identity.roomNumber, balanceBeforeNano:balanceNano.toString(),
+                    destination:canonicalDestination, seqno:signed.seqno});
+            } catch {
+                // Never assume a failed RPC means that TON rejected the transfer.
+                return Object.freeze({ok:false, code:"SWEEP_BROADCAST_OUTCOME_UNKNOWN", roomNumber});
+            }
+        });
+    }
+
+    // A durable outbox stores the exact signed message BEFORE broadcast.
+    // Retries replay the same seqno/message; a lost RPC reply cannot create
+    // a second payment. Expired messages may be renewed only while the
+    // authoritative wallet seqno still equals their unused seqno.
+    async _sendDurableTransferLocked(request) {
+        const {identity, destinationAddress, amountNano, bounce, queryId, idempotencyKey} = request;
+        if (!this._sequenceStateDir || typeof idempotencyKey !== 'string'
+            || !/^[A-Za-z0-9:_-]{1,160}$/.test(idempotencyKey))
+            throw new Error('DURABLE_TRANSFER_KEY_REQUIRED');
+        const transferKey = createHash('sha256').update(idempotencyKey).digest('hex');
+        const path = join(this._sequenceStateDir, 'transfers', transferKey + '.json');
+        const expected = {transferKey, roomNumber:identity.roomNumber,
+            source:identity.address, destination:configuredDestination(destinationAddress),
+            amountNano:amountNano.toString(), bounce, queryId:queryId == null ? null : String(queryId)};
+        let record = existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : null;
+        if (record) {
+            for (const [key, value] of Object.entries(expected)) {
+                if (record[key] !== value) throw new Error('DURABLE_TRANSFER_IDENTITY_MISMATCH');
+            }
+            if (!Number.isSafeInteger(record.seqno) || record.seqno < 0
+                || !Number.isSafeInteger(record.validUntil)
+                || typeof record.boc !== 'string'
+                || createHash('sha256').update(record.boc).digest('hex') !== record.bocHash)
+                throw new Error('DURABLE_TRANSFER_PAYLOAD_INVALID');
+            const observedSeqno = await this._tonService.getSeqno(identity.address);
+            if (!Number.isSafeInteger(observedSeqno) || observedSeqno < record.seqno)
+                throw new Error('DURABLE_TRANSFER_SEQNO_UNAVAILABLE');
+            if (observedSeqno > record.seqno) return Object.freeze({ok:true,
+                code:'ACCEPTED_AWAITING_CREDIT',seqno:record.seqno,txHash:null});
+        } else {
+            const safety = await this._awaitOutboundSequenceSafety(identity);
+            if (!safety.ok) return Object.freeze({...safety, txHash:null});
+        }
+        if (!record || record.validUntil <= Math.floor(this._now() / 1000)) {
+            const signed = await this._buildSignedExternalMessage(request);
+            if (record && signed.seqno !== record.seqno)
+                return Object.freeze({ok:true, code:'ACCEPTED_AWAITING_CREDIT',seqno:record.seqno,txHash:null});
+            const boc = beginCell().store(storeMessage(signed.externalMessage)).endCell().toBoc().toString('base64');
+            record = {...expected, seqno:signed.seqno, validUntil:signed.validUntil,
+                boc, bocHash:createHash('sha256').update(boc).digest('hex')};
+            durableWriteJson(path, record);
+        }
+        this._holdSequence(identity.address, record.seqno, {
+            transferKey, bocHash:record.bocHash, validUntil:record.validUntil
+        });
+        const broadcast = await this._tonService.broadcastTransaction(record.boc);
+        return Object.freeze({ok:true, code:'SUBMITTED_UNCONFIRMED',
+            seqno:record.seqno,txHash:extractBroadcastTxHash(broadcast)});
+    }
+
+    /**
+     * Serializes outbound work per wallet address. Each queued task runs only
+     * after the previous task for the same address has fully settled, so two
+     * concurrent sendTransfer calls can never interleave their seqno reads.
+     */
+    _enqueueOutbound(addressKey, task) {
+        const previous = this._outboundQueues.get(addressKey) ?? Promise.resolve();
+        const run = previous.then(() => task());
+        this._outboundQueues.set(
+            addressKey,
+            run.then(
+                () => {},
+                () => {}
+            )
+        );
+        return run;
+    }
+
+    /**
+     * Waits for positive on-chain evidence that the previously broadcast
+     * external message from this wallet was accepted: the authoritative chain
+     * seqno (get-method read) must advance past the pending broadcast seqno.
+     *
+     * This is not a timing assumption and not a locally incremented counter:
+     * a TON wallet seqno only advances when its external message is accepted.
+     * Fails closed when the chain does not advance in time or when the seqno
+     * read is unavailable — a possibly-reused seqno is never signed.
+     */
+    async _awaitOutboundSequenceSafety(identity) {
+        const sequencePath = this._sequencePath(identity.address);
+        if (!this._pendingOutboundSeqno.has(identity.address) && sequencePath && existsSync(sequencePath)) {
+            const record = JSON.parse(readFileSync(sequencePath, 'utf8'));
+            if (record.address !== identity.address || !Number.isSafeInteger(record.seqno) || record.seqno < 0) throw new Error('INVALID_DURABLE_SEQNO_HOLD');
+            this._pendingOutboundSeqno.set(identity.address, {seqno: record.seqno});
+        }
+        const pending = this._pendingOutboundSeqno.get(identity.address);
+
+        if (pending == null) {
+            return Object.freeze({ ok: true });
+        }
+
+        if (typeof this._tonService.getSeqno !== "function") {
+            this._logger?.warn?.(
+                `RoomWalletAdapter seqno safety hold | room=${identity.roomNumber} | `
+                    + `pendingSeqno=${pending.seqno} | reason=GET_SEQNO_UNAVAILABLE`
+            );
+
+            return Object.freeze({
+                ok: false,
+                code: "SEQNO_CONFIRMATION_UNAVAILABLE",
+                pendingSeqno: pending.seqno,
+                observedSeqno: null
+            });
+        }
+
+        const deadline = this._now() + this._seqnoConfirmTimeoutMs;
+        let observedSeqno = null;
+
+        while (this._now() < deadline) {
+            try {
+                observedSeqno = await this._tonService.getSeqno(identity.address);
+            } catch {
+                // A fresh/uninitialized wallet or a transient RPC failure is
+                // treated as "not yet confirmed" and re-polled.
+                observedSeqno = null;
+            }
+
+            if (Number.isInteger(observedSeqno) && observedSeqno > pending.seqno) {
+                this._pendingOutboundSeqno.delete(identity.address);
+
+                return Object.freeze({
+                    ok: true,
+                    confirmedSeqno: pending.seqno,
+                    observedSeqno
+                });
+            }
+
+            await this._sleep(this._seqnoConfirmPollMs);
+        }
+
+        this._logger?.warn?.(
+            `RoomWalletAdapter seqno safety hold expired | room=${identity.roomNumber} | `
+                + `pendingSeqno=${pending.seqno} | observedSeqno=${observedSeqno ?? "unknown"}`
+        );
+
+        return Object.freeze({
+            ok: false,
+            code: "SEQNO_CONFIRMATION_TIMEOUT",
+            pendingSeqno: pending.seqno,
+            observedSeqno: Number.isInteger(observedSeqno) ? observedSeqno : null
+        });
+    }
+
+    async _sendTransferLocked({
+        identity,
+        destinationAddress,
+        amountNano,
+        bounce,
+        queryId,
+        reserveNano
+    }) {
+        const sequenceSafety = await this._awaitOutboundSequenceSafety(identity);
+
+        if (!sequenceSafety.ok) {
+            return Object.freeze({
+                ok: false,
+                code: sequenceSafety.code,
+                roomNumber: identity.roomNumber,
+                address: identity.address,
+                destination: configuredDestination(destinationAddress),
+                amountNano,
+                pendingSeqno: sequenceSafety.pendingSeqno ?? null,
+                observedSeqno: sequenceSafety.observedSeqno ?? null,
+                txHash: null
+            });
+        }
+
+        const { wallet, seqno, externalMessage } = await this._buildSignedExternalMessage({
+            identity,
+            destinationAddress,
+            amountNano,
+            bounce,
+            queryId
+        });
+
+        const bocBase64 = beginCell()
+            .store(storeMessage(externalMessage))
+            .endCell()
+            .toBoc()
+            .toString("base64");
+
+        this._holdSequence(identity.address, seqno);
+        const broadcast = await this._tonService.broadcastTransaction(bocBase64);
+        const txHash = extractBroadcastTxHash(broadcast);
+
+        // The pre-broadcast durable hold remains even when the RPC times out.
+
+        this._logger?.info?.(
+            `RoomWalletAdapter transfer broadcast | room=${identity.roomNumber} | `
+            + `to=${configuredDestination(destinationAddress)} | amountNano=${amountNano} | seqno=${seqno}`
+        );
+
+        return Object.freeze({
+            ok: true,
+            code: txHash ? "SENT" : "AWAITING_TRANSACTION_HASH",
+            roomNumber: identity.roomNumber,
+            address: identity.address,
+            destination: configuredDestination(destinationAddress),
+            amountNano,
+            gasReserveNano: reserveNano,
+            seqno,
+            txHash
+        });
+    }
+
+    /**
+     * Builds the exact external message that sendTransfer broadcasts: same
+     * wallet derivation + identity drift check, same authoritative seqno read
+     * (seqno 0 + StateInit fallback for fresh wallets), same send mode and
+     * internal message layout. Shared by sendTransfer and the recipient-pays
+     * gas fee estimation so the estimate covers the exact broadcast payload.
+     */
+    async _buildSignedExternalMessage({
+        identity,
+        destinationAddress,
+        amountNano,
+        bounce,
+        queryId,
+        sendMode = SendMode.PAY_GAS_SEPARATELY
+    }) {
+        const publicKey = toSigningBuffer(identity.publicKey, "publicKey");
+        const secretKey = toSigningBuffer(identity.secretKey, "secretKey");
+
+        const wallet = WalletContractV4.create({
+            workchain: Number(identity.workchain ?? 0),
+            publicKey
+        });
+
+        const derivedAddress = wallet.address.toString({ bounceable: true, urlSafe: true });
+        const configuredAddress = Address.parse(identity.address)
+            .toString({ bounceable: true, urlSafe: true });
+
+        if (derivedAddress !== configuredAddress) {
+            throw new Error("room wallet identity drift");
+        }
+
+        // The Mainnet transport returns seqno 0 only when it has positively
+        // verified an uninitialized WalletV4 account. An RPC failure must
+        // abort fee planning and broadcast, never be mistaken for seqno 0.
+        const seqno = await this._tonService.getSeqno(identity.address);
+
+        if (!Number.isInteger(seqno) || seqno < 0) {
+            throw new Error("invalid room wallet seqno");
+        }
+
+        const validUntil = seqno === 0 ? 0xffffffff : Math.floor(this._now() / 1000) + 120;
+        const transfer = wallet.createTransfer({
+            seqno,
+            secretKey,
+            timeout: validUntil,
+            sendMode,
+            messages: [
+                internal({
+                    to: destinationAddress,
+                    value: amountNano,
+                    bounce,
+                    ...(queryId == null ? {} : { body: beginCell().storeUint(BigInt(queryId), 64).endCell() })
+                })
+            ]
+        });
+
+        const externalMessage = external({
+            to: wallet.address,
+            init: seqno === 0 ? wallet.init : undefined,
+            body: transfer
+        });
+
+        return Object.freeze({ wallet, seqno, externalMessage, validUntil });
+    }
+
+    async _resolveAddress(roomNumber) {
+        const identity = await this._walletResolver(roomNumber);
+
+        if (!identity || identity.roomNumber == null || !identity.address) {
+            throw new Error(`invalid wallet identity for room ${roomNumber}`);
+        }
+
+        return identity;
+    }
+
+    async _resolve(roomNumber) {
+        const identity = await this._resolveAddress(roomNumber);
+
+        if (!identity.publicKey || !identity.secretKey) {
+            throw new Error(`signing material is unavailable for room ${roomNumber}`);
+        }
+
+        return identity;
+    }
+}
+
+function toSigningBuffer(value, label) {
+    if (Buffer.isBuffer(value)) {
+        return value;
+    }
+
+    if (value instanceof Uint8Array) {
+        return Buffer.from(value);
+    }
+
+    throw new TypeError(`${label} must be a Buffer or Uint8Array`);
+}
+
+function resolveSourceReserveNano(sourceReserveNano, defaultReserveNano) {
+    if (sourceReserveNano == null) {
+        return defaultReserveNano;
+    }
+
+    return assertNonNegativeNano(sourceReserveNano, "sourceReserveNano");
+}
+
+function configuredDestination(address) {
+    return address.toString({ bounceable: true, urlSafe: true });
+}
+
+function extractBroadcastTxHash(broadcast) {
+    if (!broadcast || typeof broadcast !== "object") {
+        return null;
+    }
+
+    for (const value of [
+        broadcast.hash,
+        broadcast.txHash,
+        broadcast.transactionHash,
+        broadcast.result?.hash
+    ]) {
+        if (typeof value === "string" && value.trim()) {
+            return value.trim();
+        }
+    }
+
+    return null;
+}

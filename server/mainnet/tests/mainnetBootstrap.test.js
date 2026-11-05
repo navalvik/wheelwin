@@ -155,14 +155,30 @@ test("Mainnet bootstrap initializes and persists only the Mainnet wallet registr
     const runtime = bootstrap.paymentRuntime;
     assert.equal(runtime.network, "mainnet");
     assert.equal(runtime.globalId, -239);
-    assert.equal(runtime.client.network, "mainnet");
-    assert.equal(runtime.client.baseUrl, "https://toncenter.com");
-    assert.equal(runtime.liveOperationsEnabled, false);
-    assert.equal(runtime.incomingLedger.network, "mainnet");
-    assert.equal(runtime.financialLedger.network, "mainnet");
-    assert.ok(existsSync(join(dataDir, "incoming-payment-ledger", "state.json")));
-    assert.ok(existsSync(join(dataDir, "financial-lifecycle", "state.json")));
+    assert.equal(bootstrap.client.baseUrl, "https://toncenter.com");
+    assert.equal(runtime.getCapabilities().network, "mainnet");
+    assert.equal(runtime.getCapabilities().livePaymentAcceptanceEnabled, false);
+    assert.equal(runtime.networkDataDir, join(dataDir, "mainnet"));
+    assert.ok(existsSync(join(runtime.networkDataDir, "payment-intents")));
+    assert.ok(existsSync(join(runtime.networkDataDir, "ledger")));
+    assert.ok(existsSync(join(runtime.networkDataDir, "refunds")));
     assert.equal(rpcCalls, 0, "runtime initialization must not make RPC requests");
     assert.equal(bootstrap.initialize(), pool, "bootstrap is idempotent");
     assert.equal(rpcCalls, 0);
+});
+
+test("disabled payment intake mode keeps live Mainnet operations closed", (t) => {
+    const dataDir = mkdtempSync(join(tmpdir(), "wheelwin-mainnet-intake-disabled-"));
+    t.after(() => rmSync(dataDir, { recursive: true, force: true }));
+    const bootstrap = createMainnetBootstrap({
+        env: env({
+            MAINNET_ROOM_WALLET_DATA_DIR: dataDir,
+            ROOM_WALLET_PAYMENTS_ENABLED: "true",
+            ROOM_WALLET_PAYMENT_INTAKE_MODE: "DISABLED"
+        }),
+        fetchImpl: async () => { throw new Error("unexpected RPC"); }
+    });
+    assert.equal(bootstrap.liveOperationsEnabled, false);
+    bootstrap.initialize();
+    assert.equal(bootstrap.paymentRuntime.getCapabilities().livePaymentAcceptanceEnabled, false);
 });

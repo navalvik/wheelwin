@@ -18,14 +18,16 @@ test("authenticated Mainnet Page4 request observes its room once and never opens
     const observations = [];
     const runtime = {
         network: "mainnet",
-        liveOperationsEnabled: false,
-        incomingPayments: {
-            async observeRoom(id) {
+        getCapabilities: () => ({ livePaymentAcceptanceEnabled: false }),
+        sessionAdapter: {
+            async observeRoomPayments(id) {
                 observations.push(id);
                 return { status: "OBSERVED", paymentStatus: { status: "3/3" } };
             }
         },
-        gameStartPaymentGate: { getGameStartGateStatus: () => ({ eligible: true }) }
+        paymentService: { getWalletForRoom: id => ({ roomId: id,
+            walletId: "mn-wallet-7", address: "mainnet-wallet" }) },
+        paymentGate: { getGameStartGateStatus: () => ({ eligible: true }) }
     };
     const bridge = Object.create(RoomLobbyBridge.prototype);
     Object.assign(bridge, {
@@ -121,9 +123,8 @@ test("Mainnet Page4 observer rejects a socket that does not own a room seat", ()
         _deliverPaymentStatusToSocket() {},
         _roomManager: { getRoom: () => ({ players: ["a", "b", "c"] }) },
         _verifyBarrierCompletedByRoom: new Set(["room"]),
-        _paymentApplicationBinding: { runtime: { network: "mainnet", incomingPayments: {
-            async observeRoom(roomId) { observed.push(roomId); }
-        } } }
+        _paymentApplicationBinding: { runtime: { network: "mainnet",
+            sessionAdapter: { async observeRoomPayments(roomId) { observed.push(roomId); } } } }
     });
     bridge._handlePaymentStatusRequest("socket-outsider", { observationRequested: true });
     assert.deepEqual(observed, []);

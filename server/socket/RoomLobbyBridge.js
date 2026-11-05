@@ -43,6 +43,7 @@ import {
     parseTonAddress
 } from "../payment/incoming/TonAddressIdentity.js";
 import { deriveTestnetRoomPaymentRequirements } from "../payment/runtime/deriveTestnetRoomPaymentRequirements.js";
+import { deriveMainnetRoomPaymentRequirements } from "../mainnet/testnet_source/payment/runtime/deriveTestnetRoomPaymentRequirements.js";
 import { ActiveRoomObservationBudget } from "../payment/runtime/ActiveRoomObservationBudget.js";
 import { formatPage4WalletBindingLogs } from "../payment/walletAddressDiagnostics.js";
 import { NoFriendsAbuseStore } from "../matchmaking/NoFriendsAbuseStore.js";
@@ -5569,7 +5570,6 @@ export class RoomLobbyBridge {
 
         }
 
-        const mainnetPaymentMode = this._paymentApplicationBinding?.runtime?.network === "mainnet";
         const paymentAcceptanceEnabled = this._page4PaymentAcceptanceEnabled();
 
         this._deliverToRoom(
@@ -5593,9 +5593,8 @@ export class RoomLobbyBridge {
         });
 
         // Create intents before Page4 receives its first authoritative
-        // snapshot. Mainnet persists the same server-derived intents; its own
-        // runtime flag controls whether instructions may be delivered.
-        if (LIVE_PAYMENT_ACCEPTANCE_ENABLED || mainnetPaymentMode) {
+        // snapshot, but only when payment acceptance is enabled.
+        if (paymentAcceptanceEnabled) {
             this._preparePaymentSessionIfEnabled(roomId, room);
         }
 
@@ -5644,7 +5643,7 @@ export class RoomLobbyBridge {
     _page4PaymentAcceptanceEnabled() {
         const runtime = this._paymentApplicationBinding?.runtime;
         return runtime?.network === "mainnet"
-            ? runtime.liveOperationsEnabled === true
+            ? runtime.getCapabilities?.().livePaymentAcceptanceEnabled === true
             : LIVE_PAYMENT_ACCEPTANCE_ENABLED;
     }
 
@@ -5673,13 +5672,13 @@ export class RoomLobbyBridge {
         const runtime = binding && binding.runtime ? binding.runtime : null;
 
         if (runtime?.network === "mainnet") {
-            const paymentAcceptanceEnabled = runtime.liveOperationsEnabled === true;
-            const ledger = runtime.incomingLedger;
+            const paymentAcceptanceEnabled = runtime.getCapabilities?.().livePaymentAcceptanceEnabled === true;
+            const ledger = runtime.paymentService;
             let intents = [];
             let paymentStatus = null;
             try {
-                intents = ledger?.listRoomIntents?.(roomId) ?? [];
-                paymentStatus = ledger?.getRoomPaymentStatus?.(roomId) ?? null;
+                intents = ledger?.listPaymentIntentsForRoom?.(roomId) ?? [];
+                paymentStatus = runtime.paymentGate?.getGameStartGateStatus?.(roomId, room.players) ?? null;
             } catch {
                 // The Mainnet store is authoritative; read failure stays closed.
             }
@@ -5691,7 +5690,6 @@ export class RoomLobbyBridge {
                 && room.players.every(player => intents.some(intent =>
                     intent.playerId === player
                     && intent.network === "mainnet"
-                    && intent.globalId === -239
                 ));
             const playerIntent = exactRoster
                 ? intents.find(intent => intent.playerId === playerId)
@@ -5722,8 +5720,7 @@ export class RoomLobbyBridge {
                             : "mainnet_payment_state_unavailable",
                     playerPaymentStatus: playerIntent?.state === "SETTLED" ? "SETTLED" : "PENDING",
                     playerPaymentStatuses,
-                    confirmedCount: Number.isInteger(paymentStatus?.confirmedCount)
-                        ? paymentStatus.confirmedCount : 0,
+                    confirmedCount: intents.filter(intent => intent.state === "SETTLED").length,
                     requiredCount: 3
                 }
             );
@@ -5918,7 +5915,7 @@ export class RoomLobbyBridge {
         if (!LIVE_PAYMENT_ACCEPTANCE_ENABLED && !mainnetMode) return;
         const adapter = runtime?.sessionAdapter;
         const observeRoomPayments = mainnetMode
-            ? runtime?.incomingPayments?.observeRoom?.bind(runtime.incomingPayments)
+            ? runtime?.sessionAdapter?.observeRoomPayments?.bind(runtime.sessionAdapter)
             : adapter?.observeRoomPayments?.bind(adapter);
         const roomId = context.roomId;
         const recordAudit = (method, payload) => {
@@ -6098,13 +6095,13 @@ export class RoomLobbyBridge {
                     }
                 }
                 const paymentGate = mainnetMode
-                    ? runtime.gameStartPaymentGate
+                    ? runtime.paymentGate
                     : runtime.paymentGate;
                 const gate = paymentGate?.getGameStartGateStatus(
                     roomId, active.players
                 );
                 const paymentOperationsAvailable = mainnetMode
-                    ? runtime.liveOperationsEnabled === true
+                    ? runtime.getCapabilities?.().livePaymentAcceptanceEnabled === true
                     : LIVE_PAYMENT_ACCEPTANCE_ENABLED;
                 if (gate?.eligible === true && paymentOperationsAvailable) {
                     this._eventBus.emit({
@@ -6171,7 +6168,11 @@ export class RoomLobbyBridge {
         // Derive all three payment requirements from the server-side Page2
         // stake/sector selection and Page3 payer wallet, not an unattached
         // PlayerRuntime.paymentRequest field (which never existed).
-        const paymentRequests = deriveTestnetRoomPaymentRequirements(
+        const mainnetMode = binding.runtime?.network === "mainnet";
+        const derivePaymentRequirements = mainnetMode
+            ? deriveMainnetRoomPaymentRequirements
+            : deriveTestnetRoomPaymentRequirements;
+        const paymentRequests = derivePaymentRequirements(
             roomId, room.players,
             playerId => this._playerManager.getIdentity(playerId)
         );
@@ -6232,7 +6233,7 @@ export class RoomLobbyBridge {
                 expiresAt: payment.expiresAt ?? null
             };
             if (payment.network === "mainnet") {
-                paymentRequest.payerAddress = binding.runtime?.incomingLedger?.listRoomIntents?.(roomId)
+                paymentRequest.payerAddress = binding.runtime?.paymentService?.listPaymentIntentsForRoom?.(roomId)
                     ?.find(intent => intent.playerId === payment.playerId)?.expectedSender
                     ?? payment.payerAddress;
                 paymentRequest.destinationWalletAddress = payment.destinationWalletAddress;

@@ -91,5 +91,27 @@ assert.match(page4Source, /disabled=\{sending \|\| sentToWallet \|\| !mainnetReq
 assert.match(page4Source, /payment\.paymentAcceptanceEnabled && !mainnetMode/);
 assert.match(page4Source, /disabled=\{sending \|\| sentToWallet\}/);
 
-process.stdout.write("mainnetPage4PaymentSession.test.js: scenarios A-F passed\n");
+// G: both networks use the same active-session polling effect. Mainnet's
+// PAYMENT_STATUS_REQUEST is routed by RoomLobbyBridge through its Mainnet
+// incoming-payment adapter; Page4 must not suppress the shared 3-second loop.
+const pollingEffect = page4Source.match(
+    /\/\/ Only an active Page4 with an unsettled payment requests observation\.[\s\S]*?(?=\n\s*const walletMatches)/
+);
+assert.ok(pollingEffect, "Page4 contains the shared payment-observation effect");
+assert.match(pollingEffect[0], /if \(!roomId \|\| !playerId[\s\S]*payment\.paymentAcceptanceEnabled !== true/,
+    "polling requires the active room, player, and enabled payment session");
+assert.match(pollingEffect[0], /\[\"AWAITING_PAYMENT\", \"MATCHED\", \"AWAITING_CONFIRMATION\"\]/,
+    "polling is limited to unsettled payment states");
+assert.doesNotMatch(pollingEffect[0], /mainnetMode/,
+    "Mainnet does not bypass the shared polling effect");
+assert.match(pollingEffect[0], /socket\.connected && Date\.now\(\) < payment\.expiresAt/,
+    "polling only requests status while connected and before expiry");
+assert.match(pollingEffect[0], /const id = setInterval\(check, 3000\)/,
+    "payment observation runs on the Testnet 3000 ms interval");
+assert.match(pollingEffect[0], /return \(\) => clearInterval\(id\)/,
+    "the effect clears its single interval on settlement or cleanup");
+assert.equal((pollingEffect[0].match(/setInterval\(check, 3000\)/g) ?? []).length, 1,
+    "there is exactly one polling interval in the effect");
+
+process.stdout.write("mainnetPage4PaymentSession.test.js: scenarios A-G passed\n");
 

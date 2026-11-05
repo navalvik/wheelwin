@@ -250,7 +250,6 @@ export default function Page4Payment() {
     // catalog is never scanned. Stop immediately on settlement/unmount/expiry.
     useEffect(() => {
         if (!roomId || !playerId
-            || mainnetMode
             || payment.paymentAcceptanceEnabled !== true
             || !["AWAITING_PAYMENT", "MATCHED", "AWAITING_CONFIRMATION"].includes(payment.status)
             || !Number.isSafeInteger(payment.expiresAt)) return undefined;
@@ -266,7 +265,7 @@ export default function Page4Payment() {
         const id = setInterval(check, 3000);
         return () => clearInterval(id);
     }, [roomId, playerId, payment.paymentAcceptanceEnabled,
-        payment.status, payment.expiresAt, payment.paymentReference, mainnetMode]);
+        payment.status, payment.expiresAt, payment.paymentReference]);
 
     const walletMatches = payerMatchesConnectedWallet(payment.payerAddress, connectedWallet, payment.network);
     const mainnetRequestValid = mainnetMode

@@ -5,7 +5,6 @@ import { join } from "node:path";
 import test from "node:test";
 import { keyPairFromSeed } from "@ton/crypto";
 import { WalletContractV4 } from "@ton/ton";
-import { MainnetPaymentRuntime } from "../payment/MainnetPaymentRuntime.js";
 import { createMainnetWalletV4Transport } from "../payment/MainnetWalletV4Transport.js";
 import { loadMainnetRuntimeConfig } from "../config/MainnetRuntimeConfig.js";
 import { createMainnetBootstrap } from "../MainnetBootstrap.js";
@@ -64,10 +63,6 @@ test("Mainnet uses shared RoomWalletAdapter with Mainnet Toncenter, keys, and is
     const h = setup(t);
     const transport = createMainnetWalletV4Transport({ config: h.config, env: h.env,
         client: h.client, now: () => 1_800_000_000_000, sleep: async () => {} });
-    const runtime = new MainnetPaymentRuntime({ config: h.config, adapter: transport,
-        fetchImpl: async () => { throw new Error("read-only clients are not called in this transport test"); } });
-
-    assert.equal(runtime.liveOperationsEnabled, false);
     assert.equal(transport.supportsDurableTransferRetry(), true);
     assert.equal(await transport.getWalletAddress(1), h.addresses[0]);
     assert.equal(await transport.getSeqno(1), 7);
@@ -121,13 +116,6 @@ test("Mainnet signing resolver fails closed on Testnet fallback or wallet/addres
     assert.throws(() => createMainnetWalletV4Transport({ config: mismatchedConfig,
         env: h.env, client: h.client }), /MAINNET_WALLET_V4_IDENTITY_MISMATCH/,
     "public Mainnet catalog and signing keys are checked before runtime activation");
-    assert.throws(() => new MainnetPaymentRuntime({
-        config: mismatchedConfig,
-        env: { ...h.env, ROOM_WALLET_PAYMENTS_ENABLED: "true" },
-        walletV4Client: h.client,
-        fetchImpl: async () => { throw new Error("no read RPC expected"); }
-    }), /MAINNET_WALLET_V4_IDENTITY_MISMATCH/);
-
     const failedBootstrap = createMainnetBootstrap({
         env: { ...h.env, ROOM_WALLET_PAYMENTS_ENABLED: "true",
             MAINNET_ROOM_WALLETS_JSON: mismatchedCatalog },
@@ -139,54 +127,19 @@ test("Mainnet signing resolver fails closed on Testnet fallback or wallet/addres
         "a failed Wallet V4 identity check leaves no active payment runtime");
 });
 
-test("Mainnet runtime activates the shared Wallet V4 transport only with the existing network-scoped opt-in", async t => {
-    const h = setup(t);
-    const enabledEnv = { ...h.env, ROOM_WALLET_PAYMENTS_ENABLED: "true" };
-    const runtime = new MainnetPaymentRuntime({
-        config: h.config,
-        env: enabledEnv,
-        walletV4Client: h.client,
-        fetchImpl: async () => { throw new Error("Mainnet read RPC is not used by this outbound test"); }
-    });
-
-    assert.equal(runtime.liveOperationsEnabled, true);
-    assert.equal(runtime.outgoingAdapter, runtime.refundLifecycle._adapter);
-    assert.equal(runtime.outgoingAdapter, runtime.payoutLifecycle._adapter);
-    assert.equal(await runtime.outgoingAdapter.getWalletAddress(1), h.addresses[0]);
-    const submitted = await runtime.outgoingAdapter.sendTransfer({
-        roomNumber: 1, destination: h.addresses[1], amountNano: 1_000_000_000n,
-        bounce: false, idempotencyKey: "mock:runtime:mainnet:send"
-    });
-    assert.equal(submitted.code, "SUBMITTED_UNCONFIRMED");
-    assert.equal(h.state.sentBocs.length, 1);
-
-    const noFlag = new MainnetPaymentRuntime({ config: h.config, env: h.env,
-        walletV4Client: h.client, fetchImpl: async () => { throw new Error("no RPC expected"); } });
-    const wrongNetwork = new MainnetPaymentRuntime({ config: h.config,
-        env: { ...h.env, ROOM_WALLET_PAYMENTS_ENABLED: "true", TON_NETWORK: "testnet" },
-        walletV4Client: h.client, fetchImpl: async () => { throw new Error("no RPC expected"); } });
-    for (const closed of [noFlag, wrongNetwork]) {
-        assert.equal(closed.liveOperationsEnabled, false);
-        await assert.rejects(closed.outgoingAdapter.sendTransfer({
-            roomNumber: 1, destination: h.addresses[1], amountNano: 1_000_000_000n,
-            bounce: false, idempotencyKey: "mock:closed:send"
-        }), /MAINNET_LIVE_FINANCIAL_OPERATIONS_DISABLED/);
-    }
-    assert.equal(h.state.sentBocs.length, 1, "closed modes must not broadcast");
-});
-
-test("Mainnet bootstrap passes explicit permission and mock Wallet V4 client into the payment runtime", t => {
+test("Mainnet bootstrap requires enabled intake before it constructs the signer transport", t => {
     const h = setup(t);
     const bootstrap = createMainnetBootstrap({
-        env: { ...h.env, ROOM_WALLET_PAYMENTS_ENABLED: "true" },
+        env: { ...h.env, ROOM_WALLET_PAYMENTS_ENABLED: "true",
+            ROOM_WALLET_PAYMENT_INTAKE_MODE: "DISABLED" },
         walletV4Client: h.client,
         fetchImpl: async () => { throw new Error("no RPC expected during initialization"); }
     });
     bootstrap.initialize();
-    assert.equal(bootstrap.paymentRuntime.liveOperationsEnabled, true);
+    assert.equal(bootstrap.liveOperationsEnabled, false);
     assert.equal(bootstrap.paymentRuntime.network, "mainnet");
-    assert.equal(bootstrap.paymentRuntime.outgoingAdapter, bootstrap.paymentRuntime.refundLifecycle._adapter);
-    assert.equal(bootstrap.paymentRuntime.outgoingAdapter, bootstrap.paymentRuntime.payoutLifecycle._adapter);
+    assert.equal(bootstrap.walletV4Transport, null);
+    assert.equal(bootstrap.paymentRuntime.getCapabilities().livePaymentAcceptanceEnabled, false);
 });
 
 test("Mainnet ambiguous broadcast retry reuses the same durable Wallet V4 message", async t => {
@@ -209,13 +162,4 @@ test("Mainnet ambiguous broadcast retry reuses the same durable Wallet V4 messag
     assert.equal(retry.code, "SUBMITTED_UNCONFIRMED");
     assert.equal(h.state.sentBocs.length, 2);
     assert.deepEqual(h.state.sentBocs[0], h.state.sentBocs[1]);
-});
-
-test("MainnetPaymentRuntime retains DISABLED_ADAPTER by default", t => {
-    const h = setup(t);
-    const runtime = new MainnetPaymentRuntime({ config: h.config,
-        fetchImpl: async () => { throw new Error("no RPC expected"); } });
-    assert.equal(runtime.liveOperationsEnabled, false);
-    assert.equal(runtime.stateDirectories.outgoing, join(h.dataDir, "outgoing-seqno"));
-    assert.equal(h.state.sentBocs.length, 0);
 });

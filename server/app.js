@@ -46,16 +46,18 @@ import { LoggingManager } from "./logging/LoggingManager.js";
 import { GameDiagnosticLogManager } from "./logging/GameDiagnosticLogManager.js";
 import { SessionHistoryArchiveManager } from "./history/SessionHistoryArchiveManager.js";
 import { ForensicArchiveService } from "./forensic/ForensicArchiveService.js";
+import { ForensicArchiveService as MainnetForensicArchiveService } from "./mainnet/testnet_source/forensic/ForensicArchiveService.js";
 import { ClientPage5DeviceReportStore } from "./forensic/ClientPage5DeviceReportStore.js";
+import { ClientPage5DeviceReportStore as MainnetClientPage5DeviceReportStore } from "./mainnet/testnet_source/forensic/ClientPage5DeviceReportStore.js";
 import { ClientPageConfirmationRegistry } from "./diagnostics/ClientPageConfirmationRegistry.js";
 import { evaluateFinalForensicArchive } from "./forensic/FinalForensicArchiveGate.js";
+import { evaluateFinalForensicArchive as evaluateMainnetFinalForensicArchive } from "./mainnet/testnet_source/forensic/FinalForensicArchiveGate.js";
 import { purgeLocalForensicArchiveZips } from "./forensic/purgeLocalForensicArchiveZips.js";
+import { purgeLocalForensicArchiveZips as purgeMainnetForensicArchiveZips } from "./mainnet/testnet_source/forensic/purgeLocalForensicArchiveZips.js";
 import { R2ForensicArchiveUploader } from "./forensic/R2ForensicArchiveUploader.js";
+import { R2ForensicArchiveUploader as MainnetR2ForensicArchiveUploader } from "./mainnet/testnet_source/forensic/R2ForensicArchiveUploader.js";
 import { resolveForensicArchiveConfig } from "./forensic/forensicArchiveConfig.js";
 import { resolveFinancialArchiveRuntimeBinding } from "./mainnet/payment/MainnetForensicFinancialSnapshot.js";
-import { listMainnetArchiveCandidates, selectMainnetArchiveBatch } from "./mainnet/payment/MainnetArchiveRecoveryQueue.js";
-import { MainnetPendingRefundReconciler } from "./mainnet/payment/MainnetPendingRefundReconciler.js";
-import { MainnetPendingPayoutReconciler } from "./mainnet/payment/MainnetPendingPayoutReconciler.js";
 import { LOG_LEVELS } from "./logging/levels.js";
 import { MonitoringManager } from "./monitoring/MonitoringManager.js";
 import { FailurePolicyManager } from "./failure/FailurePolicyManager.js";
@@ -93,6 +95,13 @@ import { SpeedActivation } from "./gameplay/SpeedActivation.js";
 import { OfflineInputContinuation } from "./gameplay/OfflineInputContinuation.js";
 import { WinnerActivation } from "./gameplay/WinnerActivation.js";
 import { ResultActivation } from "./gameplay/ResultActivation.js";
+import { MainnetWinnerPayoutCoordinator } from "./mainnet/testnet_source/payment/runtime/TestnetWinnerPayoutCoordinator.js";
+import { MainnetNativeRoomPayoutTransport } from "./mainnet/testnet_source/payment/runtime/TestnetNativeRoomPayoutTransport.js";
+import { MainnetPendingPayoutReconciler } from "./mainnet/testnet_source/payment/runtime/TestnetPendingPayoutReconciler.js";
+import { MainnetPendingRefundReconciler } from "./mainnet/testnet_source/payment/runtime/TestnetPendingRefundReconciler.js";
+import { MainnetPendingRefundExecutor } from "./mainnet/testnet_source/payment/runtime/TestnetPendingRefundExecutor.js";
+import { HistoricalIncomingReceiptReconciler as MainnetHistoricalIncomingReceiptReconciler } from "./mainnet/testnet_source/payment/runtime/HistoricalIncomingReceiptReconciler.js";
+import { ToncenterIncomingProvider as MainnetToncenterIncomingProvider } from "./mainnet/testnet_source/payment/toncenter/ToncenterIncomingProvider.js";
 import { TestnetWinnerPayoutCoordinator } from "./payment/runtime/TestnetWinnerPayoutCoordinator.js";
 import { TestnetNativeRoomPayoutTransport } from "./payment/runtime/TestnetNativeRoomPayoutTransport.js";
 import { TestnetNativeTonService } from "./payment/roomWallet/TestnetNativeTonService.js";
@@ -136,9 +145,6 @@ import {
     resolveServerPaymentMode
 } from "./mainnet/ServerPaymentMode.js";
 import { MainnetPage4PaymentApplicationBinding } from "./mainnet/payment/MainnetPage4PaymentApplicationBinding.js";
-import { MainnetWinnerPayoutCoordinator } from "./mainnet/payment/MainnetWinnerPayoutCoordinator.js";
-import { MainnetHistoricalIncomingReceiptReconciler } from "./mainnet/payment/MainnetHistoricalIncomingReceiptReconciler.js";
-import { MainnetWalletReleaseReconciler } from "./mainnet/wallet/MainnetWalletReleaseReconciler.js";
 import { MainnetWalletQuarantineAdminService } from "./mainnet/admin/MainnetWalletQuarantineAdminService.js";
 
 import { DeveloperConsoleProjectionService } from "./console/DeveloperConsoleProjectionService.js";
@@ -282,9 +288,6 @@ class WheelWinApplication {
         this._mainnetWinnerPayoutCoordinator = null;
         this._mainnetHistoryReconciler = null;
         this._mainnetHistoryReconciliationTimer = null;
-        this._mainnetForensicHistoryTimer = null;
-        this._mainnetWalletReleaseReconciler = null;
-        this._mainnetWalletReleaseTimer = null;
         this._mainnetRefundReconciler = null;
         this._mainnetRefundReconciliationTimer = null;
         this._mainnetPendingRefundExecutor = null;
@@ -293,6 +296,7 @@ class WheelWinApplication {
         this._mainnetPayoutReconciliationTimer = null;
         this._mainnetPendingPayoutExecutor = null;
         this._mainnetPayoutExecutionTimer = null;
+        this._mainnetFinancialRecoveryTimer = null;
         this._gameplayPaymentTerminalBridge = null;
         this._mainnetRuntimeReady = false;
         this._nativeRoomWalletAdapter = null;
@@ -1277,242 +1281,214 @@ class WheelWinApplication {
                     env: process.env,
                     logger: this._logger
                 });
-
+                const paymentRuntime = mainnetBootstrap.paymentRuntime;
                 this._mainnetBootstrap = mainnetBootstrap;
-                this._mainnetPaymentRuntime = mainnetBootstrap.paymentRuntime;
+                this._mainnetPaymentRuntime = paymentRuntime;
+                this._paymentRuntime = paymentRuntime;
+                this._nativeRoomWalletAdapter = mainnetBootstrap.walletV4Transport;
                 this._mainnetRuntimeReady = true;
                 this._paymentRuntimeReady = true;
+
                 this._paymentApplicationBinding = new MainnetPage4PaymentApplicationBinding({
-                    runtime: mainnetBootstrap.paymentRuntime,
+                    runtime: paymentRuntime,
                     walletPool: mainnetBootstrap.walletPool,
                     dataDir: mainnetBootstrap.config.dataDir,
-                    roomManager: this._managers.roomManager
+                    roomManager: this._managers.roomManager,
+                    paymentAcceptanceEnabled: mainnetBootstrap.liveOperationsEnabled
                 });
-                mainnetBootstrap.paymentRuntime.refundLifecycle.configurePage5StateResolver(
-                    roomId => mainnetBootstrap.paymentRuntime.financialLedger.hasPage5Started(roomId)
-                        || this._gameStartAuthorization.getLifecycle(roomId)?.phase === "OPEN_PAGE5"
-                );
-                mainnetBootstrap.paymentRuntime.refundLifecycle.configureReservedWalletRoomNumberResolver(
-                    roomId => mainnetBootstrap.walletPool.getReservationForRoomHistory(roomId)?.roomNumber ?? null
-                );
-                mainnetBootstrap.paymentRuntime.refundLifecycle.configureCurrentWalletReservationResolver(
-                    roomNumber => mainnetBootstrap.walletPool.getWalletByRoomNumber(roomNumber)
-                );
-                this._mainnetPage5StartedHandler = envelope => {
-                    const roomId = envelope?.payload?.roomId;
-                    if (typeof roomId === "string" && roomId) {
-                        mainnetBootstrap.paymentRuntime.financialLedger.recordPage5Started(roomId);
+                this._managers.roomManager.attachRefundLifecycle(paymentRuntime.refundLifecycle);
+                this._gameStartAuthorization.configurePaymentGate(paymentRuntime.paymentGate);
+
+                const releaseMainnetWalletForRoom = roomId => {
+                    if (this._managers.roomManager.getRoom(roomId) !== null) {
+                        return Object.freeze({ released: false, activeRoom: true });
+                    }
+                    return paymentRuntime.paymentService.releaseWalletForRoom(roomId);
+                };
+                let archiveCursor = 0;
+                let financialPassRunning = false;
+                const archiveMainnetFinalizedRooms = async () => {
+                    if (financialPassRunning || !this._forensicArchiveService) return;
+                    financialPassRunning = true;
+                    try {
+                        await this._forensicArchiveService.recoverPendingUploads({ limit: 3 });
+                        const roomMap = new Map();
+                        for (const closed of paymentRuntime.refundStore.listClosedRooms()) {
+                            roomMap.set(closed.roomId, { roomId: closed.roomId, reason: closed.closureReason });
+                        }
+                        for (const outcome of paymentRuntime.outcomeStore.list()) {
+                            if (outcome.kind === "PAYOUT" && !roomMap.has(outcome.roomId)) {
+                                roomMap.set(outcome.roomId, {
+                                    roomId: outcome.roomId,
+                                    gameId: outcome.context?.gameId ?? null,
+                                    reason: "game_completed"
+                                });
+                            }
+                        }
+                        const rooms = [...roomMap.values()];
+                        for (let i = 0; i < Math.min(3, rooms.length); i++) {
+                            await this._forensicArchiveService.ensureArchivedAndUploaded(
+                                rooms[(archiveCursor + i) % rooms.length]
+                            );
+                        }
+                        archiveCursor = rooms.length ? (archiveCursor + 3) % rooms.length : 0;
+                    } catch (error) {
+                        this._logger.warn?.("MAINNET_FORENSIC_HISTORY_PENDING | code="
+                            + (error?.code ?? "RECONCILIATION_PENDING"));
+                    } finally {
+                        financialPassRunning = false;
                     }
                 };
-                this._eventBus.subscribe(
-                    EVENT_TYPES.GAME_START_BOOTSTRAP_READY,
-                    this._mainnetPage5StartedHandler
-                );
-                const mainnetRefundRecovery = mainnetBootstrap.paymentRuntime.refundLifecycle.recover();
+                const releaseMainnetClosedRoomWallets = async () => {
+                    for (const closed of paymentRuntime.refundStore.listClosedRooms()) {
+                        try { releaseMainnetWalletForRoom(closed.roomId); }
+                        catch (error) {
+                            this._logger.warn?.("MAINNET_ROOM_WALLET_RELEASE_PENDING"
+                                + ` | roomId=${closed.roomId} | code=${error?.code ?? "RELEASE_CHECK_FAILED"}`);
+                        }
+                    }
+                    for (const outcome of paymentRuntime.outcomeStore.list()) {
+                        if (outcome.kind !== "PAYOUT") continue;
+                        try { releaseMainnetWalletForRoom(outcome.roomId); }
+                        catch (error) {
+                            this._logger.warn?.("MAINNET_ROOM_WALLET_RELEASE_PENDING"
+                                + ` | roomId=${outcome.roomId} | code=${error?.code ?? "RELEASE_CHECK_FAILED"}`);
+                        }
+                    }
+                    await archiveMainnetFinalizedRooms();
+                };
+
+                const mainnetRefundRecovery = paymentRuntime.refundLifecycle.recover();
                 for (const item of mainnetRefundRecovery) {
-                    this._logger.warn?.(
-                        "MAINNET_REFUND_RECOVERY_PENDING"
-                            + ` | obligationId=${item.obligationId}`
-                            + ` | state=${item.state}`
-                            + ` | outcome=${item.outcome}`
-                    );
+                    this._logger.warn?.("MAINNET_REFUND_RECOVERY_PENDING"
+                        + ` | obligationId=${item.obligationId} | state=${item.state} | outcome=${item.outcome}`);
                 }
-                this._mainnetRefundReconciler = new MainnetPendingRefundReconciler({
-                    financialLedger: mainnetBootstrap.paymentRuntime.financialLedger,
-                    refundLifecycle: mainnetBootstrap.paymentRuntime.refundLifecycle,
-                    maxPerPass: 2,
-                    logger: this._logger
-                });
-                const reconcileMainnetRefunds = () => {
-                    void this._mainnetRefundReconciler?.runPass()
-                        .then(() => this._mainnetWalletReleaseReconciler?.runPass())
-                        .catch(error => this._logger.warn?.(
-                            "MAINNET_REFUND_RECONCILIATION_PENDING | code="
-                                + (error?.code ?? "RECONCILIATION_FAILED")
-                        ));
-                };
-                // The persistent ledger was recovered above. Begin a bounded,
-                // read-only check at startup and continue independently of R2.
-                reconcileMainnetRefunds();
-                this._mainnetRefundReconciliationTimer = setInterval(reconcileMainnetRefunds, 60_000);
-                this._mainnetRefundReconciliationTimer.unref?.();
-                this._mainnetPendingRefundExecutor = mainnetBootstrap.paymentRuntime.pendingRefundExecutor;
-                this._managers.roomManager.attachRefundLifecycle(
-                    mainnetBootstrap.paymentRuntime.refundLifecycle
-                );
 
-                this._mainnetWalletReleaseReconciler = new MainnetWalletReleaseReconciler({
-                    walletPool: mainnetBootstrap.walletPool,
-                    financialLedger: mainnetBootstrap.paymentRuntime.financialLedger,
-                    roomManager: this._managers.roomManager,
-                    snapshotDir: join(mainnetBootstrap.config.dataDir, "wallet-registry"),
-                    maxPerPass: 3,
-                    logger: this._logger
-                });
-                const reconcileMainnetWalletReleases = () => {
-                    void this._mainnetWalletReleaseReconciler?.runPass()
-                        .catch(error => this._logger.warn?.(
-                            "MAINNET_WALLET_RELEASE_RECONCILIATION_PENDING | code="
-                                + (error?.code ?? "RECONCILIATION_FAILED")
-                        ));
-                };
-                // Load reservations from durable wallet state, then release
-                // only destroyed-room wallets with no financial blockers.
-                reconcileMainnetWalletReleases();
-                this._mainnetWalletReleaseTimer = setInterval(reconcileMainnetWalletReleases, 60_000);
-                this._mainnetWalletReleaseTimer.unref?.();
-
-                // Recover late incoming payments for destroyed Mainnet rooms
-                // independently of archive/R2 availability. This only reads
-                // chain history and records receipts/refund obligations.
-                this._mainnetHistoryReconciler = new MainnetHistoricalIncomingReceiptReconciler({
-                    incomingLedger: mainnetBootstrap.paymentRuntime.incomingLedger,
-                    financialLedger: mainnetBootstrap.paymentRuntime.financialLedger,
-                    client: mainnetBootstrap.paymentRuntime.client,
-                    outgoingObserver: mainnetBootstrap.paymentRuntime.outgoingObserver,
-                    independentVerifier: mainnetBootstrap.paymentRuntime.independentVerifier,
-                    walletPool: mainnetBootstrap.walletPool,
-                    refundLifecycle: mainnetBootstrap.paymentRuntime.refundLifecycle
-                });
-                const reconcileMainnetHistoricalReceipts = () => {
-                    void this._mainnetHistoryReconciler?.runPass()
-                        .then(() => this._mainnetWalletReleaseReconciler?.runPass())
-                        .catch(error => this._logger.warn?.(
-                            "MAINNET_HISTORICAL_RECEIPT_RECOVERY_PENDING | code="
-                                + (error?.code ?? "RECONCILIATION_FAILED")
-                        ));
-                };
-                reconcileMainnetHistoricalReceipts();
-                this._mainnetHistoryReconciliationTimer = setInterval(
-                    reconcileMainnetHistoricalReceipts, 60_000
-                );
-                this._mainnetHistoryReconciliationTimer.unref?.();
-
-                // Use the existing Mainnet ledger-backed gate and prepare
-                // Page4 intents through the Mainnet-only application binding.
-                // Mainnet payment instructions and outgoing operations follow
-                // the explicit runtime permission; paid start remains guarded
-                // by the shared authoritative 3/3 ledger barrier.
-                this._gameStartAuthorization.configurePaymentGate(
-                    mainnetBootstrap.paymentRuntime.gameStartPaymentGate
-                );
+                let nativePayoutTransport = null;
+                if (mainnetBootstrap.liveOperationsEnabled) {
+                    if (paymentRuntime.outgoingRefundProvider?.canExecute?.() !== true
+                        || !mainnetBootstrap.walletV4Transport) {
+                        throw new Error("MAINNET_FINANCIAL_PROVIDER_NOT_READY");
+                    }
+                    nativePayoutTransport = new MainnetNativeRoomPayoutTransport({
+                        walletPool: mainnetBootstrap.walletPool,
+                        adapter: mainnetBootstrap.walletV4Transport,
+                        dataDir: paymentRuntime.networkDataDir,
+                        logger: this._logger,
+                        ledger: paymentRuntime.ledger,
+                        independentVerifier: mainnetBootstrap.independentVerifier,
+                        outgoingObserver: mainnetBootstrap.outgoingObserver
+                    });
+                    this._mainnetPendingRefundReconciler = new MainnetPendingRefundReconciler({
+                        refundStore: paymentRuntime.refundStore,
+                        intentStore: paymentRuntime.intentStore,
+                        receiptStore: paymentRuntime.receiptStore,
+                        toncenterObserver: mainnetBootstrap.outgoingObserver,
+                        independentVerifier: mainnetBootstrap.independentVerifier,
+                        maxPerPass: 2,
+                        logger: this._logger
+                    });
+                    this._mainnetPendingPayoutReconciler = new MainnetPendingPayoutReconciler({
+                        ledgerStore: paymentRuntime.ledgerStore,
+                        ledger: paymentRuntime.ledger,
+                        walletPool: mainnetBootstrap.walletPool,
+                        transport: nativePayoutTransport,
+                        maxPerPass: 2,
+                        logger: this._logger
+                    });
+                    this._mainnetPendingRefundExecutor = new MainnetPendingRefundExecutor({
+                        runtime: paymentRuntime
+                    });
+                    this._mainnetHistoryReconciler = new MainnetHistoricalIncomingReceiptReconciler({
+                        runtime: paymentRuntime,
+                        incomingProvider: new MainnetToncenterIncomingProvider({ client: mainnetBootstrap.client }),
+                        chainObserver: mainnetBootstrap.outgoingObserver,
+                        independentVerifier: mainnetBootstrap.independentVerifier
+                    });
+                }
 
                 this._mainnetWinnerPayoutCoordinator = new MainnetWinnerPayoutCoordinator({
-                    paymentRuntime: mainnetBootstrap.paymentRuntime,
-                    walletPool: mainnetBootstrap.walletPool,
+                    paymentRuntime,
                     roomManager: this._managers.roomManager,
                     playerManager: this._managers.playerManager,
                     contextResolver: this._gameplayContextResolver,
-                    winnerEngine: this._engines.winnerEngine
+                    winnerEngine: this._engines.winnerEngine,
+                    payoutSubmitter: nativePayoutTransport
                 });
-                const pendingMainnetPayouts =
-                    this._mainnetWinnerPayoutCoordinator.recoverPendingResults();
-                for (const payout of pendingMainnetPayouts) {
-                    this._logger.warn?.(
-                        "MAINNET_PAYOUT_RECOVERY_PENDING"
-                            + ` | payoutId=${payout.payoutId}`
-                            + ` | roomId=${payout.roomId}`
-                            + ` | state=${payout.state}`
-                            + ` | winnerState=${payout.winner.state}`
-                            + ` | ownerState=${payout.owner.state}`
-                    );
+                const pendingPayouts = await this._mainnetWinnerPayoutCoordinator.recoverPendingResults();
+                for (const payout of pendingPayouts) {
+                    this._logger.warn?.("MAINNET_PAYOUT_RECOVERY_PENDING"
+                        + ` | payoutId=${payout.payoutId} | roomId=${payout.roomId}`
+                        + ` | status=${payout.status ?? "PENDING"}`);
                 }
-                this._mainnetPayoutReconciler = new MainnetPendingPayoutReconciler({
-                    financialLedger: mainnetBootstrap.paymentRuntime.financialLedger,
-                    payoutLifecycle: mainnetBootstrap.paymentRuntime.payoutLifecycle,
-                    maxPerPass: 2,
-                    logger: this._logger
-                });
-                const reconcileMainnetPayouts = () => {
-                    void this._mainnetPayoutReconciler?.runPass()
-                        .then(pass => {
+
+                let archivePassRunning = false;
+                const reconcileMainnetFinancials = async () => {
+                    if (archivePassRunning) return;
+                    archivePassRunning = true;
+                    try {
+                        if (mainnetBootstrap.liveOperationsEnabled) {
+                            await this._mainnetHistoryReconciler?.runPass();
+                            await this._mainnetPendingRefundExecutor?.runPass();
+                            await this._mainnetWinnerPayoutCoordinator?.recoverPendingResults?.();
+                            const pass = await this._mainnetPendingPayoutReconciler?.runPass();
                             for (const result of pass?.results ?? []) {
                                 this._gameplayPaymentTerminalBridge?.observePayoutOutcome({
-                                    payoutId: result.payoutId,
-                                    status: result.status
+                                    payoutId: result.payoutId, status: result.status
                                 });
                             }
-                            return this._mainnetWalletReleaseReconciler?.runPass();
-                        })
-                        .catch(error => this._logger.warn?.(
-                            "MAINNET_PAYOUT_RECONCILIATION_PENDING | code="
-                                + (error?.code ?? "RECONCILIATION_FAILED")
-                        ));
+                            await this._mainnetPendingRefundReconciler?.runPass();
+                            await releaseMainnetClosedRoomWallets();
+                        }
+                        await archiveMainnetFinalizedRooms();
+                    } catch (error) {
+                        this._logger.warn?.("MAINNET_FINANCIAL_RECOVERY_PENDING | code="
+                            + (error?.code ?? "RECONCILIATION_PENDING"));
+                    } finally {
+                        archivePassRunning = false;
+                    }
                 };
-                // Resume only previously attempted payout legs. The lifecycle
-                // method is read-only and this schedule is independent of R2.
-                reconcileMainnetPayouts();
-                this._mainnetPayoutReconciliationTimer = setInterval(reconcileMainnetPayouts, 60_000);
-                this._mainnetPayoutReconciliationTimer.unref?.();
-                this._mainnetPendingPayoutExecutor = mainnetBootstrap.paymentRuntime.pendingPayoutExecutor;
+                void reconcileMainnetFinancials();
+                this._mainnetFinancialRecoveryTimer = setInterval(
+                    reconcileMainnetFinancials, 60_000
+                );
+                this._mainnetFinancialRecoveryTimer.unref?.();
+
                 this._mainnetGameResultReadyHandler = envelope => {
                     const gameId = envelope?.payload?.gameId;
                     void Promise.resolve()
                         .then(() => this._mainnetWinnerPayoutCoordinator.onGameResult({ gameId }))
                         .then(outcome => {
                             this._gameplayPaymentTerminalBridge?.trackPayout({
-                                gameId,
-                                payoutId: outcome?.payoutId
+                                gameId, payoutId: outcome?.payoutId
                             });
                             this._gameplayPaymentTerminalBridge?.observePayoutOutcome({
-                                payoutId: outcome?.payoutId,
-                                status: outcome?.status
+                                payoutId: outcome?.payoutId, status: outcome?.status
                             });
-                            this._logger.info(
-                                `MAINNET_WINNER_PAYOUT | gameId=${gameId} | status=${outcome.status}`
-                                    + ` | payoutId=${outcome.payoutId}`
-                            );
+                            this._logger.info("MAINNET_WINNER_PAYOUT"
+                                + ` | gameId=${gameId} | status=${outcome.status}`);
+                            return releaseMainnetClosedRoomWallets();
                         })
-                        .catch(error => this._logger.warn(
-                            `MAINNET_WINNER_PAYOUT_PENDING | gameId=${gameId}`
-                                + ` | reason=${error?.message ?? "unavailable"}`
-                        ));
+                        .catch(error => this._logger.warn("MAINNET_WINNER_PAYOUT_PENDING"
+                            + ` | gameId=${gameId} | reason=${error?.message ?? "unavailable"}`));
                 };
-                this._eventBus.subscribe(
-                    EVENT_TYPES.GAME_RESULT_READY,
-                    this._mainnetGameResultReadyHandler
-                );
+                this._eventBus.subscribe(EVENT_TYPES.GAME_RESULT_READY, this._mainnetGameResultReadyHandler);
 
-                // Start outbound executors only after all synchronous Mainnet
-                // components, payment gates, and event handlers initialized.
-                // Any earlier initialization error is caught by the enclosing
-                // fail-closed block and cannot submit a financial operation.
-                if (mainnetBootstrap.paymentRuntime.liveOperationsEnabled === true) {
-                    const executeMainnetPendingRefunds = () => {
+                if (mainnetBootstrap.liveOperationsEnabled) {
+                    this._mainnetRefundExecutionTimer = setInterval(() => {
                         void this._mainnetPendingRefundExecutor?.runPass()
-                            .catch(error => this._logger.warn?.(
-                                "MAINNET_PENDING_REFUND_EXECUTION_RETRY_LATER | code="
-                                    + (error?.code ?? "SUBMISSION_FAILED")
-                            ));
-                    };
-                    const executeMainnetPendingPayouts = () => {
-                        void this._mainnetPendingPayoutExecutor?.runPass()
-                            .then(pass => {
-                                for (const result of pass?.results ?? []) {
-                                    this._gameplayPaymentTerminalBridge?.observePayoutOutcome({
-                                        payoutId: result.payoutId,
-                                        status: result.status
-                                    });
-                                }
-                            })
-                            .catch(error => this._logger.warn?.(
-                                "MAINNET_PENDING_PAYOUT_EXECUTION_RETRY_LATER | code="
-                                    + (error?.code ?? "SUBMISSION_FAILED")
-                            ));
-                    };
-                    executeMainnetPendingRefunds();
-                    this._mainnetRefundExecutionTimer = setInterval(executeMainnetPendingRefunds, 60_000);
+                            .then(releaseMainnetClosedRoomWallets)
+                            .catch(error => this._logger.warn?.("MAINNET_REFUND_EXECUTION_PENDING"
+                                + ` | code=${error?.code ?? "SUBMISSION_FAILED"}`));
+                    }, 60_000);
                     this._mainnetRefundExecutionTimer.unref?.();
-                    executeMainnetPendingPayouts();
-                    this._mainnetPayoutExecutionTimer = setInterval(executeMainnetPendingPayouts, 60_000);
-                    this._mainnetPayoutExecutionTimer.unref?.();
                 }
 
                 this._logger.startupLine(formatMainnetRuntimeStartupLine({
                     config: mainnetBootstrap.config,
-                    paymentRuntime: mainnetBootstrap.paymentRuntime
+                    paymentRuntime,
+                    liveOperationsEnabled: mainnetBootstrap.liveOperationsEnabled
                 }));
-
             } else {
 
                 // Transfers stay closed by default. An explicit Testnet opt-in
@@ -1742,30 +1718,34 @@ class WheelWinApplication {
             }
 
         } catch (error) {
+            if (this._mainnetFinancialRecoveryTimer) {
+                clearInterval(this._mainnetFinancialRecoveryTimer);
+                this._mainnetFinancialRecoveryTimer = null;
+            }
 
             if (this._mainnetRefundReconciliationTimer) {
                 clearInterval(this._mainnetRefundReconciliationTimer);
                 this._mainnetRefundReconciliationTimer = null;
             }
-            this._mainnetRefundReconciler?.stop();
+            this._mainnetRefundReconciler?.stop?.();
             this._mainnetRefundReconciler = null;
             if (this._mainnetRefundExecutionTimer) {
                 clearInterval(this._mainnetRefundExecutionTimer);
                 this._mainnetRefundExecutionTimer = null;
             }
-            this._mainnetPendingRefundExecutor?.stop();
+            this._mainnetPendingRefundExecutor?.stop?.();
             this._mainnetPendingRefundExecutor = null;
             if (this._mainnetPayoutReconciliationTimer) {
                 clearInterval(this._mainnetPayoutReconciliationTimer);
                 this._mainnetPayoutReconciliationTimer = null;
             }
-            this._mainnetPayoutReconciler?.stop();
+            this._mainnetPayoutReconciler?.stop?.();
             this._mainnetPayoutReconciler = null;
             if (this._mainnetPayoutExecutionTimer) {
                 clearInterval(this._mainnetPayoutExecutionTimer);
                 this._mainnetPayoutExecutionTimer = null;
             }
-            this._mainnetPendingPayoutExecutor?.stop();
+            this._mainnetPendingPayoutExecutor?.stop?.();
             this._mainnetPendingPayoutExecutor = null;
 
             this._paymentRuntime = null;
@@ -1803,10 +1783,11 @@ class WheelWinApplication {
         // RecoveryDataPersistence and subscribes
         // it to the existing EventBus lifecycle events. No startup-order,
         // readiness, Socket.IO, or RecoveryOrchestrator integration changes.
-        const recoveryDataDir = this._mainnetPaymentRuntime?.stateDirectories?.gameplay
-            ?? (this._paymentRuntime?.networkDataDir
+        const recoveryDataDir = this._mainnetPaymentRuntime?.networkDataDir
+            ? join(this._mainnetPaymentRuntime.networkDataDir, "gameplay-recovery")
+            : this._paymentRuntime?.networkDataDir
                 ? join(this._paymentRuntime.networkDataDir, "gameplay-recovery")
-                : null);
+                : null;
         const recoveryDataPersistence = new RecoveryDataPersistence({
             dataDir: recoveryDataDir,
             logger: this._logger
@@ -2139,7 +2120,17 @@ class WheelWinApplication {
         // Mainnet cleanup is deferred until the R2 uploader can verify each
         // matching non-empty object. Testnet startup is not changed.
         try {
-            const archiveUploader = new R2ForensicArchiveUploader({
+            const ArchiveUploader = archivePaymentMode === "mainnet"
+                ? MainnetR2ForensicArchiveUploader : R2ForensicArchiveUploader;
+            const ArchiveService = archivePaymentMode === "mainnet"
+                ? MainnetForensicArchiveService : ForensicArchiveService;
+            const DeviceReportStore = archivePaymentMode === "mainnet"
+                ? MainnetClientPage5DeviceReportStore : ClientPage5DeviceReportStore;
+            const verifyArchiveFinality = archivePaymentMode === "mainnet"
+                ? evaluateMainnetFinalForensicArchive : evaluateFinalForensicArchive;
+            const purgeArchiveZips = archivePaymentMode === "mainnet"
+                ? purgeMainnetForensicArchiveZips : purgeLocalForensicArchiveZips;
+            const archiveUploader = new ArchiveUploader({
                 logger: this._logger,
                 bucket: archiveBinding.config.bucket,
                 prefix: archiveBinding.config.prefix,
@@ -2149,7 +2140,7 @@ class WheelWinApplication {
                 accountId: archiveBinding.config.accountId
             });
             if (archivePaymentMode === "mainnet") {
-                const purgeReport = await purgeLocalForensicArchiveZips({
+                const purgeReport = await purgeArchiveZips({
                     stagingDir: archiveConfig.stagingDir,
                     verifyObject: objectName => archiveUploader.hasCompleteObject(objectName),
                     logger: this._logger
@@ -2161,17 +2152,17 @@ class WheelWinApplication {
                     );
                 }
             }
-            this._clientPage5DeviceReportStore = new ClientPage5DeviceReportStore({
+            this._clientPage5DeviceReportStore = new DeviceReportStore({
                 stagingDir: archiveConfig.stagingDir,
                 logger: this._logger
             });
-            this._forensicArchiveService = new ForensicArchiveService({
+            this._forensicArchiveService = new ArchiveService({
                 logger: this._logger,
                 config: archiveBinding.config,
                 deviceReportStore: this._clientPage5DeviceReportStore,
                 financialSnapshotProvider: archiveBinding.financialSnapshotProvider,
                 finalityChecker: (snapshot, {sessionRecord}) =>
-                    evaluateFinalForensicArchive({snapshot,sessionRecord}),
+                    verifyArchiveFinality({snapshot,sessionRecord}),
                 gameReportEngine: this._gameReportEngine,
                 uploader: archiveUploader,
                 sessionHistoryArchive: this._sessionHistoryArchive,
@@ -2193,34 +2184,6 @@ class WheelWinApplication {
                         + (error?.code ?? "RECOVERY_FAILED")
                     );
                 });
-            if (archivePaymentMode === "mainnet" && this._mainnetBootstrap
-                && archiveUploader.isConfigured() && archiveConfig.enabled) {
-                let mainnetArchivePassRunning = false;
-                let mainnetArchiveCursor = 0;
-                const reconcileMainnetArchives = async () => {
-                    if (mainnetArchivePassRunning) return;
-                    mainnetArchivePassRunning = true;
-                    try {
-                        await this._forensicArchiveService.recoverPendingUploads({ limit: 3 });
-                        const candidates = listMainnetArchiveCandidates(
-                            this._mainnetPaymentRuntime.financialLedger
-                        );
-                        const batch = selectMainnetArchiveBatch(candidates, mainnetArchiveCursor, 3);
-                        for (const candidate of batch.items) {
-                            await this._forensicArchiveService.ensureArchivedAndUploaded(candidate);
-                        }
-                        mainnetArchiveCursor = batch.nextCursor;
-                    } catch (error) {
-                        this._logger.warn?.("MAINNET_FORENSIC_HISTORY_PENDING | code="
-                            + (error?.code ?? "RECONCILIATION_PENDING"));
-                    } finally {
-                        mainnetArchivePassRunning = false;
-                    }
-                };
-                void reconcileMainnetArchives();
-                this._mainnetForensicHistoryTimer = setInterval(reconcileMainnetArchives, 60_000);
-                this._mainnetForensicHistoryTimer.unref?.();
-            }
             this._logger.startupLine(
                 "R2ForensicArchive (enabled="
                 + archiveConfig.enabled
@@ -2343,10 +2306,11 @@ class WheelWinApplication {
             ? new MainnetWalletQuarantineAdminService({
                 getRuntime: () => this._mainnetPaymentRuntime,
                 getWalletPool: () => this._mainnetBootstrap?.walletPool,
+                getClient: () => this._mainnetBootstrap?.client,
                 getRoomManager: () => this._managers?.roomManager,
                 isInitialized: () => this._mainnetRuntimeReady,
-                getAdapter: runtime => runtime?.liveOperationsEnabled === true
-                    ? runtime.outgoingAdapter : null,
+                getAdapter: () => this._mainnetBootstrap?.liveOperationsEnabled === true
+                    ? this._mainnetBootstrap.walletV4Transport : null,
                 env: process.env,
                 logger: this._logger
             })
@@ -2512,49 +2476,43 @@ class WheelWinApplication {
         }
 
         this._isShuttingDown = true;
+        if (this._mainnetFinancialRecoveryTimer) {
+            clearInterval(this._mainnetFinancialRecoveryTimer);
+            this._mainnetFinancialRecoveryTimer = null;
+        }
         if(this._payoutRecoveryTimer){
             clearInterval(this._payoutRecoveryTimer);
             this._payoutRecoveryTimer=null;
-        }
-        if(this._mainnetForensicHistoryTimer){
-            clearInterval(this._mainnetForensicHistoryTimer);
-            this._mainnetForensicHistoryTimer=null;
         }
         if (this._mainnetHistoryReconciliationTimer) {
             clearInterval(this._mainnetHistoryReconciliationTimer);
             this._mainnetHistoryReconciliationTimer = null;
         }
-        this._mainnetHistoryReconciler?.stop();
+        this._mainnetHistoryReconciler?.stop?.();
         this._mainnetHistoryReconciler = null;
-        if (this._mainnetWalletReleaseTimer) {
-            clearInterval(this._mainnetWalletReleaseTimer);
-            this._mainnetWalletReleaseTimer = null;
-        }
-        this._mainnetWalletReleaseReconciler?.stop();
-        this._mainnetWalletReleaseReconciler = null;
         if (this._mainnetRefundReconciliationTimer) {
             clearInterval(this._mainnetRefundReconciliationTimer);
             this._mainnetRefundReconciliationTimer = null;
         }
-        this._mainnetRefundReconciler?.stop();
+        this._mainnetRefundReconciler?.stop?.();
         this._mainnetRefundReconciler = null;
         if (this._mainnetRefundExecutionTimer) {
             clearInterval(this._mainnetRefundExecutionTimer);
             this._mainnetRefundExecutionTimer = null;
         }
-        this._mainnetPendingRefundExecutor?.stop();
+        this._mainnetPendingRefundExecutor?.stop?.();
         this._mainnetPendingRefundExecutor = null;
         if (this._mainnetPayoutReconciliationTimer) {
             clearInterval(this._mainnetPayoutReconciliationTimer);
             this._mainnetPayoutReconciliationTimer = null;
         }
-        this._mainnetPayoutReconciler?.stop();
+        this._mainnetPayoutReconciler?.stop?.();
         this._mainnetPayoutReconciler = null;
         if (this._mainnetPayoutExecutionTimer) {
             clearInterval(this._mainnetPayoutExecutionTimer);
             this._mainnetPayoutExecutionTimer = null;
         }
-        this._mainnetPendingPayoutExecutor?.stop();
+        this._mainnetPendingPayoutExecutor?.stop?.();
         this._mainnetPendingPayoutExecutor = null;
 
         this._logger.info("");
