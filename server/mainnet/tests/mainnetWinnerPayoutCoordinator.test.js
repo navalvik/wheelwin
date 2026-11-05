@@ -65,7 +65,7 @@ function testnetHarness({ settledCount = 3, principalDelta = 0, winnerId = "Lena
 }
 
 function mainnetHarness(t, { settledCount = 3, winnerId = "Lena",
-    winnerWallet = MAINNET_WALLETS[1], receiptAmountDelta = 0 } = {}) {
+    winnerWallet = MAINNET_WALLETS[1], receiptAmountDelta = 0, roomNumber = 2 } = {}) {
     const dataDir = mkdtempSync(join(tmpdir(), "wheelwin-mainnet-winner-plan-"));
     t.after(() => rmSync(dataDir, { recursive: true, force: true }));
     const catalog = JSON.stringify(Array.from({ length: 64 }, (_, index) => ({
@@ -79,8 +79,10 @@ function mainnetHarness(t, { settledCount = 3, winnerId = "Lena",
     const paymentRuntime = new MainnetPaymentRuntime({ config, nowProvider: () => NOW });
     const walletPool = new MainnetWalletPoolRegistry({ config });
     walletPool.initialize({ snapshotDir: join(dataDir, "wallet-registry") });
-    const reserved = walletPool.reserve({ roomId: ROOM, network: "mainnet",
-        walletId: "mn-wallet-2", now: NOW }).wallet;
+    const reserved = roomNumber === 1
+        ? { ...config.walletCatalog[0], reservedByRoomId: ROOM, reservedAt: NOW }
+        : walletPool.reserve({ roomId: ROOM, network: "mainnet",
+            walletId: `mn-wallet-${roomNumber}`, now: NOW }).wallet;
     walletPool.persistSnapshot(join(dataDir, "wallet-registry"));
     const payments = PLAYERS.map((playerId, index) => ({ playerId,
         paymentReference: `mn-pay-${index + 1}`,
@@ -119,14 +121,17 @@ function mainnetHarness(t, { settledCount = 3, winnerId = "Lena",
         independentVerifier: { async verifyTransfer() { observations.push("independent"); } },
         nowProvider: () => NOW
     });
-    const coordinator = new MainnetWinnerPayoutCoordinator({ paymentRuntime, walletPool,
+    const coordinatorWalletPool = roomNumber === 1
+        ? { network: "mainnet", getReservationForRoom: roomId => roomId === ROOM ? reserved : null }
+        : walletPool;
+    const coordinator = new MainnetWinnerPayoutCoordinator({ paymentRuntime, walletPool: coordinatorWalletPool,
         roomManager: { getRoom: () => ({ players: PLAYERS }) },
         playerManager: { getIdentity: playerId => ({ wallet: playerId === "Lena"
             ? winnerWallet : MAINNET_WALLETS[PLAYERS.indexOf(playerId)] }) },
         contextResolver: { resolveRoomByGameId: () => ROOM },
         winnerEngine: { getResult: () => ({ winnerPlayerId: winnerId }) },
         ownerWalletProvider: () => MAINNET_OWNER });
-    return { config, paymentRuntime, walletPool, coordinator, observations };
+    return { config, paymentRuntime, walletPool, coordinator, observations, reserved };
 }
 
 function payoutPlanFromTestnet(harness) {
@@ -191,6 +196,21 @@ test("paired Testnet/Mainnet 3/3 result creates one matching durable payout plan
     assert.equal(mnPlan.winner.state, "PENDING");
     assert.equal(mnPlan.owner.state, "PENDING");
     assert.deepEqual(mn.observations, [], "planning never estimates, signs, sends, or confirms transfers");
+});
+
+test("Mainnet accepts an existing wallet #1 reservation for payout while the pool quarantines it from new rooms", async t => {
+    const mn = mainnetHarness(t, { roomNumber: 1 });
+    const result = await mn.coordinator.onGameResult({ gameId: GAME });
+    const payout = mn.paymentRuntime.financialLedger.getPayout(result.payoutId);
+    assert.equal(payout.roomNumber, 1);
+    assert.equal(payout.sourceWalletAddress, mn.reserved.address);
+    assert.equal(payout.principalAtomic, 3_000_000_007);
+
+    assert.equal(mn.walletPool.isQuarantined(1), true);
+    assert.equal(mn.walletPool.listAvailableWallets().some(wallet => wallet.roomNumber === 1), false);
+    assert.equal(mn.walletPool.listAvailableWallets().some(wallet => wallet.roomNumber === 2), true);
+    assert.throws(() => mn.walletPool.reserve({ roomId: "another-room", network: "mainnet",
+        walletId: "mn-wallet-1", now: NOW + 1 }), /wallet quarantined/);
 });
 
 test("paired incomplete 2/3 payments reject the result without a payout plan", async t => {

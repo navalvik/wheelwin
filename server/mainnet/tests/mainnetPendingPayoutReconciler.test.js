@@ -113,6 +113,22 @@ test("scheduler scans only attempted unsettled legs, at most two, and rotates fa
     assert.ok(!calls.includes("payout_complete"));
 });
 
+test("pending payout executor processes an existing wallet #1 reservation", async () => {
+    const payout = { ...plan("payout_existing_wallet_1"), roomNumber: 1,
+        winner: { ...plan("winner").winner, state: "PENDING" },
+        owner: { ...plan("owner").owner, state: "PENDING" } };
+    const calls = [];
+    const runtime = makeExecutorRuntime([payout], async payoutId => {
+        calls.push(payoutId);
+        return { status: "WINNER_CONFIRMATION_PENDING" };
+    });
+    const executor = new MainnetPendingPayoutExecutor({ paymentRuntime: runtime,
+        walletPool: runtime.walletPool });
+    const result = await executor.runPass();
+    assert.equal(result.results[0].status, "WINNER_CONFIRMATION_PENDING");
+    assert.deepEqual(calls, [payout.payoutId]);
+});
+
 test("parallel passes do not repeat a plan and stop prevents new passes", async () => {
     let release;
     const pending = new Promise(resolve => { release = resolve; });

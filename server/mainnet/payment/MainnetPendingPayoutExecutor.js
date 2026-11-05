@@ -82,7 +82,7 @@ export class MainnetPendingPayoutExecutor {
         try {
             const reservation = this._walletPool.getReservationForRoom(payout.roomId);
             if (!reservation || reservation.network !== "mainnet"
-                || reservation.roomNumber !== payout.roomNumber || reservation.roomNumber === 1
+                || reservation.roomNumber !== payout.roomNumber
                 || typeof reservation.walletId !== "string" || !reservation.walletId
                 || reservation.reservedByRoomId !== payout.roomId
                 || mainnetAddressIdentity(reservation.address)

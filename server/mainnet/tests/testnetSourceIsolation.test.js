@@ -8,7 +8,7 @@ import test from "node:test";
 
 const mainnetDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = resolve(mainnetDir, "..", "..");
-const baseline = "643050aad9f48ebf16993f2bf99cbff4edc85a0b";
+const baseline = "25b506b30ebe1b1b73f82afe896d81d08bc34645";
 const allowedSharedIntegrationFiles = new Set([
     "server/app.js",
     "server/socket/RoomLobbyBridge.js",

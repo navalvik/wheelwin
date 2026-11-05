@@ -17,6 +17,30 @@ export class MainnetWalletPoolRegistry extends WalletPoolRegistry {
         this._mainnetCatalog = config.walletCatalog;
     }
 
+    initialize(options = {}) {
+        super.initialize(options);
+
+        // Room wallet #1 is retained for existing Mainnet reservations and
+        // their payout/refund lifecycle, but must not be allocated to a new
+        // room. Use the registry's durable quarantine so a process restart
+        // preserves this Mainnet-only operational hold. An explicit admin
+        // release remains authoritative and is not silently re-applied.
+        if (options.snapshotDir && !this._manualQuarantineReleases.has(1)
+            && !this._manualQuarantines.has(1)) {
+            this.manuallyQuarantine(1, {
+                note: "Mainnet wallet #1 is held out of new room assignments",
+                actor: "Mainnet pool policy"
+            });
+        }
+        return this;
+    }
+
+    _isQuarantined(wallet) {
+        if (wallet?.network === "mainnet" && wallet.roomNumber === 1
+            && !this._manualQuarantineReleases.has(1)) return true;
+        return super._isQuarantined(wallet);
+    }
+
     /**
      * Resolve the wallet identity historically assigned to a room. Unlike
      * getReservationForRoom(), this remains available after a safe release,

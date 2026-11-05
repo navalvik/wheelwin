@@ -426,6 +426,17 @@ test("malformed incoming sender for the queried Mainnet wallet is surfaced as in
     assert.equal(batch.malformedIncomingCandidateCount, 1);
 });
 
+test("Toncenter external-in rows with null source and value do not block payment history", async t => {
+    const external = tx({ hash: "external-in", source: null, amount: null, comment: null });
+    const h = harness(t, { transactions: [external, tx()] });
+    const batch = await h.client.listIncomingTransactions({ account: WALLET,
+        floorMs: NOW_MS - 10_000, ceilingMs: NOW_MS + 1_000, limit: 100 });
+    assert.equal(batch.resultWindowComplete, true);
+    assert.equal(batch.records.length, 1);
+    assert.equal(batch.records[0].providerTransactionId, "tx-1");
+    assert.equal(batch.malformedIncomingCandidateCount ?? 0, 0);
+});
+
 test("Mainnet transport is fixed to Toncenter Mainnet and exposes read-only calls only", (t) => {
     const h = harness(t);
     assert.equal(h.client.baseUrl, "https://toncenter.com");

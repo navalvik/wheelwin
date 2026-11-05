@@ -115,7 +115,7 @@ export class MainnetWinnerPayoutCoordinator {
 
         const roomWallet = this._walletPool.getReservationForRoom(roomId);
         require(roomWallet?.reservedByRoomId === roomId
-            && roomWallet.network === "mainnet" && roomWallet.roomNumber !== 1
+            && roomWallet.network === "mainnet"
             && intents.every(intent => intent.destinationWalletId === roomWallet.walletId
                 && mainnetAddressIdentity(intent.destinationWalletAddress)
                     === mainnetAddressIdentity(roomWallet.address)),

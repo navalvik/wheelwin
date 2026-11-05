@@ -70,6 +70,10 @@ export function mapMainnetTransactionsResponse(payload, { account, floorMs, ceil
         try { destinationIdentity = mainnetAddressIdentity(message.destination?.address ?? message.destination); }
         catch { continue; }
         if (destinationIdentity !== accountIdentity) continue;
+        // Toncenter represents an external-in message with a null source and
+        // null value. It cannot carry TON to the account and is not a malformed
+        // incoming payment candidate for historical payment reconciliation.
+        if (message.source === null && message.value === null) continue;
         if (!sourceAddress || !destinationAddress) {
             malformedIncomingCandidateCount++;
             continue;

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { durableWriteJson } from "../../payment/DurableJson.js";
 import { createRefundObligationId, refundIdempotencyKey } from "../../payment/refund/RefundObligation.js";
@@ -11,6 +11,209 @@ const EMPTY = Object.freeze({ schemaVersion: 1, network: "mainnet", globalId: MA
 const REFUND_STATES = new Set(["PENDING", "SUBMISSION_UNKNOWN", "SUBMITTED", "COMPLETE"]);
 const PAYOUT_STATES = new Set(["PENDING", "SUBMISSION_UNKNOWN", "SUBMITTED", "CONFIRMED", "UNPAID_INSUFFICIENT_GAS"]);
 const clone = (value) => JSON.parse(JSON.stringify(value));
+const LOCK_TIMEOUT_MS = 10_000;
+const LOCK_RETRY_MS = 20;
+
+function waitForLockRetry() {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, LOCK_RETRY_MS);
+}
+
+function readStateFile(file) {
+    if (!existsSync(file)) return clone(EMPTY);
+    try {
+        const state = JSON.parse(readFileSync(file, "utf8"));
+        state.historyCoverage ??= [];
+        return state;
+    } catch {
+        throw new Error("MAINNET_FINANCIAL_LEDGER_CORRUPT");
+    }
+}
+
+function acquireFileLock(lockFile) {
+    const startedAt = Date.now();
+    for (;;) {
+        try {
+            const fd = openSync(lockFile, "wx", 0o600);
+            try {
+                writeFileSync(fd, JSON.stringify({ pid: process.pid, createdAt: Date.now() }), "utf8");
+                fsyncSync(fd);
+            } catch (error) {
+                closeSync(fd);
+                try { unlinkSync(lockFile); } catch { /* retain the original failure */ }
+                throw error;
+            }
+            return fd;
+        } catch (error) {
+            if (error?.code !== "EEXIST") throw error;
+            let lockStat;
+            let owner;
+            try {
+                lockStat = statSync(lockFile);
+                owner = JSON.parse(readFileSync(lockFile, "utf8"));
+            } catch { /* A writer may be creating the lock file. */ }
+            if (lockStat && Number.isInteger(owner?.pid) && owner.pid > 0) {
+                let ownerAlive = true;
+                try { process.kill(owner.pid, 0); }
+                catch (probeError) { ownerAlive = probeError?.code === "EPERM"; }
+                if (!ownerAlive) {
+                    try {
+                        const current = statSync(lockFile);
+                        const sameLock = current.ino === lockStat.ino
+                            && current.mtimeMs === lockStat.mtimeMs;
+                        if (sameLock) unlinkSync(lockFile);
+                    } catch { /* Another process already recovered the stale lock. */ }
+                    continue;
+                }
+            }
+            if (Date.now() - startedAt >= LOCK_TIMEOUT_MS) {
+                throw new Error("MAINNET_FINANCIAL_LEDGER_LOCK_TIMEOUT");
+            }
+            waitForLockRetry();
+        }
+    }
+}
+
+function withFileLock(lockFile, action) {
+    const fd = acquireFileLock(lockFile);
+    try { return action(); }
+    finally {
+        closeSync(fd);
+        try { unlinkSync(lockFile); } catch (error) {
+            if (error?.code !== "ENOENT") throw error;
+        }
+    }
+}
+
+function sameJson(left, right) { return JSON.stringify(left) === JSON.stringify(right); }
+
+function mergeImmutableRecord(left, right, identityFields, conflictCode) {
+    for (const field of identityFields) {
+        if (!sameJson(left[field], right[field])) throw new Error(conflictCode);
+    }
+    return { ...left, ...right };
+}
+
+function valueAtPath(record, path) {
+    return path.split(".").reduce((value, key) => value?.[key], record);
+}
+
+function latestRecord(left, right, identityFields, timestampFields, conflictCode) {
+    mergeImmutableRecord(left, right, identityFields, conflictCode);
+    if (sameJson(left, right)) return left;
+    const leftTime = Math.max(0, ...timestampFields.map(field => Number(valueAtPath(left, field) ?? 0)));
+    const rightTime = Math.max(0, ...timestampFields.map(field => Number(valueAtPath(right, field) ?? 0)));
+    if (leftTime === rightTime) throw new Error(conflictCode);
+    return leftTime > rightTime ? left : right;
+}
+
+function mergePayout(left, right) {
+    const identityFields = ["payoutId", "roomId", "roomNumber", "sourceWalletAddress",
+        "principalAtomic", "allocation"];
+    mergeImmutableRecord(left, right, identityFields, "MAINNET_LEDGER_CONCURRENT_PAYOUT_CONFLICT");
+    const merged = { ...left };
+    for (const role of ["winner", "owner"]) {
+        const a = left[role];
+        const b = right[role];
+        for (const field of ["recipientId", "address", "amountAtomic"]) {
+            if (a[field] !== b[field]) throw new Error("MAINNET_LEDGER_CONCURRENT_PAYOUT_CONFLICT");
+        }
+        if (a.transactionId && b.transactionId && a.transactionId !== b.transactionId) {
+            throw new Error("MAINNET_LEDGER_CONCURRENT_PAYOUT_CONFLICT");
+        }
+        if (sameJson(a, b)) { merged[role] = a; continue; }
+        if (a.state === "CONFIRMED" && b.state === "CONFIRMED" && a.transactionId !== b.transactionId) {
+            throw new Error("MAINNET_LEDGER_CONCURRENT_PAYOUT_CONFLICT");
+        }
+        const rank = state => ({ PENDING: 0, UNPAID_INSUFFICIENT_GAS: 1,
+            SUBMISSION_UNKNOWN: 2, SUBMITTED: 3, CONFIRMED: 4 })[state] ?? -1;
+        if ([a.state, b.state].includes("PENDING")
+            && [a.state, b.state].includes("UNPAID_INSUFFICIENT_GAS")) {
+            const pending = a.state === "PENDING" ? a : b;
+            const unpaid = a.state === "UNPAID_INSUFFICIENT_GAS" ? a : b;
+            merged[role] = Number.isSafeInteger(pending.updatedAtMs)
+                && (!Number.isSafeInteger(unpaid.updatedAtMs)
+                    || pending.updatedAtMs >= unpaid.updatedAtMs)
+                ? pending : unpaid;
+            continue;
+        }
+        if ([a.state, b.state].includes("SUBMISSION_UNKNOWN")
+            && [a.state, b.state].includes("UNPAID_INSUFFICIENT_GAS")) {
+            const unknown = a.state === "SUBMISSION_UNKNOWN" ? a : b;
+            const unpaid = a.state === "UNPAID_INSUFFICIENT_GAS" ? a : b;
+            merged[role] = Number(unknown.updatedAtMs ?? unknown.attemptedAtMs ?? 0)
+                > Number(unpaid.updatedAtMs ?? unpaid.attemptedAtMs ?? 0) ? unknown : unpaid;
+            continue;
+        }
+        const aRank = rank(a.state);
+        const bRank = rank(b.state);
+        if (aRank !== bRank) { merged[role] = aRank > bRank ? a : b; continue; }
+        merged[role] = latestRecord(a, b, ["recipientId", "address", "amountAtomic", "state", "transactionId"],
+            ["updatedAtMs", "attemptedAtMs", "submittedAtMs", "finalizedEvidence.observedAtMs"],
+            "MAINNET_LEDGER_CONCURRENT_PAYOUT_CONFLICT");
+    }
+    merged.state = merged.winner.state === "CONFIRMED" && merged.owner.state === "CONFIRMED"
+        ? "COMPLETE" : merged.owner.state === "UNPAID_INSUFFICIENT_GAS" ? "PARTIAL_OWNER_UNPAID" : "PENDING";
+    merged.createdAtMs = Math.min(Number(left.createdAtMs ?? 0), Number(right.createdAtMs ?? 0));
+    return merged;
+}
+
+function mergeRows(currentRows, proposedRows, keyOf, mergeRow, conflictCode) {
+    const result = new Map(currentRows.map(row => [keyOf(row), row]));
+    for (const row of proposedRows) {
+        const key = keyOf(row);
+        const prior = result.get(key);
+        if (!prior) { result.set(key, row); continue; }
+        try { result.set(key, mergeRow(prior, row)); }
+        catch (error) {
+            if (error?.message?.startsWith("MAINNET_LEDGER_CONCURRENT_")) throw error;
+            throw new Error(conflictCode);
+        }
+    }
+    return [...result.values()];
+}
+
+function mergeLedgerSnapshots(current, proposed) {
+    const outcomes = mergeRows(current.outcomes, proposed.outcomes, row => row.roomId,
+        (left, right) => latestRecord(left, right,
+            ["roomId", "kind", "roomNumber", "closureReason"], ["closedAtMs", "createdAtMs"],
+            "MAINNET_LEDGER_CONCURRENT_OUTCOME_CONFLICT"),
+        "MAINNET_LEDGER_CONCURRENT_OUTCOME_CONFLICT");
+    const refunds = mergeRows(current.refunds, proposed.refunds, row => row.obligationId,
+        (left, right) => {
+            mergeImmutableRecord(left, right, ["obligationId", "idempotencyKey", "network",
+                "globalId", "roomId", "roomNumber", "playerId", "paymentIntentId", "incomingTransactionId",
+                "amountAtomic", "denomination", "payerAddress", "refundDestination", "sourceWalletAddress",
+                "closureReason"], "MAINNET_LEDGER_CONCURRENT_REFUND_CONFLICT");
+            for (const field of ["transferAmountAtomic", "gasChargeAtomic", "outgoingTransactionId"]) {
+                if (left[field] !== null && left[field] !== undefined
+                    && right[field] !== null && right[field] !== undefined
+                    && left[field] !== right[field]) {
+                    throw new Error("MAINNET_LEDGER_CONCURRENT_REFUND_CONFLICT");
+                }
+            }
+            const rank = { PENDING: 0, SUBMISSION_UNKNOWN: 1, SUBMITTED: 2, COMPLETE: 3 };
+            if ((rank[left.state] ?? -1) !== (rank[right.state] ?? -1)) {
+                return (rank[left.state] ?? -1) > (rank[right.state] ?? -1) ? left : right;
+            }
+            return latestRecord(left, right, ["obligationId", "state", "outgoingTransactionId",
+                "transferAmountAtomic", "gasChargeAtomic"], ["attemptedAtMs", "submittedAtMs",
+                "finalizedEvidence.observedAtMs"], "MAINNET_LEDGER_CONCURRENT_REFUND_CONFLICT");
+        }, "MAINNET_LEDGER_CONCURRENT_REFUND_CONFLICT");
+    const payouts = mergeRows(current.payouts, proposed.payouts, row => row.payoutId, mergePayout,
+        "MAINNET_LEDGER_CONCURRENT_PAYOUT_CONFLICT");
+    const historyCoverage = mergeRows(current.historyCoverage ?? [], proposed.historyCoverage ?? [],
+        row => row.roomId, (left, right) => {
+            // Coverage is a replaceable observation, not a financial
+            // obligation. The lock provides a total write order when provider
+            // clocks have the same millisecond, so the later committed record
+            // is the authoritative latest check.
+            return left.completedAt > right.completedAt ? left : right;
+        }, "MAINNET_LEDGER_CONCURRENT_HISTORY_CONFLICT");
+    return { schemaVersion: 1, network: "mainnet", globalId: MAINNET_GLOBAL_ID,
+        outcomes, refunds, payouts,
+        page5StartedRooms: [...new Set([...(current.page5StartedRooms ?? []),
+            ...(proposed.page5StartedRooms ?? [])])], historyCoverage };
+}
 
 export class MainnetFinancialLedger {
     constructor({ config, nowProvider = Date.now } = {}) {
@@ -21,6 +224,7 @@ export class MainnetFinancialLedger {
         this.network = "mainnet";
         this.globalId = MAINNET_GLOBAL_ID;
         this._file = join(config.dataDir, "financial-lifecycle", "state.json");
+        this._lockFile = `${this._file}.lock`;
         this._now = nowProvider;
         this._state = clone(EMPTY);
         this._initialized = false;
@@ -29,21 +233,19 @@ export class MainnetFinancialLedger {
     initialize() {
         if (this._initialized) return this;
         mkdirSync(join(this._file, ".."), { recursive: true });
-        if (existsSync(this._file)) {
-            try {
-                this._state = JSON.parse(readFileSync(this._file, "utf8"));
-                this._state.historyCoverage ??= [];
-            }
-            catch { throw new Error("MAINNET_FINANCIAL_LEDGER_CORRUPT"); }
-        }
+        this._state = readStateFile(this._file);
         this._validate(this._state);
         this._initialized = true;
-        if (!existsSync(this._file)) this._persist(this._state, true);
+        if (!existsSync(this._file)) withFileLock(this._lockFile, () => {
+            if (!existsSync(this._file)) this._persist(readStateFile(this._file), true);
+            else this._state = readStateFile(this._file);
+        });
         return this;
     }
 
     recordClosedRoom({ roomId, roomNumber, closureReason, prePage5 = true } = {}) {
         this._assertReady();
+        this._refresh();
         if (typeof roomId !== "string" || !roomId.trim() || !Number.isSafeInteger(roomNumber)
             || roomNumber < 1 || typeof closureReason !== "string" || !closureReason.trim()
             || prePage5 !== true) throw new Error("MAINNET_CLOSED_ROOM_IDENTITY_INVALID");
@@ -77,6 +279,7 @@ export class MainnetFinancialLedger {
     /** Replace the latest read-only archive-history check for one closed room. */
     recordHistoryCoverage(record) {
         this._assertReady();
+        this._refresh();
         if (!record || typeof record.roomId !== "string" || !record.roomId
             || record.source !== "FINAL_FORENSIC_HISTORY_COVERAGE"
             || !Number.isSafeInteger(record.completedAt) || record.completedAt <= 0
@@ -113,6 +316,7 @@ export class MainnetFinancialLedger {
 
     prepareRefunds({ roomId, roomNumber, closureReason, incomingLedger, prePage5 = true } = {}) {
         this._assertReady();
+        this._refresh();
         if (!incomingLedger || incomingLedger.network !== "mainnet" || incomingLedger.globalId !== MAINNET_GLOBAL_ID
             || typeof incomingLedger.listReceipts !== "function"
             || typeof incomingLedger.listRoomIntents !== "function"
@@ -212,6 +416,7 @@ export class MainnetFinancialLedger {
 
     updateRefund(id, patch) {
         this._assertReady();
+        this._refresh();
         const current = this.getRefund(id);
         if (!current) throw new Error("MAINNET_REFUND_NOT_FOUND");
         const next = { ...current, ...patch };
@@ -246,6 +451,7 @@ export class MainnetFinancialLedger {
 
     createPayout({ payoutId, roomId, roomNumber, sourceWalletAddress, principalAtomic, winner, owner } = {}) {
         this._assertReady();
+        this._refresh();
         if (typeof payoutId !== "string" || !/^payout_[A-Za-z0-9_-]{1,64}$/.test(payoutId)
             || typeof roomId !== "string" || !roomId || !Number.isSafeInteger(roomNumber) || roomNumber < 1
             || typeof sourceWalletAddress !== "string"
@@ -278,6 +484,71 @@ export class MainnetFinancialLedger {
         return Object.freeze({ ...payout, replay: false });
     }
 
+    /**
+     * Restore a payout whose two transfers are already independently finalized.
+     * The complete record is committed in one ledger transaction, so live
+     * executors never observe a temporary PENDING leg that could be resent.
+     */
+    recordConfirmedPayout({ payoutId, roomId, roomNumber, sourceWalletAddress, principalAtomic,
+        winner, owner, createdAtMs = this._now(), verificationProviders } = {}) {
+        this._assertReady();
+        this._refresh();
+        if (typeof payoutId !== "string" || !/^payout_[A-Za-z0-9_-]{1,64}$/.test(payoutId)
+            || typeof roomId !== "string" || !roomId || !Number.isSafeInteger(roomNumber) || roomNumber < 1
+            || typeof sourceWalletAddress !== "string" || !Number.isSafeInteger(createdAtMs) || createdAtMs <= 0
+            || !Array.isArray(verificationProviders)
+            || !["toncenter-mainnet", "tonapi-mainnet"].every(provider => verificationProviders.includes(provider))
+            || !winner?.recipientId || !winner?.address || !owner?.recipientId || !owner?.address) {
+            throw new Error("MAINNET_CONFIRMED_PAYOUT_INPUT_INVALID");
+        }
+        const allocation = calculateMainnetPayout(principalAtomic);
+        const validateLeg = (role, input, amountAtomic) => {
+            const evidence = input.finalizedEvidence;
+            if (input.state !== "CONFIRMED" || typeof input.transactionId !== "string" || !input.transactionId
+                || input.amountAtomic !== amountAtomic
+                || !evidence || evidence.network !== "mainnet" || evidence.globalId !== MAINNET_GLOBAL_ID
+                || evidence.transactionId !== input.transactionId || evidence.amountAtomic !== amountAtomic
+                || evidence.destination !== input.address || evidence.finalized !== true
+                || evidence.independentProvider !== "tonapi-mainnet"
+                || !Number.isSafeInteger(evidence.observedAtMs) || evidence.observedAtMs < createdAtMs
+                || !Number.isSafeInteger(evidence.actualFeeAtomic) || evidence.actualFeeAtomic < 0
+                || typeof evidence.recipientTransactionId !== "string" || !evidence.recipientTransactionId
+                || typeof evidence.messageHash !== "string" || !evidence.messageHash) {
+                throw new Error(`MAINNET_CONFIRMED_PAYOUT_${role.toUpperCase()}_EVIDENCE_INVALID`);
+            }
+            mainnetAddressIdentity(input.address);
+            return { recipientId: input.recipientId, address: input.address, amountAtomic,
+                state: "CONFIRMED", transactionId: input.transactionId,
+                finalizedEvidence: { ...evidence }, updatedAtMs: evidence.observedAtMs };
+        };
+        const winnerLeg = validateLeg("winner", winner, allocation.winnerAtomic);
+        const ownerLeg = validateLeg("owner", owner, allocation.ownerAtomic);
+        mainnetAddressIdentity(sourceWalletAddress);
+
+        const outcome = this._state.outcomes.find(item => item.roomId === roomId);
+        if (outcome?.kind === "REFUND") throw new Error("MAINNET_ROOM_ALREADY_HAS_REFUND_OUTCOME");
+        const previous = this._state.payouts.find(item => item.roomId === roomId);
+        if (previous && (previous.payoutId !== payoutId || previous.principalAtomic !== principalAtomic
+            || previous.roomNumber !== roomNumber || previous.sourceWalletAddress !== sourceWalletAddress
+            || previous.winner.address !== winnerLeg.address || previous.owner.address !== ownerLeg.address
+            || previous.winner.recipientId !== winnerLeg.recipientId
+            || previous.owner.recipientId !== ownerLeg.recipientId)) {
+            throw new Error("MAINNET_PAYOUT_IDENTITY_CONFLICT");
+        }
+        const payout = { payoutId, roomId, roomNumber, sourceWalletAddress, principalAtomic, allocation,
+            winner: winnerLeg, owner: ownerLeg, state: "COMPLETE", createdAtMs };
+        this._validatePayout(payout);
+        this._commit({ ...this._state,
+            outcomes: outcome ? this._state.outcomes : [...this._state.outcomes,
+                { roomId, roomNumber, kind: "PAYOUT", createdAtMs }],
+            payouts: previous
+                ? this._state.payouts.map(item => item.roomId === roomId ? payout : item)
+                : [...this._state.payouts, payout]
+        });
+        return Object.freeze({ ...payout, winner: Object.freeze({ ...winnerLeg }),
+            owner: Object.freeze({ ...ownerLeg }), replay: Boolean(previous) });
+    }
+
     getPayout(payoutId) {
         this._assertReady();
         const item = this._state.payouts.find(x => x.payoutId === payoutId);
@@ -289,6 +560,7 @@ export class MainnetFinancialLedger {
     /** Persist the irreversible Page5 boundary so later room cleanup cannot refund a played game. */
     recordPage5Started(roomId) {
         this._assertReady();
+        this._refresh();
         if (typeof roomId !== "string" || !roomId.trim()) throw new Error("MAINNET_PAGE5_ROOM_ID_INVALID");
         const started = this._state.page5StartedRooms ?? [];
         if (started.includes(roomId)) return Object.freeze({ roomId, replay: true });
@@ -303,11 +575,12 @@ export class MainnetFinancialLedger {
 
     updatePayoutLeg(payoutId, role, patch) {
         this._assertReady();
+        this._refresh();
         if (!new Set(["winner", "owner"]).has(role)) throw new Error("MAINNET_PAYOUT_ROLE_INVALID");
         const current = this.getPayout(payoutId);
         if (!current) throw new Error("MAINNET_PAYOUT_NOT_FOUND");
         const leg = current[role];
-        const nextLeg = { ...leg, ...patch };
+        const nextLeg = { ...leg, ...patch, updatedAtMs: this._now() };
         if (nextLeg.amountAtomic !== leg.amountAtomic || nextLeg.address !== leg.address
             || nextLeg.recipientId !== leg.recipientId || !PAYOUT_STATES.has(nextLeg.state)) {
             throw new Error("MAINNET_PAYOUT_LEG_IDENTITY_OR_STATE_INVALID");
@@ -385,7 +658,14 @@ export class MainnetFinancialLedger {
         const refundIds = new Set();
         for (const item of state.refunds) { this._validateRefund(item); if (refundIds.has(item.obligationId)) throw new Error("MAINNET_REFUND_DUPLICATE"); refundIds.add(item.obligationId); }
         const payouts = new Set();
-        for (const item of state.payouts) { this._validatePayout(item); if (payouts.has(item.payoutId)) throw new Error("MAINNET_PAYOUT_DUPLICATE"); payouts.add(item.payoutId); }
+        const payoutRooms = new Set();
+        for (const item of state.payouts) {
+            this._validatePayout(item);
+            if (payouts.has(item.payoutId)) throw new Error("MAINNET_PAYOUT_DUPLICATE");
+            if (payoutRooms.has(item.roomId)) throw new Error("MAINNET_PAYOUT_ROOM_DUPLICATE");
+            payouts.add(item.payoutId);
+            payoutRooms.add(item.roomId);
+        }
         const coverageRooms = new Set();
         for (const item of state.historyCoverage ?? []) {
             if (!item || typeof item.roomId !== "string" || !item.roomId
@@ -408,7 +688,23 @@ export class MainnetFinancialLedger {
         }
     }
 
-    _commit(state) { this._validate(state); this._persist(state); }
+    _commit(state) {
+        this._validate(state);
+        withFileLock(this._lockFile, () => {
+            const current = readStateFile(this._file);
+            this._validate(current);
+            const merged = mergeLedgerSnapshots(current, state);
+            this._validate(merged);
+            this._persist(merged);
+        });
+    }
     _persist(state, exclusive = false) { durableWriteJson(this._file, state, { exclusive }); this._state = state; }
+    _refresh() {
+        withFileLock(this._lockFile, () => {
+            const current = readStateFile(this._file);
+            this._validate(current);
+            this._state = current;
+        });
+    }
     _assertReady() { if (!this._initialized) throw new Error("MAINNET_FINANCIAL_LEDGER_NOT_INITIALIZED"); }
 }

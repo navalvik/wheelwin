@@ -160,7 +160,8 @@ export class MainnetHistoricalIncomingReceiptReconciler {
             return { roomId, status: "HISTORY_INCOMPLETE" };
         }
 
-        const candidates = records.filter(record => this._isCandidate(record, intents, floorMs, ceilingMs));
+        const candidates = records.filter(record => this._isCandidate(record, intents, floorMs, ceilingMs)
+            && this._couldBelongToRoom(record, roomId, intents));
         const candidateIds = new Set(candidates.map(record => record.transactionId));
         const priorVerified = new Set((prior?.verifiedTransactionIds ?? []).filter(id => candidateIds.has(id)));
         const unverified = candidates.filter(record => !priorVerified.has(record.transactionId));
@@ -210,6 +211,17 @@ export class MainnetHistoricalIncomingReceiptReconciler {
             && sameAddress(record.accountId, record.destinationAddress)
             && typeof record.providerTransactionId === "string" && !!record.providerTransactionId
             && safeAtomic(record.amountAtomic) !== null;
+    }
+
+    _couldBelongToRoom(record, roomId, intents) {
+        const owner = this.walletPool.resolveReservationOwnerAt({
+            walletId: intents[0].destinationWalletId, transactionTime: record.transactionTime
+        });
+        if (owner?.status === "OWNED") return owner.roomId === roomId;
+        // Preserve uncertainty when history cannot distinguish the room. The
+        // verifier below still requires exact intent, reservation and chain
+        // evidence before recording any payment or refund obligation.
+        return owner?.status === "UNKNOWN" || owner?.status === "AMBIGUOUS";
     }
 
     _resolveIntent(record, roomId, intents) {

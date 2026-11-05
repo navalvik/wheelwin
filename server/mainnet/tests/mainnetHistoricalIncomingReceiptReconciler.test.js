@@ -88,7 +88,8 @@ function makeHarness(t, { records = [paymentRecord()], batchComplete = true,
             async estimateOutboundTransferFee() { throw new Error("live fee quote forbidden in this test"); } },
         outgoingObserver, independentVerifier, nowProvider: () => NOW });
     refundLifecycle.configureReservedWalletRoomNumberResolver(() => 7);
-    const walletPool = { resolveReservationOwnerAt: () => owner };
+    const walletPool = { resolveReservationOwnerAt: query =>
+        typeof owner === "function" ? owner(query) : owner };
     const reconciler = new MainnetHistoricalIncomingReceiptReconciler({ incomingLedger, financialLedger,
         client, outgoingObserver, independentVerifier, walletPool, refundLifecycle,
         nowProvider: () => NOW, maxCandidatesPerPass: 3 });
@@ -140,7 +141,9 @@ test("late payment after release and wallet reassignment uses persisted historic
     const snapshotDir = join(root, "wallet-registry");
     const originalPool = new MainnetWalletPoolRegistry({ config });
     originalPool.initialize({ snapshotDir });
-    const wallet = originalPool.getWalletByRoomNumber(1);
+    // Room wallet #1 is excluded from new Mainnet assignments by policy.
+    // Use an ordinary assignable wallet for this historical reuse scenario.
+    const wallet = originalPool.getWalletByRoomNumber(2);
     originalPool.reserve({ roomId: ROOM, network: "mainnet", walletId: wallet.walletId, now: reservedAt });
 
     const incomingLedger = new MainnetIncomingPaymentLedger({ config, nowProvider: () => NOW }).initialize();
@@ -292,6 +295,21 @@ test("incomplete history, HTTP 429, and missing provider evidence remain retryab
     h.setEvidence("good");
     assert.equal((await h.reconciler.recoverRoom(ROOM)).status, "HISTORY_CHECKED");
     assert.equal(h.financialLedger.listRefunds(ROOM).length, 1);
+});
+
+test("history candidates exclude transfers from later room reservation intervals", async t => {
+    const currentRoomTransfer = paymentRecord(0, { transactionTime: 3_000 });
+    const laterRoomTransfer = { ...paymentRecord(1, { transactionTime: 4_000 }),
+        transactionId: "later-room-incoming", providerTransactionId: "f".repeat(64) };
+    const h = makeHarness(t, { records: [currentRoomTransfer, laterRoomTransfer],
+        owner: ({ transactionTime }) => ({ status: "OWNED",
+            roomId: transactionTime < 3_500 ? ROOM : "another-room" }) });
+    assert.equal((await h.reconciler.recoverRoom(ROOM)).status, "HISTORY_CHECKED");
+    const coverage = h.financialLedger.getHistoryCoverage(ROOM);
+    assert.equal(coverage.candidateCount, 1);
+    assert.equal(coverage.checkedCount, 1);
+    assert.equal(coverage.pendingCount, 0);
+    assert.equal(h.incomingLedger.listReceipts(ROOM).length, 1);
 });
 
 test("a late payment first visible after server restart is recovered from durable room state", async t => {

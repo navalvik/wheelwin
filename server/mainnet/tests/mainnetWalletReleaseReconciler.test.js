@@ -31,8 +31,12 @@ function makeHarness(t, { activeRoomIds = [] } = {}) {
     const active = new Set(activeRoomIds);
     const roomManager = { getRoom: roomId => active.has(roomId) ? { roomId } : null };
     const wallet = pool.getWalletByRoomNumber(1);
-    const reserve = (roomId, now = NOW - 10_000) => pool.reserve({ roomId,
-        network: "mainnet", walletId: wallet.walletId, now });
+    const reserve = (roomId, now = NOW - 10_000) => {
+        if (pool.isQuarantined(1)) pool.manuallyReleaseQuarantine({ roomNumber: 1, verifiedSafe: true });
+        const reservation = pool.reserve({ roomId, network: "mainnet", walletId: wallet.walletId, now });
+        pool.manuallyQuarantine(1, { note: "simulate an existing reservation when the Mainnet hold is applied" });
+        return reservation;
+    };
     const reconciler = financialLedger => new MainnetWalletReleaseReconciler({ walletPool: pool,
         financialLedger: financialLedger ?? ledger, roomManager, snapshotDir,
         nowProvider: () => NOW, maxPerPass: 3 });
@@ -101,6 +105,7 @@ test("destroyed room with no blocking obligations releases wallet once and prese
         transactionTime: NOW - 5_000 }), { status: "OWNED", roomId: "closed-empty", candidates: ["closed-empty"] });
     assert.equal((await h.reconciler().runPass()).released, 0, "replay is idempotent");
 
+    h.pool.manuallyReleaseQuarantine({ roomNumber: 1, verifiedSafe: true });
     h.pool.reserve({ roomId: "later-room", network: "mainnet", walletId: h.wallet.walletId, now: NOW + 1 });
     assert.equal(h.pool.resolveReservationOwnerAt({ walletId: h.wallet.walletId,
         transactionTime: NOW + 2 }).roomId, "later-room");
