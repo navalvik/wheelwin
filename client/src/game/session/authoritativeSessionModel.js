@@ -544,6 +544,19 @@ export function authoritativeSessionReducer(state, action) {
 
             }
 
+            // A delayed recovery packet from another room/game must not merge
+            // its participants into the currently displayed roster. Fresh
+            // WebViews have no identity yet and can still adopt a valid
+            // snapshot; once identity exists, snapshots must match it.
+            if (
+                (state.roomId && payload.roomId !== state.roomId)
+                || (state.gameId && payload.gameId !== state.gameId)
+            ) {
+
+                return state;
+
+            }
+
             const players = ingestPlayerList(
                 state.players,
                 payload.playerStates ?? payload.players

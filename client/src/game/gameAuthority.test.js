@@ -7,6 +7,8 @@ import {
     AUTHORITATIVE_SESSION_ACTIONS,
     createAuthoritativeSessionStore
 } from "./session/authoritativeSessionModel.js";
+import { listAuthoritativePlayers } from "./session/authoritativePlayerView.js";
+import { formatAuthoritativeRoomPlayersDisplay } from "./session/authoritativeRoomView.js";
 
 function assert(condition, message) {
 
@@ -173,6 +175,69 @@ function assert(condition, message) {
         "foreign game may not replace the recovered game");
     bindAuthoritativeSessionStore(null);
     console.log("  recovered Telegram authority passed");
+
+}
+
+{
+
+    const rosterStore = createAuthoritativeSessionStore();
+    const players = ["olga", "bob", "lena"].map((playerId) => ({
+        playerId,
+        name: playerId
+    }));
+
+    rosterStore.dispatch({
+        type: AUTHORITATIVE_SESSION_ACTIONS.GAME_START,
+        payload: {
+            roomId: "3VHh",
+            gameId: "current-game",
+            maxPlayers: 3,
+            players
+        }
+    });
+
+    rosterStore.dispatch({
+        type: AUTHORITATIVE_SESSION_ACTIONS.SESSION_SNAPSHOT,
+        payload: {
+            roomId: "previous-room",
+            gameId: "previous-game",
+            gameState: "SPEED",
+            playerStates: ["old-a", "old-b", "old-c"].map((playerId) => ({
+                playerId,
+                name: playerId
+            }))
+        }
+    });
+
+    assert(Object.keys(rosterStore.getSnapshot().players).length === 3,
+        "foreign snapshot must not append stale players to the active roster");
+    assert(players.every((player) =>
+        rosterStore.getSnapshot().players[player.playerId]?.playerId
+            === player.playerId),
+    "foreign snapshot must preserve the active room player identities");
+    assert(listAuthoritativePlayers(rosterStore.getSnapshot().players).length === 3,
+        "Page4 and Page5 shared player view must contain exactly three cards");
+    assert(formatAuthoritativeRoomPlayersDisplay(
+        rosterStore.getSnapshot().players,
+        3,
+        3
+    ) === "3 / 3", "InfoBar must show the three-player room capacity");
+
+    rosterStore.dispatch({
+        type: AUTHORITATIVE_SESSION_ACTIONS.SESSION_SNAPSHOT,
+        payload: {
+            roomId: "3VHh",
+            gameId: "current-game",
+            gameState: "SPEED",
+            playerStates: players.map((player) => ({
+                ...player,
+                online: true
+            }))
+        }
+    });
+    assert(listAuthoritativePlayers(rosterStore.getSnapshot().players).length === 3,
+        "matching recovery snapshot must preserve exactly three active players");
+    console.log("  foreign recovery snapshot roster isolation passed");
 
 }
 
