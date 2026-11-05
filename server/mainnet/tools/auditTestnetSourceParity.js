@@ -21,7 +21,8 @@ const explicitAdaptations = new Set([
     "payment/RoomWalletPaymentService.js",
     "payment/runtime/TestnetNativeRoomPayoutTransport.js",
     "payment/runtime/TestnetWinnerPayoutCoordinator.js",
-    "payment/WalletPoolRegistry.js"
+    "payment/WalletPoolRegistry.js",
+    "forensic/ClientPage5DeviceReportStore.js"
 ]);
 
 function walk(directory) {

@@ -21,7 +21,9 @@ const EVENT_KEYS = new Set([
     "buttonState", "buttonEnabled", "buttonLocked", "readyConfirmed",
     "connected", "clockValue", "clockLabel", "serverTimestamp",
     "phaseStartedAt", "phaseEndsAt", "sequence", "receiveMs", "applyMs",
-    "renderMs", "wheelAngle", "pointerAngle", "errorName", "build"
+    "renderMs", "wheelAngle", "pointerAngle", "errorName",
+    "errorMessage", "errorStack", "errorFile", "errorLine", "errorColumn",
+    "build"
 ]);
 const DEVICE_KEYS = new Set([
     "buildSha", "buildMode", "platform", "androidMajor", "chromeMajor",
@@ -50,17 +52,33 @@ function safeId(id, maxLength = 120) {
     return typeof id === "string" && id.length > 0 && id.length <= maxLength
         && /^[a-zA-Z0-9_-]+$/.test(id) ? id : null;
 }
-function permittedScalar(value) {
+const SENSITIVE_ASSIGNMENT = /\b(api[_-]?key|access[_-]?key|secret|token|password|mnemonic|authorization|private[_-]?key)\b(\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi;
+const QUERY_VALUE = /([?&][^=&\s]+)=([^&#\s]*)/g;
+const BEARER_VALUE = /\bBearer\s+[^\s,;]+/gi;
+const URL_CREDENTIALS = /(https?:\/\/)[^/\s@]+:[^/\s@]+@/gi;
+
+function permittedScalar(value, key) {
     if (value === null) return null;
     if (typeof value === "boolean") return value;
     if (typeof value === "number") return Number.isFinite(value) ? value : null;
-    if (typeof value === "string") return value.slice(0, 90);
+    if (typeof value === "string") {
+        const maxLength = key === "errorStack" ? 2048
+            : key === "errorMessage" ? 512
+                : key === "errorFile" ? 256 : 90;
+        return value
+            .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "")
+            .replace(BEARER_VALUE, "Bearer [REDACTED]")
+            .replace(URL_CREDENTIALS, "$1[REDACTED]@")
+            .replace(QUERY_VALUE, "$1=[REDACTED]")
+            .replace(SENSITIVE_ASSIGNMENT, "$1$2[REDACTED]")
+            .slice(0, maxLength);
+    }
     return null;
 }
 function pick(object, fields) {
     const out = {};
     for (const key of fields) {
-        if (Object.hasOwn(object ?? {}, key)) out[key] = permittedScalar(object[key]);
+        if (Object.hasOwn(object ?? {}, key)) out[key] = permittedScalar(object[key], key);
     }
     return out;
 }

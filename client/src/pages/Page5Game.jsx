@@ -20,6 +20,7 @@ import { usePreGameReady } from "../context/PreGameReadyContext";
 import { useGameClock } from "../context/GameClockContext";
 import { usePhysics } from "../context/PhysicsContext";
 import { noteLocalMainThreadStall } from "../game/diagnostics/page5LocalReport.js";
+import { buildPage5WindowErrorDiagnostic } from "../game/diagnostics/page5WindowErrorDetails.js";
 import {
     configurePage5Diagnostics,
     recordPage5Diagnostic,
@@ -160,8 +161,9 @@ export default function Page5Game({ onNavigate: _onNavigate }) {
     // Instrument the active identity, not subsequent gameplay state changes.
     }, [identity.roomId, authoritative.roomId, diagnosticGameId, localPlayerId]);
 
-    // Visibility and runtime errors help distinguish an old WebView pause
-    // from server/transport lag. Never record raw exception messages.
+    // Visibility and bounded, redacted runtime errors help investigate client
+    // faults without exposing credentials that might appear in error text.
+    const latestDiagnosticRef = useRef(null);
     useEffect(() => {
         if (typeof window === "undefined" || typeof document === "undefined") {
             return undefined;
@@ -175,16 +177,10 @@ export default function Page5Game({ onNavigate: _onNavigate }) {
             flushPage5Diagnostics();
         };
         const onError = (event) => {
-            const allowedErrors = new Set([
-                "TypeError", "ReferenceError", "RangeError",
-                "SyntaxError", "Error"
-            ]);
-            const name = event?.error?.name;
-            recordPage5Diagnostic({
-                kind: "client_error",
-                reason: "window_error",
-                errorName: allowedErrors.has(name) ? name : "Unknown"
-            });
+            recordPage5Diagnostic(buildPage5WindowErrorDiagnostic(
+                event,
+                latestDiagnosticRef.current
+            ));
             flushPage5Diagnostics();
         };
         const onUnhandled = () => {
@@ -201,7 +197,6 @@ export default function Page5Game({ onNavigate: _onNavigate }) {
         };
     }, []);
 
-    const latestDiagnosticRef = useRef(null);
     useEffect(() => {
         latestDiagnosticRef.current = { gameState, clock, localConfirmed };
     }, [gameState, clock, localConfirmed]);

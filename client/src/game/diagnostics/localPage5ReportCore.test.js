@@ -24,12 +24,29 @@ service.recordEvent({kind:"page5_mount", rawWallet:"NEVER_EXPORT", reason:"mount
 service.recordSocket("GAME_CLOCK_UPDATE", {phase:"READY", remainingSeconds:4}, wall, mono);
 service.recordSocket("GAME_STATE", {state:"SELF_TEST", serverTimestamp:wall-20}, wall, mono);
 service.recordSocket("OPEN_PAGE6", {gameId:"game_a"}, wall, mono);
+service.recordEvent({
+    kind:"client_error", reason:"window_error", errorName:"TypeError",
+    errorMessage:"Cannot read property x", errorStack:"TypeError at Page5Game",
+    errorFile:"/assets/main.js", errorLine:12, errorColumn:4,
+    phase:"PRE_GAME_READY", displayedPhase:"PRE_GAME_READY"
+});
 let snapshot=service.snapshot();
 assert.equal(snapshot.schema, LOCAL_PAGE5_REPORT_SCHEMA);
 assert.equal(snapshot.roomId,"8JfK");
 assert.equal(snapshot.nickname,"Olga");
 assert.ok(snapshot.events.some(x=>x.reason==="GAME_STATE"),"phase receipt never masked by clock");
 assert.ok(snapshot.events.some(x=>x.reason==="OPEN_PAGE6"),"Page6 receipt never masked by clock");
+const windowError=snapshot.events.find(x=>x.reason==="window_error");
+assert.equal(windowError.errorName,"TypeError");
+assert.equal(windowError.errorMessage,"Cannot read property x");
+assert.equal(windowError.errorStack,"TypeError at Page5Game");
+assert.equal(windowError.errorFile,"/assets/main.js");
+assert.equal(windowError.errorLine,12);
+assert.equal(windowError.errorColumn,4);
+assert.equal(windowError.phase,"PRE_GAME_READY");
+assert.equal(windowError.displayedPhase,"PRE_GAME_READY");
+assert.equal(windowError.wallMs,wall,"local report records wall time for the error");
+assert.equal(windowError.monoMs,mono,"local report records monotonic time for the error");
 assert.equal(JSON.stringify(snapshot).includes("NEVER_EXPORT"),false,"no arbitrary fields");
 
 for (let i=0;i<30;i++){

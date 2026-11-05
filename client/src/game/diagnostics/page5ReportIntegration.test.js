@@ -24,6 +24,10 @@ assert.match(page6,/createPage5AutoReportSender/,
 assert.match(page6,/localDeviceReport/);
 assert.match(page6,/recordPage5Diagnostic\(\{[\s\S]*?kind: "page6_rendered"/);
 assert.match(page5,/noteLocalMainThreadStall/);
+assert.match(page5,/recordPage5Diagnostic\(buildPage5WindowErrorDiagnostic\(/,
+    "Page5 window errors flow through the bounded redaction helper into the report pipeline");
+assert.match(page5,/latestDiagnosticRef\.current/,
+    "window errors capture the current gameplay phase");
 assert.match(socket,/noteLocalPage5Socket\(/);
 assert.match(socket,/noteLocalPage5Dispatch\(/);
 assert.match(wheel,/noteLocalPage5Canvas\("wheel"/);

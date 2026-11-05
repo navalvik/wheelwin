@@ -16,6 +16,7 @@ const FIELDS = new Set([
     "clockValue", "serverTimestamp", "phaseStartedAt", "phaseEndsAt",
     "sequence", "receiveMs",
     "applyMs", "renderMs", "wheelAngle", "pointerAngle", "errorName",
+    "errorMessage", "errorStack", "errorFile", "errorLine", "errorColumn",
     "clockLabel", "build"
 ]);
 
@@ -48,7 +49,12 @@ function cleanEvent(input, nowWall, nowMono) {
         if (!Object.prototype.hasOwnProperty.call(input, key)) continue;
         const value = input[key];
         if (typeof value === "boolean") event[key] = value;
-        else if (typeof value === "string") event[key] = safeString(value);
+        else if (typeof value === "string") {
+            const maxLength = key === "errorStack" ? 2048
+                : key === "errorMessage" ? 512
+                    : key === "errorFile" ? 256 : 80;
+            event[key] = safeString(value, maxLength);
+        }
         else event[key] = numeric(value);
     }
     return event;
