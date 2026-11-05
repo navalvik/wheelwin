@@ -55,7 +55,11 @@ function CentralButtonView({ snapshot, onPress, onRelease }) {
 
                 if (event.buttons === 0) {
 
-                    onRelease();
+                    if (typeof onRelease === "function") {
+
+                        onRelease();
+
+                    }
 
                 }
 
