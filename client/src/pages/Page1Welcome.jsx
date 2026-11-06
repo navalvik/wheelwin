@@ -53,11 +53,19 @@ export default function Page1Welcome({
 
                  >
 
-                 <DocumentManager
+                 {activeItem === DOCUMENTS.ADVERTISING ? (
 
-                 document={activeItem}
+                    <Page1AdvertisingContact />
 
-                 />
+                 ) : (
+
+                    <DocumentManager
+
+                        document={activeItem}
+
+                    />
+
+                 )}
 
             </InfoPanel>
 
@@ -66,6 +74,27 @@ export default function Page1Welcome({
         <NetworkWarningOverlay />
 
         </>
+
+    );
+
+}
+
+export function Page1AdvertisingContact() {
+
+    return (
+
+        <section
+            className="advertisingContact"
+            aria-labelledby="advertisingContactTitle"
+        >
+
+            <h2 id="advertisingContactTitle">Advertising &amp; Partnerships</h2>
+
+            <a href="mailto:advertising.wheelwin@outlook.com">
+                advertising.wheelwin@outlook.com
+            </a>
+
+        </section>
 
     );
 
