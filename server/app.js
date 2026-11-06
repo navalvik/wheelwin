@@ -107,6 +107,9 @@ import {
 } from "./payment/runtime/PaymentRuntimeFactory.js";
 import { bindPaymentRuntimeToApplication } from "./payment/runtime/PaymentApplicationBinder.js";
 import { LIVE_PAYMENT_ACCEPTANCE_ENABLED } from "./payment/PaymentLifecycleAvailability.js";
+import { createProtectedTestnetRoomWalletKeyResolver } from "./payment/refund/ProtectedTestnetRoomWalletKeys.js";
+import { createRestoredRoomWalletSettlement } from "./payment/refund/RestoredRoomWalletSettlementFactory.js";
+import { TestnetToncenterTransport } from "./payment/roomWallet/TestnetToncenterTransport.js";
 
 import { DeveloperConsoleProjectionService } from "./console/DeveloperConsoleProjectionService.js";
 import { registerDeveloperConsoleRoutes } from "./console/registerDeveloperConsoleRoutes.js";
@@ -1206,7 +1209,34 @@ class WheelWinApplication {
 
             const paymentRuntime = buildPaymentRuntime({
                 logger: this._logger,
-                dataDir: resolveDefaultRoomWalletPaymentDataDir()
+                dataDir: resolveDefaultRoomWalletPaymentDataDir(),
+                // Planning only: restored October fee calculation is connected
+                // to the SAME authoritative 64-wallet pool as payment intents.
+                // Broadcast is hard-disabled. This does not configure a refund
+                // submitter, winner payout or live payment acceptance.
+                restoredSettlementFactory: ({ walletPool, network, globalId }) => {
+                    if (network !== "testnet" || globalId !== -3) return null;
+                    if (!process.env.ROOM_WALLETS_TESTNET_JSON &&
+                        !process.env.ROOM_WALLETS_JSON) return null;
+                    try {
+                        const keyResolver = createProtectedTestnetRoomWalletKeyResolver({
+                            walletPool, network
+                        });
+                        return createRestoredRoomWalletSettlement({
+                            walletPool,
+                            keyResolver,
+                            tonService: new TestnetToncenterTransport({
+                                network, enableBroadcast: false
+                            })
+                        });
+                    } catch {
+                        // No secret or raw catalog data is ever logged.
+                        // Unavailable keys/transport must not break the
+                        // read-only payment gate or create a live transfer path.
+                        this._logger.warn?.("TESTNET_REFUND_PLANNER_UNAVAILABLE");
+                        return null;
+                    }
+                }
             });
 
             const recovery = paymentRuntime.initialize();

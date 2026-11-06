@@ -9,9 +9,10 @@
  * Safety scope (unchanged from the isolated core):
  *   - Testnet only; global ID -3. Mainnet is rejected, never selected.
  *   - No smart contract / escrow / deposit system is referenced (R9).
- *   - No wallet secret material is read, retained or written. The wallet
- *     catalog is parsed through the existing secret-stripping loader and the
- *     outgoing signer path does not exist (payment execution is disabled).
+ *   - The payment catalog is parsed through the secret-stripping loader.
+ *     An optional Testnet-only refund fee planner can resolve protected keys
+ *     after catalog initialization, but its transport cannot broadcast.
+ *     No outgoing submitter is configured by this factory.
  *   - This factory never moves real funds. Incoming observation is read-only;
  *     outgoing refunds have no authorized submitter, so live payment
  *     acceptance stays disabled and refunds remain recoverable obligations.
@@ -185,7 +186,11 @@ export function buildPaymentRuntime(options = {}) {
         refundSubmitter = null,
         // Restored October settlement transport may be injected for offline
         // reconciliation/planning; never enables live payment acceptance.
-        restoredSettlement = null
+        restoredSettlement = null,
+        // Optional Testnet-only assembly after the authoritative wallet pool
+        // exists. The factory is not a signer/submitter and cannot enable
+        // payment acceptance or outgoing transfers.
+        restoredSettlementFactory = null
     } = options;
 
     // R — network identity is enforced before any store or provider exists.
@@ -202,6 +207,9 @@ export function buildPaymentRuntime(options = {}) {
         logger
     });
 
+    if (restoredSettlementFactory !== null && typeof restoredSettlementFactory !== "function") {
+        throw new Error("restored settlement factory must be a function");
+    }
     const intentStore = new PaymentIntentStore({
         dataDir: networkDataDir,
         logger,
@@ -319,7 +327,7 @@ export function buildPaymentRuntime(options = {}) {
     });
 
     // Mutable initialization/recovery state kept outside the frozen descriptor.
-    const state = { initialized: false, lastRecovery: null };
+    const state = { initialized: false, lastRecovery: null, restoredSettlement };
 
     const runtime = Object.freeze({
         // Durable stores + services.
@@ -335,7 +343,7 @@ export function buildPaymentRuntime(options = {}) {
         refundStore,
         refundLifecycle,
         outgoingRefundProvider,
-        restoredSettlement,
+        get restoredSettlement() { return state.restoredSettlement; },
         sessionAdapter,
         paymentGate,
 
@@ -366,6 +374,20 @@ export function buildPaymentRuntime(options = {}) {
             }
 
             paymentService.initialize();
+
+            // The catalog is loaded by paymentService.initialize(). A protected
+            // resolver created earlier would see an EMPTY pool and silently
+            // disable planning even when all 64 keys are configured.
+            if (!state.restoredSettlement && restoredSettlementFactory) {
+                try {
+                    state.restoredSettlement = restoredSettlementFactory({
+                        walletPool, network: identity.network, globalId: identity.globalId
+                    }) ?? null;
+                } catch {
+                    // Planning is optional and never authorizes transfers.
+                    logger?.warn?.("TESTNET_REFUND_PLANNER_UNAVAILABLE");
+                }
+            }
 
             ledger.initialize();
 
@@ -408,7 +430,7 @@ export function buildPaymentRuntime(options = {}) {
             if (!state.initialized) {
                 throw new Error("payment runtime not initialized");
             }
-            if (!restoredSettlement || typeof restoredSettlement.planDurableRefund !== "function") {
+            if (!state.restoredSettlement || typeof state.restoredSettlement.planDurableRefund !== "function") {
                 throw new Error("restored room-wallet settlement is not attached");
             }
             const obligation = refundStore.get(obligationId);
@@ -422,7 +444,7 @@ export function buildPaymentRuntime(options = {}) {
                 obligation.globalId !== identity.globalId) {
                 throw new Error("refund obligation is not pending on TON Testnet");
             }
-            return restoredSettlement.planDurableRefund(obligation);
+            return state.restoredSettlement.planDurableRefund(obligation);
         },
 
         get initialized() {

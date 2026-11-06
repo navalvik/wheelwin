@@ -157,3 +157,44 @@ test("pending refund retains its exact source wallet across restart even without
         f.cleanup();
     }
 });
+
+
+test("read-only refund planner factory receives the exact authoritative 64-wallet pool", async () => {
+    const f = fixture();
+    try {
+        const calls = [];
+        const runtime = buildPaymentRuntime({
+            dataDir: join(f.root, "payment-data"),
+            walletCatalogPath: f.catalogPath,
+            restoredSettlementFactory({ walletPool, network, globalId }) {
+                calls.push({ walletPool, network, globalId });
+                return {
+                    async planDurableRefund(obligation) {
+                        return { ok: true, obligationId: obligation.obligationId, mode: "READ_ONLY" };
+                    }
+                };
+            }
+        });
+        assert.equal(calls.length, 0, "factory must wait for catalog initialization");
+        runtime.initialize();
+        assert.equal(calls.length, 1);
+        assert.equal(calls[0].walletPool, runtime.walletPool);
+        assert.equal(calls[0].network, "testnet");
+        assert.equal(calls[0].globalId, -3);
+        assert.equal(runtime.walletPool.size, 64);
+        assert.equal(runtime.walletPool.listWallets().length, 64);
+        runtime.initialize();
+        assert.equal(calls.length, 1, "idempotent restart never rebuilds planner");
+        const obligation = pendingObligation();
+        runtime.refundStore.create(obligation);
+        const result = await runtime.planPendingRefund(obligation.obligationId);
+        assert.deepEqual(result, {
+            ok: true, obligationId: obligation.obligationId, mode: "READ_ONLY"
+        });
+        assert.equal(runtime.refundStore.get(obligation.obligationId).state, "PENDING");
+        assert.equal(runtime.getCapabilities().outgoingRefundTransfersEnabled, false);
+        assert.equal(runtime.getCapabilities().livePaymentAcceptanceEnabled, false);
+    } finally {
+        f.cleanup();
+    }
+});
