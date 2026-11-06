@@ -14,7 +14,9 @@ export const DOCUMENTS = Object.freeze({
 
     LINKS: "links",
 
-    CHANGELOG: "changelog"
+    CHANGELOG: "changelog",
+
+    ADVERTISING: "advertising"
 
 });
 
@@ -58,6 +60,11 @@ export const DOCUMENT_MENU = [
     {
         id: DOCUMENTS.CHANGELOG,
         title: "CHANGELOG"
+    },
+
+    {
+        id: DOCUMENTS.ADVERTISING,
+        title: "Advertising & Partnerships"
     }
 
 ];

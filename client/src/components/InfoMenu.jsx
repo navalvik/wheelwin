@@ -2,7 +2,7 @@ import "../styles/infoMenu.css";
 
 import { useLanguage } from "../context/LanguageContext";
 
-import { DOCUMENT_MENU } from "../utils/documents";
+import { DOCUMENT_MENU, DOCUMENTS } from "../utils/documents";
 
 const MENU_TITLE_KEYS = Object.freeze({
     welcome: "menu.welcome",
@@ -53,7 +53,9 @@ export default function InfoMenu({
 
                     >
 
-                        {t(MENU_TITLE_KEYS[item.id] ?? item.title)}
+                        {item.id === DOCUMENTS.ADVERTISING
+                            ? item.title
+                            : t(MENU_TITLE_KEYS[item.id] ?? item.title)}
 
                     </button>
 
