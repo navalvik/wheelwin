@@ -25,7 +25,7 @@ export default function HeaderBar({
     // R18-S109 — Testnet → Mainnet Telegram Mini App handoff.
     //
     // Authoritative Mainnet Mini App configuration (operator-confirmed in
-    // BotFather): bot @wheel_win_bot, Main App enabled, Web App URL
+    // BotFather): bot @WheelWinMainnetBot, Main App enabled, Web App URL
     // https://wheelwin-main.vercel.app/. The deep link below launches a
     // FRESH Mainnet Mini App session with a fresh Telegram-signed
     // tgWebAppData. It must go through Telegram's own link-opening API:
@@ -33,7 +33,7 @@ export default function HeaderBar({
     // and the Mainnet page loads with empty initData, which the server-side
     // HMAC gate correctly rejects (R18-S107 diagnosis). No Testnet initData
     // or tgWebAppData is ever forwarded, copied, or reconstructed here.
-    const MAINNET_MINI_APP_DEEP_LINK = "https://t.me/wheel_win_bot?startapp";
+    const MAINNET_MINI_APP_DEEP_LINK = "https://t.me/WheelWinMainnetBot?startapp";
 
     const MAINNET_WEB_URL = "https://wheelwin-main.vercel.app";
 

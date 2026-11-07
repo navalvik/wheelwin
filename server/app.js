@@ -1,4 +1,5 @@
 import { TestnetPendingRefundExecutor } from './payment/runtime/TestnetPendingRefundExecutor.js';
+import { resolveTelegramBotToken } from "./auth/resolveTelegramBotToken.js";
 import "dotenv/config";
 
 import cors from "cors";
@@ -1911,8 +1912,7 @@ class WheelWinApplication {
         // Dependency flow: environment → app.js → SocketGateway → validator.
         // botToken is a server secret: never logged, never sent to clients.
         const telegramAuthConfig = {
-            botToken:
-                String(process.env.TELEGRAM_BOT_TOKEN ?? "").trim() || null,
+            botToken: resolveTelegramBotToken(process.env),
             maxAgeSeconds: (() => {
 
                 const raw = String(

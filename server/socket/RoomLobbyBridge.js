@@ -43,6 +43,7 @@ import {
     parseTonAddress
 } from "../payment/incoming/TonAddressIdentity.js";
 import { deriveTestnetRoomPaymentRequirements } from "../payment/runtime/deriveTestnetRoomPaymentRequirements.js";
+import { resolveTelegramBotToken } from "../auth/resolveTelegramBotToken.js";
 import { deriveMainnetRoomPaymentRequirements } from "../mainnet/testnet_source/payment/runtime/deriveTestnetRoomPaymentRequirements.js";
 import { ActiveRoomObservationBudget } from "../payment/runtime/ActiveRoomObservationBudget.js";
 import { formatPage4WalletBindingLogs } from "../payment/walletAddressDiagnostics.js";
@@ -1082,7 +1083,7 @@ export class RoomLobbyBridge {
             return;
         }
         const abuseHmacSecret = process.env.WHEELWIN_NO_FRIENDS_ABUSE_KEY
-            ?? process.env.TELEGRAM_BOT_TOKEN
+            ?? resolveTelegramBotToken(process.env)
             ?? "";
         if (!localBrowser && !String(abuseHmacSecret).trim()) {
             this._deliverToSocket(socketId, LOBBY_SERVER_EVENTS.NO_FRIENDS_ERROR, { code: "SECURITY_CONFIG" });

@@ -21,7 +21,7 @@
 
 const STORAGE_KEY = "wheelwin.roomNetworkHandoff";
 
-const MAINNET_MINI_APP_DEEP_LINK_BASE = "https://t.me/wheel_win_bot?startapp=";
+const MAINNET_MINI_APP_DEEP_LINK_BASE = "https://t.me/WheelWinMainnetBot?startapp=";
 
 const MAINNET_START_PARAM_PREFIX = "mainnet";
 

@@ -199,8 +199,8 @@ const VALID_PAYLOAD = {
 
     assert.equal(
         deepLink,
-        `https://t.me/wheel_win_bot?startapp=mainnet${HANDOFF_ID}`,
-        "the deep link must use the operator-confirmed bot link with mainnet+handoffId"
+        `https://t.me/WheelWinMainnetBot?startapp=mainnet${HANDOFF_ID}`,
+        "the deep link must use the dedicated Mainnet bot with mainnet+handoffId"
     );
 
     const startappValue = deepLink.split("startapp=")[1];
@@ -328,7 +328,7 @@ const VALID_PAYLOAD = {
 
     assert.deepEqual(
         calls.openTelegramLink,
-        [`https://t.me/wheel_win_bot?startapp=mainnet${HANDOFF_ID}`],
+        [`https://t.me/WheelWinMainnetBot?startapp=mainnet${HANDOFF_ID}`],
         "the Telegram handoff must carry the handoffId-only deep link"
     );
 
