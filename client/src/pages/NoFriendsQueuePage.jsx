@@ -94,6 +94,7 @@ export default function NoFriendsQueuePage({ onNavigate, onBack }) {
         && wallet.trim().length > 0;
 
     return <GameLayout
+        layoutClassName="gameLayout--noFriendsQueue"
         message={t("noFriends.queueTitle")}
         backEnabled={!waiting && !checking}
         onBack={onBack}

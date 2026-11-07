@@ -151,6 +151,25 @@
     overflow:hidden;
 }
 
+/* FIND A GAME keeps its own content scroll area so the header and InfoBar
+   remain fixed while the form and validation messages can reach the bottom. */
+.gameLayout--noFriendsQueue .contentArea{
+
+    min-width:0;
+    min-height:0;
+    overflow-x:hidden;
+    overflow-y:auto;
+    overscroll-behavior-y:contain;
+    -webkit-overflow-scrolling:touch;
+
+}
+
+.gameLayout--noFriendsQueue{
+
+    width:100%;
+
+}
+
 /* Mobile: 100vh exceeds the visible viewport (browser chrome), so the
    InfoBar grid row sits below the fold while body overflow:hidden
    prevents scrolling to it. Use the small viewport height so Banner,
@@ -177,6 +196,17 @@
     .infoBar {
 
         flex-shrink: 0;
+    }
+
+    /* Telegram's viewport variable tracks visible height changes, including
+       the Android on-screen keyboard. Browser fallback remains dynamic. */
+    .gameLayout--noFriendsQueue {
+
+        height:100vh;
+        height:var(--tg-viewport-height, 100dvh);
+        max-height:100vh;
+        max-height:var(--tg-viewport-height, 100dvh);
+
     }
 
 }
