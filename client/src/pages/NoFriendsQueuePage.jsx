@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import GameLayout from "../layouts/GameLayout";
 import { useLanguage } from "../context/LanguageContext";
 import { APP_PAGES } from "../game/sessionRecovery/recoveryFlow";
@@ -7,6 +7,8 @@ import socket from "../socket/socket";
 import { isTestnetDisplay } from "../config/displayNetwork";
 import { MIN_PLAYER_AGE, MAX_PLAYER_AGE } from "../utils/playerProfileRules";
 import "../styles/noFriends.css";
+
+const QUEUE_EXPIRED_MESSAGE = "No players found. Press FIND PLAYERS to search again.";
 
 export default function NoFriendsQueuePage({ onNavigate, onBack }) {
 
@@ -20,19 +22,26 @@ export default function NoFriendsQueuePage({ onNavigate, onBack }) {
     const [checking, setChecking] = useState(false);
     const [error, setError] = useState("");
     const [seconds, setSeconds] = useState(180);
+    const matchedRef = useRef(false);
 
     useEffect(() => {
         const onStatus = (payload) => {
+            if (matchedRef.current) return;
             setChecking(false);
             setWaiting(payload);
             setSeconds(Math.max(0, Math.ceil((payload.expiresAt - Date.now()) / 1000)));
             setError("");
         };
-        const onMatched = () => onNavigate(APP_PAGES.NO_FRIENDS_OPTIONS);
+        const onMatched = () => {
+            matchedRef.current = true;
+            onNavigate(APP_PAGES.NO_FRIENDS_OPTIONS);
+        };
         const onExpired = () => {
+            if (matchedRef.current) return;
             setChecking(false);
             setWaiting(null);
-            onNavigate(APP_PAGES.WELCOME);
+            setSeconds(180);
+            setError(QUEUE_EXPIRED_MESSAGE);
         };
         const onError = (payload) => {
             setChecking(false);
@@ -74,8 +83,10 @@ export default function NoFriendsQueuePage({ onNavigate, onBack }) {
         if (!nickname.trim() || !Number.isInteger(numericAge)
             || numericAge < MIN_PLAYER_AGE || numericAge > MAX_PLAYER_AGE
             || !wallet.trim() || checking || waiting) return;
+        matchedRef.current = false;
         setError("");
         setChecking(true);
+        setSeconds(180);
         socket.emit(LOBBY_OUTGOING_EVENTS.NO_FRIENDS_REQUEST, {
             nickname: nickname.trim().slice(0, 4),
             age: numericAge,
