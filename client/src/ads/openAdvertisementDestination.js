@@ -1,9 +1,10 @@
 /**
- * R14.5 / R14.6 — Open advertisement destination via WheelWin redirect.
- * Client must not open advertiser URLs directly.
+ * R14.5 / R14.6 — Open website ads via the WheelWin redirect and Telegram
+ * ads directly through Telegram Mini App API after registering their click.
  */
 
 import { resolveBackendUrl } from "../config/backendUrl.js";
+import { normalizeTelegramAdvertisementUrl } from "./telegramAdvertisementUrl.js";
 
 const FORBIDDEN_SCHEMES = [
     "javascript:",
@@ -78,7 +79,7 @@ export function isWheelWinAdvertisementClickPath(url) {
 
 export function isTelegramAdvertisementUrl(url) {
 
-    return /^https:\/\/t\.me\//i.test(String(url || "").trim());
+    return Boolean(normalizeTelegramAdvertisementUrl(url));
 
 }
 
@@ -199,5 +200,86 @@ export function openAdvertisementDestination(url, options = {}) {
         return false;
 
     }
+
+}
+
+/**
+ * Open a Telegram destination synchronously from the banner user gesture,
+ * while registering its click through a non-redirecting backend request.
+ */
+export function openTelegramAdvertisementDestination(
+    url,
+    advertisementId,
+    options = {}
+) {
+
+    const telegramUrl = normalizeTelegramAdvertisementUrl(url);
+
+    if (!telegramUrl) {
+
+        return false;
+
+    }
+
+    const telegramWebApp = options.telegramWebApp !== undefined
+        ? options.telegramWebApp
+        : (typeof window !== "undefined"
+            ? window.Telegram?.WebApp ?? null
+            : null);
+    const openFn = options.open
+        ?? (typeof window !== "undefined" ? window.open.bind(window) : null);
+    let opened = false;
+
+    try {
+
+        if (typeof telegramWebApp?.openTelegramLink === "function") {
+
+            telegramWebApp.openTelegramLink(telegramUrl);
+            opened = true;
+
+        } else if (typeof openFn === "function") {
+
+            openFn(telegramUrl, "_blank", "noopener,noreferrer");
+            opened = true;
+
+        }
+
+    } catch {
+
+        opened = false;
+
+    }
+
+    if (!opened) {
+
+        return false;
+
+    }
+
+    const clickPath = buildAdvertisementClickPath(advertisementId);
+    const fetchImpl = options.fetchImpl
+        ?? (typeof globalThis.fetch === "function" ? globalThis.fetch : null);
+
+    if (clickPath && typeof fetchImpl === "function") {
+
+        const base = resolveBackendUrl().replace(/\/$/, "");
+
+        try {
+
+            Promise.resolve(fetchImpl(`${base}${clickPath}`, {
+                method: "POST",
+                headers: { Accept: "application/json" },
+                keepalive: true
+            })).catch(() => {});
+
+        } catch {
+
+            // Click analytics must never prevent the Telegram link from opening.
+
+        }
+
+    }
+
+    return true;
 
 }

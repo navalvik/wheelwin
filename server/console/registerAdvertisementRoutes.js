@@ -264,6 +264,7 @@ export function registerAdvertisementRoutes(app, {
                 filename: body.filename,
                 bytes,
                 advertiserName: body.advertiserName,
+                destinationType: body.destinationType,
                 destinationUrl: body.destinationUrl,
                 priority: body.priority,
                 expiresAt: body.expiresAt,
@@ -300,6 +301,7 @@ export function registerAdvertisementRoutes(app, {
 
             for (const key of [
                 "priority",
+                "destinationType",
                 "destinationUrl",
                 "advertiserName",
                 "expiresAt",
@@ -459,8 +461,40 @@ export function registerAdvertisementRoutes(app, {
 
     });
 
-    // R14.6 — Click redirect (record CLICK, then 302). No gameplay coupling.
+    // R14.6 / R14.9 — Website redirect and Telegram non-redirect click tracking.
     if (advertisementRedirectService) {
+
+        app.post("/advertisements/click/:advertisementId", (req, res) => {
+
+            try {
+
+                const result = advertisementRedirectService.recordClick(
+                    req.params.advertisementId
+                );
+
+                if (result.status !== 200) {
+
+                    res.status(result.status).json({
+                        error: result.error || "Click registration failed",
+                        code: result.code || null
+                    });
+
+                    return;
+
+                }
+
+                res.status(200).json({
+                    recorded: result.recorded,
+                    duplicate: result.duplicate
+                });
+
+            } catch (error) {
+
+                res.status(500).json({ error: "Internal Server Error" });
+
+            }
+
+        });
 
         app.get("/advertisements/click/:advertisementId", (req, res) => {
 

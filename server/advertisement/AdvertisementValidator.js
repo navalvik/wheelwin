@@ -234,6 +234,266 @@ export function validateDestinationUrl(rawUrl) {
 
 }
 
+export const ADVERTISEMENT_DESTINATION_TYPES = Object.freeze({
+    WEBSITE: "WEBSITE",
+    TELEGRAM: "TELEGRAM"
+});
+
+/**
+ * Legacy campaigns and requests without a type remain Website campaigns.
+ */
+export function normalizeAdvertisementDestinationType(rawType) {
+
+    if (rawType == null || String(rawType).trim() === "") {
+
+        return ADVERTISEMENT_DESTINATION_TYPES.WEBSITE;
+
+    }
+
+    const type = String(rawType).trim().toUpperCase();
+
+    if (Object.values(ADVERTISEMENT_DESTINATION_TYPES).includes(type)) {
+
+        return type;
+
+    }
+
+    throw new AdvertisementValidationError(
+        "INVALID_DESTINATION_TYPE",
+        "Destination type must be Website or Telegram"
+    );
+
+}
+
+function validateTelegramToken(value, label) {
+
+    if (
+        typeof value !== "string"
+        || value.length < 1
+        || value.length > 64
+        || !/^[A-Za-z0-9_-]+$/.test(value)
+    ) {
+
+        throw new AdvertisementValidationError(
+            "INVALID_TELEGRAM_LINK",
+            `Telegram ${label} is invalid`
+        );
+
+    }
+
+    return value;
+
+}
+
+function normalizeTelegramQuery(searchParams) {
+
+    const result = new URLSearchParams();
+
+    for (const [key, value] of searchParams.entries()) {
+
+        if (key !== "start" && key !== "startgroup") {
+
+            throw new AdvertisementValidationError(
+                "INVALID_TELEGRAM_LINK",
+                "Telegram links may only include start or startgroup parameters"
+            );
+
+        }
+
+        if (result.has(key)) {
+
+            throw new AdvertisementValidationError(
+                "INVALID_TELEGRAM_LINK",
+                `Telegram ${key} parameter may only appear once`
+            );
+
+        }
+
+        result.set(key, validateTelegramToken(value, key));
+
+    }
+
+    return result.toString();
+
+}
+
+/**
+ * Accept only t.me links (or explicitly supported Telegram deep links) and
+ * return a safe HTTPS URL suitable for both browsers and Telegram.WebApp.
+ */
+export function validateTelegramDestinationUrl(rawUrl) {
+
+    if (rawUrl == null || String(rawUrl).trim() === "") {
+
+        throw new AdvertisementValidationError(
+            "INVALID_TELEGRAM_LINK",
+            "Telegram link is required"
+        );
+
+    }
+
+    const value = String(rawUrl).trim();
+    let parsed;
+
+    try {
+
+        parsed = new URL(value);
+
+    } catch {
+
+        throw new AdvertisementValidationError(
+            "INVALID_TELEGRAM_LINK",
+            "Telegram link must be a supported t.me or tg:// link"
+        );
+
+    }
+
+    let pathname;
+    let query;
+
+    if (parsed.protocol === "tg:") {
+
+        if (parsed.username || parsed.password || parsed.port || parsed.hash) {
+
+            throw new AdvertisementValidationError(
+                "INVALID_TELEGRAM_LINK",
+                "Telegram deep link is not supported"
+            );
+
+        }
+
+        const queryParams = new URLSearchParams(parsed.search);
+
+        if (parsed.hostname === "resolve") {
+
+            const domain = validateTelegramToken(queryParams.get("domain"), "username");
+
+            if (!/^[A-Za-z][A-Za-z0-9_]{4,31}$/.test(domain)) {
+
+                throw new AdvertisementValidationError(
+                    "INVALID_TELEGRAM_LINK",
+                    "Telegram username is invalid"
+                );
+
+            }
+
+            queryParams.delete("domain");
+            pathname = `/${domain}`;
+            query = normalizeTelegramQuery(queryParams);
+
+        } else if (parsed.hostname === "join") {
+
+            const invites = queryParams.getAll("invite");
+            const invite = validateTelegramToken(invites[0], "invite code");
+
+            if (
+                invites.length !== 1
+                || [...queryParams.keys()].some((key) => key !== "invite")
+            ) {
+
+                throw new AdvertisementValidationError(
+                    "INVALID_TELEGRAM_LINK",
+                    "Telegram invite deep link contains unsupported parameters"
+                );
+
+            }
+
+            pathname = `/+${invite}`;
+            query = "";
+
+        } else {
+
+            throw new AdvertisementValidationError(
+                "INVALID_TELEGRAM_LINK",
+                "Only tg://resolve and tg://join links are supported"
+            );
+
+        }
+
+        return `https://t.me${pathname}${query ? `?${query}` : ""}`;
+
+    }
+
+    if (
+        parsed.protocol !== "https:"
+        || parsed.hostname.toLowerCase() !== "t.me"
+        || parsed.username
+        || parsed.password
+        || parsed.port
+        || parsed.hash
+    ) {
+
+        throw new AdvertisementValidationError(
+            "INVALID_TELEGRAM_LINK",
+            "Telegram links must use the https://t.me domain"
+        );
+
+    }
+
+    const path = parsed.pathname;
+
+    if (/^\/\+[A-Za-z0-9_-]+$/.test(path)) {
+
+        if (parsed.search) {
+
+            throw new AdvertisementValidationError(
+                "INVALID_TELEGRAM_LINK",
+                "Telegram invite links cannot include query parameters"
+            );
+
+        }
+
+        return `https://t.me${path}`;
+
+    }
+
+    const joinMatch = path.match(/^\/joinchat\/([A-Za-z0-9_-]+)$/);
+
+    if (joinMatch) {
+
+        if (parsed.search) {
+
+            throw new AdvertisementValidationError(
+                "INVALID_TELEGRAM_LINK",
+                "Telegram invite links cannot include query parameters"
+            );
+
+        }
+
+        return `https://t.me/joinchat/${joinMatch[1]}`;
+
+    }
+
+    const usernameMatch = path.match(/^\/([A-Za-z][A-Za-z0-9_]{4,31})\/?$/);
+
+    if (!usernameMatch) {
+
+        throw new AdvertisementValidationError(
+            "INVALID_TELEGRAM_LINK",
+            "Telegram link must point to a public bot, channel, group, or invite"
+        );
+
+    }
+
+    const normalizedQuery = normalizeTelegramQuery(parsed.searchParams);
+
+    return `https://t.me/${usernameMatch[1]}${normalizedQuery ? `?${normalizedQuery}` : ""}`;
+
+}
+
+export function validateAdvertisementDestination(rawUrl, rawType) {
+
+    const type = normalizeAdvertisementDestinationType(rawType);
+
+    return {
+        destinationType: type,
+        destinationUrl: type === ADVERTISEMENT_DESTINATION_TYPES.TELEGRAM
+            ? validateTelegramDestinationUrl(rawUrl)
+            : validateDestinationUrl(rawUrl)
+    };
+
+}
+
 export class AdvertisementValidator {
 
     sanitizeFilename(rawFilename) {
@@ -255,6 +515,18 @@ export class AdvertisementValidator {
     validateDestinationUrl(rawUrl) {
 
         return validateDestinationUrl(rawUrl);
+
+    }
+
+    validateTelegramDestinationUrl(rawUrl) {
+
+        return validateTelegramDestinationUrl(rawUrl);
+
+    }
+
+    validateDestination(rawUrl, destinationType) {
+
+        return validateAdvertisementDestination(rawUrl, destinationType);
 
     }
 

@@ -7,6 +7,7 @@
 import { APP_PAGES } from "../game/sessionRecovery/recoveryFlow";
 import { resolveBackendUrl } from "../config/backendUrl.js";
 import { buildAdvertisementClickPath } from "./openAdvertisementDestination";
+import { normalizeTelegramAdvertisementUrl } from "./telegramAdvertisementUrl.js";
 
 export const ADVERTISEMENT_MESSAGE_CHANNEL = "advertisement:message";
 
@@ -157,17 +158,37 @@ export function resolveAdvertisementRenderModel({
     const src = buildAdvertisementAssetUrl(snapshot.filename)
         ?? WHEELWIN_FALLBACK_BANNER_SRC;
 
-    // R14.6 — never expose advertiser destinationUrl to the client click path.
-    const destinationUrl = buildAdvertisementClickPath(snapshot.advertisementId);
+    const destinationType = String(snapshot.destinationType ?? "WEBSITE")
+        .trim()
+        .toUpperCase();
+    const clickPath = buildAdvertisementClickPath(snapshot.advertisementId);
+    const telegramUrl = destinationType === "TELEGRAM"
+        ? normalizeTelegramAdvertisementUrl(
+            snapshot.telegramLink ?? snapshot.destinationUrl
+        )
+        : null;
+    // Website targets remain hidden behind the legacy click redirect. Telegram
+    // needs a validated deep link so it can open directly in Mini App context.
+    const destinationUrl = destinationType === "TELEGRAM"
+        ? telegramUrl
+        : clickPath;
 
     return Object.freeze({
-        mode: src === WHEELWIN_FALLBACK_BANNER_SRC ? "fallback" : "external",
+        mode: src === WHEELWIN_FALLBACK_BANNER_SRC
+            ? "fallback"
+            : destinationType === "TELEGRAM"
+                ? "telegram"
+                : "external",
         src,
         alt: snapshot.advertiserName
             ? String(snapshot.advertiserName)
             : "Advertisement",
         destinationUrl,
-        clickable: Boolean(destinationUrl),
+        clickPath,
+        destinationType,
+        clickable: destinationType === "TELEGRAM"
+            ? Boolean(telegramUrl && clickPath)
+            : Boolean(destinationUrl),
         objectFit: "contain",
         advertisementId: snapshot.advertisementId,
         filename: snapshot.filename,
