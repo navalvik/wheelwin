@@ -85,3 +85,16 @@ test("app composes the copied source runtime for Mainnet and excludes the retire
     assert.doesNotMatch(branch, /new MainnetPaymentRuntime\(/);
     assert.doesNotMatch(branch, /financialLedger|incomingLedger|incomingPayments/);
 });
+
+test("production start entrypoint routes Telegram auth through the network token resolver", () => {
+    const serverPackage = JSON.parse(readFileSync(
+        new URL("../../package.json", import.meta.url), "utf8"
+    ));
+    const app = readFileSync(new URL("../../app.js", import.meta.url), "utf8");
+
+    assert.equal(serverPackage.scripts.start, "node app.js");
+    assert.match(app, /resolveTelegramBotToken\(process\.env\)/,
+        "shared Testnet/Mainnet app must resolve the bot token from the runtime network");
+    assert.match(app, /telegramAuth:\s*telegramAuthConfig/,
+        "the selected token must reach SocketGateway Mini App validation");
+});
