@@ -32,6 +32,8 @@ export default function GameLayout({
     /** When true, shows Mainnet switch button on Page1 Testnet. */
     showMainnetSwitch,
 
+    layoutClassName = "",
+
     children
 
 }) {
@@ -48,7 +50,7 @@ export default function GameLayout({
 
     return (
 
-        <div className={`gameLayout${showInfoBar ? " gameLayout--withInfoBar" : ""}`}>
+        <div className={`gameLayout${showInfoBar ? " gameLayout--withInfoBar" : ""}${layoutClassName ? ` ${layoutClassName}` : ""}`}>
 
             <AdvertisementSlot />
 
