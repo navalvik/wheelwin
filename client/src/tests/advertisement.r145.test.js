@@ -25,8 +25,10 @@ import {
 import {
     isSafeAdvertisementDestination,
     isTelegramAdvertisementUrl,
-    openAdvertisementDestination
+    openAdvertisementDestination,
+    openTelegramAdvertisementDestination
 } from "../ads/openAdvertisementDestination.js";
+import { normalizeTelegramAdvertisementUrl } from "../ads/telegramAdvertisementUrl.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const cssPath = join(here, "..", "ads", "advertisement.css");
@@ -324,6 +326,110 @@ function createFakeSocket() {
     assert.equal(tgOpened.length, 1);
     assert.match(tgOpened[0], /\/advertisements\/click\/ad_002$/);
     console.log("  7. Missing advertisement data does not crash UI");
+
+}
+
+{
+    assert.equal(
+        normalizeTelegramAdvertisementUrl("https://t.me/example_bot?start=example"),
+        "https://t.me/example_bot?start=example"
+    );
+    assert.equal(
+        normalizeTelegramAdvertisementUrl("https://t.me/+INVITE_CODE"),
+        "https://t.me/+INVITE_CODE"
+    );
+    assert.equal(
+        normalizeTelegramAdvertisementUrl("https://t.me/joinchat/INVITE_CODE"),
+        "https://t.me/joinchat/INVITE_CODE"
+    );
+    assert.equal(
+        normalizeTelegramAdvertisementUrl("tg://resolve?domain=example_bot&start=example"),
+        "https://t.me/example_bot?start=example"
+    );
+    assert.equal(
+        normalizeTelegramAdvertisementUrl("https://t.me.evil.example/example_bot"),
+        null
+    );
+
+    const model = resolveAdvertisementRenderModel({
+        page: APP_PAGES.WELCOME,
+        snapshot: {
+            advertisementId: "ad_telegram",
+            filename: "1_telegram.jpg",
+            destinationType: "TELEGRAM",
+            telegramLink: "https://t.me/+INVITE_CODE"
+        }
+    });
+
+    assert.equal(model.mode, "telegram");
+    assert.equal(model.destinationUrl, "https://t.me/+INVITE_CODE");
+    assert.equal(model.clickable, true);
+
+    const events = [];
+    const opened = openTelegramAdvertisementDestination(
+        "https://t.me/example_bot?start=example",
+        "ad_telegram",
+        {
+            telegramWebApp: {
+                openTelegramLink(url) {
+
+                    events.push(["openTelegramLink", url]);
+
+                }
+            },
+            fetchImpl(url, options) {
+
+                events.push(["registerClick", url, options]);
+
+                return Promise.resolve({ ok: true });
+
+            }
+        }
+    );
+
+    assert.equal(opened, true);
+    assert.equal(events[0][0], "openTelegramLink");
+    assert.equal(events[0][1], "https://t.me/example_bot?start=example");
+    assert.equal(events[1][0], "registerClick");
+    assert.match(events[1][1], /\/advertisements\/click\/ad_telegram$/);
+    assert.equal(events[1][2].method, "POST");
+
+    const fallbackOpened = [];
+    const invited = [];
+
+    assert.equal(openTelegramAdvertisementDestination(
+        "https://t.me/joinchat/INVITE_CODE",
+        "ad_telegram_2",
+        {
+            telegramWebApp: null,
+            open(url, target, features) {
+
+                fallbackOpened.push({ url, target, features });
+
+            },
+            fetchImpl: () => Promise.resolve({ ok: true })
+        }
+    ), true);
+    assert.equal(fallbackOpened[0].url, "https://t.me/joinchat/INVITE_CODE");
+    assert.equal(fallbackOpened[0].target, "_blank");
+
+    assert.equal(openTelegramAdvertisementDestination(
+        "https://t.me/+INVITE_CODE",
+        "ad_telegram_3",
+        {
+            telegramWebApp: {
+                openTelegramLink(url) {
+
+                    invited.push(url);
+
+                }
+            },
+            fetchImpl: () => Promise.resolve({ ok: true })
+        }
+    ), true);
+    assert.deepEqual(invited, ["https://t.me/+INVITE_CODE"]);
+
+    console.log("  8. Telegram links normalize safely, open directly, and register one click");
 
 }
 

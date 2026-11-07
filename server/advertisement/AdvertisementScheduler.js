@@ -206,7 +206,9 @@ export class AdvertisementScheduler {
             this._current = {
                 advertisementId: null,
                 filename: null,
+                destinationType: "WEBSITE",
                 destinationUrl: null,
+                telegramLink: null,
                 priority: null,
                 startedAt: nowMs,
                 duration
@@ -218,7 +220,12 @@ export class AdvertisementScheduler {
             this._current = {
                 advertisementId: selected.id,
                 filename: selected.filename ?? null,
-                destinationUrl: selected.destinationUrl ?? null,
+                destinationType: selected.destinationType ?? "WEBSITE",
+                // Website targets remain hidden behind the click redirect.
+                destinationUrl: null,
+                telegramLink: selected.destinationType === "TELEGRAM"
+                    ? selected.destinationUrl ?? null
+                    : null,
                 priority: selected.priority ?? null,
                 startedAt: nowMs,
                 duration

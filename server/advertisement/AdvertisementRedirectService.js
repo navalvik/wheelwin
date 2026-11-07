@@ -1,12 +1,14 @@
 /**
- * R14.6 — AdvertisementRedirectService.
- * Click → record CLICK (deduped) → 302 to advertiser destination.
+ * R14.6 / R14.9 — AdvertisementRedirectService.
+ * Website clicks record CLICK (deduped) then 302; Telegram clicks record
+ * CLICK without redirect so the Mini App can open the link directly.
  * No personal data. No direct client exposure of advertiser URL required.
  */
 
 import {
     AdvertisementValidationError,
-    validateDestinationUrl
+    ADVERTISEMENT_DESTINATION_TYPES,
+    validateAdvertisementDestination
 } from "./AdvertisementValidator.js";
 
 export const ADVERTISEMENT_CLICK_DEBOUNCE_MS = 3_000;
@@ -61,6 +63,22 @@ export class AdvertisementRedirectService {
      */
     handleClick(advertisementId) {
 
+        return this._processClick(advertisementId, { redirect: true });
+
+    }
+
+    /**
+     * Record a Telegram banner click without placing an HTTP redirect between
+     * the user gesture and Telegram.WebApp.openTelegramLink().
+     */
+    recordClick(advertisementId) {
+
+        return this._processClick(advertisementId, { redirect: false });
+
+    }
+
+    _processClick(advertisementId, { redirect }) {
+
         this._assertReady();
 
         const id = String(advertisementId || "").trim();
@@ -91,24 +109,16 @@ export class AdvertisementRedirectService {
 
         }
 
-        const destinationUrl = String(campaign.destinationUrl || "").trim();
+        const destinationType = campaign.destinationType
+            ?? ADVERTISEMENT_DESTINATION_TYPES.WEBSITE;
+        let destination;
 
-        if (!destinationUrl) {
-
-            return {
-                status: 400,
-                recorded: false,
-                duplicate: false,
-                error: "Advertisement has no destination URL",
-                code: "MISSING_DESTINATION"
-            };
-
-        }
-
-        // Validate URL through existing validator.
         try {
 
-            validateDestinationUrl(destinationUrl);
+            destination = validateAdvertisementDestination(
+                campaign.destinationUrl,
+                destinationType
+            );
 
         } catch (error) {
 
@@ -123,6 +133,36 @@ export class AdvertisementRedirectService {
                 };
 
             }
+
+            throw error;
+
+        }
+
+        if (!destination.destinationUrl) {
+
+            return {
+                status: 400,
+                recorded: false,
+                duplicate: false,
+                error: "Advertisement has no destination URL",
+                code: "MISSING_DESTINATION"
+            };
+
+        }
+
+        if (
+            !redirect
+            && destination.destinationType
+                !== ADVERTISEMENT_DESTINATION_TYPES.TELEGRAM
+        ) {
+
+            return {
+                status: 400,
+                recorded: false,
+                duplicate: false,
+                error: "Non-redirect click registration is only for Telegram campaigns",
+                code: "INVALID_DESTINATION_TYPE"
+            };
 
         }
 
@@ -157,8 +197,8 @@ export class AdvertisementRedirectService {
         }
 
         return {
-            status: 302,
-            location: destinationUrl,
+            status: redirect ? 302 : 200,
+            ...(redirect ? { location: destination.destinationUrl } : {}),
             recorded,
             duplicate
         };

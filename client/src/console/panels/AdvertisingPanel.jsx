@@ -167,7 +167,15 @@ function buildDetailEntries(campaign) {
             value: campaign.advertiserName || "—"
         },
         {
-            label: "Destination URL",
+            label: "Destination Type",
+            value: campaign.destinationType === "TELEGRAM"
+                ? "Telegram Bot / Channel / Group"
+                : "Website"
+        },
+        {
+            label: campaign.destinationType === "TELEGRAM"
+                ? "Telegram Link"
+                : "Destination URL",
             value: campaign.destinationUrl
                 ? (
                     <a
@@ -386,6 +394,7 @@ function CreateCampaignForm({ token, initialFilename = "", onCreated }) {
 
     const [advertiserName, setAdvertiserName] = useState("");
     const [filename, setFilename] = useState(initialFilename);
+    const [destinationType, setDestinationType] = useState("WEBSITE");
     const [destinationUrl, setDestinationUrl] = useState("");
     const [priority, setPriority] = useState("");
     const [expiresAt, setExpiresAt] = useState("");
@@ -434,6 +443,7 @@ function CreateCampaignForm({ token, initialFilename = "", onCreated }) {
 
             const payload = {
                 advertiserName: advertiserName.trim(),
+                destinationType,
                 filename: filename.trim(),
                 destinationUrl: destinationUrl.trim(),
                 priority: Number(priority),
@@ -456,6 +466,7 @@ function CreateCampaignForm({ token, initialFilename = "", onCreated }) {
 
             setSuccess(`Created campaign ${created.id}`);
             setAdvertiserName("");
+            setDestinationType("WEBSITE");
             setDestinationUrl("");
             setPriority("");
             setExpiresAt("");
@@ -474,6 +485,7 @@ function CreateCampaignForm({ token, initialFilename = "", onCreated }) {
 
     }, [
         advertiserName,
+        destinationType,
         destinationUrl,
         expiresAt,
         file,
@@ -525,13 +537,31 @@ function CreateCampaignForm({ token, initialFilename = "", onCreated }) {
 
             <label className="devConsole__envField">
 
-                <span>Destination URL</span>
+                <span>Destination Type</span>
+
+                <select
+                    value={destinationType}
+                    onChange={(event) => setDestinationType(event.target.value)}
+                >
+
+                    <option value="WEBSITE">Website</option>
+                    <option value="TELEGRAM">Telegram Bot / Channel / Group</option>
+
+                </select>
+
+            </label>
+
+            <label className="devConsole__envField">
+
+                <span>{destinationType === "TELEGRAM" ? "Telegram Link" : "Destination URL"}</span>
 
                 <input
-                    type="url"
+                    type={destinationType === "TELEGRAM" ? "text" : "url"}
                     value={destinationUrl}
                     onChange={(event) => setDestinationUrl(event.target.value)}
-                    placeholder="https://example.com"
+                    placeholder={destinationType === "TELEGRAM"
+                        ? "https://t.me/example_bot"
+                        : "https://example.com"}
                     required
                 />
 
@@ -625,6 +655,9 @@ function EditCampaignForm({ token, campaign, onSaved }) {
     const [destinationUrl, setDestinationUrl] = useState(
         campaign.destinationUrl ?? ""
     );
+    const [destinationType, setDestinationType] = useState(
+        campaign.destinationType === "TELEGRAM" ? "TELEGRAM" : "WEBSITE"
+    );
     const [priority, setPriority] = useState(
         campaign.priority != null ? String(campaign.priority) : ""
     );
@@ -640,6 +673,9 @@ function EditCampaignForm({ token, campaign, onSaved }) {
 
         setAdvertiserName(campaign.advertiserName ?? "");
         setDestinationUrl(campaign.destinationUrl ?? "");
+        setDestinationType(
+            campaign.destinationType === "TELEGRAM" ? "TELEGRAM" : "WEBSITE"
+        );
         setPriority(campaign.priority != null ? String(campaign.priority) : "");
         setExpiresAt(toDatetimeLocalValue(campaign.expiresAt));
         setStatus(campaign.status ?? "ACTIVE");
@@ -659,6 +695,7 @@ function EditCampaignForm({ token, campaign, onSaved }) {
 
             const updated = await updateAdvertisement(token, campaign.id, {
                 advertiserName: advertiserName.trim(),
+                destinationType,
                 destinationUrl: destinationUrl.trim(),
                 priority: Number(priority),
                 expiresAt: toIsoFromDatetimeLocal(expiresAt),
@@ -681,6 +718,7 @@ function EditCampaignForm({ token, campaign, onSaved }) {
     }, [
         advertiserName,
         campaign.id,
+        destinationType,
         destinationUrl,
         expiresAt,
         onSaved,
@@ -710,12 +748,31 @@ function EditCampaignForm({ token, campaign, onSaved }) {
 
             <label className="devConsole__envField">
 
-                <span>Destination URL</span>
+                <span>Destination Type</span>
+
+                <select
+                    value={destinationType}
+                    onChange={(event) => setDestinationType(event.target.value)}
+                >
+
+                    <option value="WEBSITE">Website</option>
+                    <option value="TELEGRAM">Telegram Bot / Channel / Group</option>
+
+                </select>
+
+            </label>
+
+            <label className="devConsole__envField">
+
+                <span>{destinationType === "TELEGRAM" ? "Telegram Link" : "Destination URL"}</span>
 
                 <input
-                    type="url"
+                    type={destinationType === "TELEGRAM" ? "text" : "url"}
                     value={destinationUrl}
                     onChange={(event) => setDestinationUrl(event.target.value)}
+                    placeholder={destinationType === "TELEGRAM"
+                        ? "https://t.me/example_bot"
+                        : "https://example.com"}
                     required
                 />
 

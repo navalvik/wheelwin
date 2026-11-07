@@ -15,7 +15,10 @@ import {
     resolveAdvertisementRenderModel,
     WHEELWIN_FALLBACK_BANNER_SRC
 } from "./AdvertisementSyncClient";
-import { openAdvertisementDestination } from "./openAdvertisementDestination";
+import {
+    openAdvertisementDestination,
+    openTelegramAdvertisementDestination
+} from "./openAdvertisementDestination";
 
 function subscribeToAdvertisement(listener) {
 
@@ -84,7 +87,18 @@ export default function AdvertisementSlot() {
 
         try {
 
-            openAdvertisementDestination(model.destinationUrl);
+            if (model.destinationType === "TELEGRAM") {
+
+                openTelegramAdvertisementDestination(
+                    model.destinationUrl,
+                    model.advertisementId
+                );
+
+            } else {
+
+                openAdvertisementDestination(model.destinationUrl);
+
+            }
 
         } catch {
 
@@ -92,7 +106,12 @@ export default function AdvertisementSlot() {
 
         }
 
-    }, [model.clickable, model.destinationUrl]);
+    }, [
+        model.advertisementId,
+        model.clickable,
+        model.destinationType,
+        model.destinationUrl
+    ]);
 
     // Brand-only pages / missing ads → existing WheelWin Banner architecture.
     if (model.mode === "fallback") {

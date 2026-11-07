@@ -15,7 +15,8 @@ import {
 import { AdvertisementStorage } from "./AdvertisementStorage.js";
 import {
     AdvertisementValidationError,
-    AdvertisementValidator
+    AdvertisementValidator,
+    normalizeAdvertisementDestinationType
 } from "./AdvertisementValidator.js";
 
 function nowIso() {
@@ -75,6 +76,7 @@ function buildCampaignRecord({
     filename,
     priority,
     advertiserName = "",
+    destinationType = "WEBSITE",
     destinationUrl = "",
     status = ADVERTISEMENT_STATUS.ACTIVE,
     createdBy = "Administrator",
@@ -93,6 +95,7 @@ function buildCampaignRecord({
         filename,
         priority,
         advertiserName: String(advertiserName ?? ""),
+        destinationType,
         destinationUrl: String(destinationUrl ?? ""),
         status,
         createdAt: nowIso(),
@@ -313,8 +316,9 @@ export class AdvertisementManager {
 
         }
 
-        const destinationUrl = this._validator.validateDestinationUrl(
-            input.destinationUrl
+        const destination = this._validator.validateDestination(
+            input.destinationUrl,
+            input.destinationType
         );
 
         let priority = fileInfo.priority;
@@ -345,7 +349,8 @@ export class AdvertisementManager {
             filename: fileInfo.filename,
             priority,
             advertiserName: input.advertiserName,
-            destinationUrl,
+            destinationType: destination.destinationType,
+            destinationUrl: destination.destinationUrl,
             status: input.status ?? ADVERTISEMENT_STATUS.ACTIVE,
             createdBy: actor,
             expiresAt: input.expiresAt ?? null,
@@ -443,11 +448,29 @@ export class AdvertisementManager {
 
         }
 
-        if (Object.prototype.hasOwnProperty.call(patch, "destinationUrl")) {
+        if (
+            Object.prototype.hasOwnProperty.call(patch, "destinationUrl")
+            || Object.prototype.hasOwnProperty.call(patch, "destinationType")
+        ) {
 
-            next.destinationUrl = this._validator.validateDestinationUrl(
-                patch.destinationUrl
+            const destinationType = normalizeAdvertisementDestinationType(
+                Object.prototype.hasOwnProperty.call(patch, "destinationType")
+                    ? patch.destinationType
+                    : existing.destinationType
             );
+            const destinationUrl = Object.prototype.hasOwnProperty.call(
+                patch,
+                "destinationUrl"
+            )
+                ? patch.destinationUrl
+                : existing.destinationUrl;
+            const destination = this._validator.validateDestination(
+                destinationUrl,
+                destinationType
+            );
+
+            next.destinationType = destination.destinationType;
+            next.destinationUrl = destination.destinationUrl;
 
         }
 
