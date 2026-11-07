@@ -98,12 +98,9 @@ function NoFriendsFlowNavigator({ onNavigate }) {
 
     useEffect(() => {
         const onMatched = () => onNavigate(APP_PAGES.NO_FRIENDS_OPTIONS);
-        const onExpired = () => onNavigate(APP_PAGES.WELCOME);
         socket.on("noFriendsMatched", onMatched);
-        socket.on("noFriendsQueueExpired", onExpired);
         return () => {
             socket.off("noFriendsMatched", onMatched);
-            socket.off("noFriendsQueueExpired", onExpired);
         };
     }, [onNavigate]);
 
